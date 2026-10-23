@@ -1,5 +1,6 @@
 import pytest
 
+from app.chat.pii_client import PIIFilterResult, PIIFilterUnavailable
 from app.chat.pii_session import (
     PIISession,
     StreamDemasker,
@@ -7,7 +8,6 @@ from app.chat.pii_session import (
     merge_masked,
     set_session,
 )
-from app.utils.pii_filter_client import PIIFilterResult, PIIFilterUnavailable
 
 
 class FakeFilter:

@@ -27,8 +27,8 @@ flowchart TB
 | Chatinhalte | Fragen, Antworten, Quellenangaben, Zusammenfassung des Verlaufs | `messages`, `sessions.summary` |
 | Dokumente | Hochgeladene Dateien, daraus erzeugtes Markdown, Chunks, Embeddings, Bildbeschreibungen | Dateisystem (`DATA_DIR`), Qdrant, `user_documents`, `chat_attachments` |
 | Ablagen ("Meine Ablagen") | Vom Nutzer abgelegte Markdown-Dateien pro Nutzer | `user_summary_files` |
-| Audio | Mikrofon-Stream für Diktat | nur durchgereicht an den STT-Dienst; im Code keine Speicherung gefunden (`app/stt/stt_stream.py`) |
-| SQL-Wertverzeichnis | Verschiedene Werte ausgewählter Textspalten mit Häufigkeit (Klartext, keine Zeilen) | Tabelle `sql_values` (`app/sqlsource/valueindex.py`); gelöscht mit der SQL-Quelle |
+| Audio | Mikrofon-Stream für Diktat | nur durchgereicht an den STT-Dienst; im Code keine Speicherung gefunden (`app/chat/stt_stream.py`) |
+| SQL-Wertverzeichnis | Verschiedene Werte ausgewählter Textspalten mit Häufigkeit (Klartext, keine Zeilen) | Tabelle `sql_values` (`app/knowledge/sql/valueindex.py`); gelöscht mit der SQL-Quelle |
 | SQL-Quellen | Zugangsdaten (Host, Benutzer, Passwort), Tabellen-/Spaltenfreigaben; Abfrageergebnisse nur im laufenden Request | `knowledge.source_config` (Passwort **nicht verschlüsselt**, nie in API-Antworten); Ergebnisse werden nicht gespeichert, nur als Teil der Chatantwort |
 | Inhalte können alles enthalten | Die Dokumente und Fragen der Nutzer können personenbezogene oder besondere Kategorien (Art. 9) enthalten; das System unterscheidet sie nicht | alle obigen |
 
@@ -37,20 +37,20 @@ flowchart TB
 | # | Schritt | Daten | Ziel/Empfänger | Code-Referenz |
 |---|---|---|---|---|
 | 1 | Anmeldung lokal | Benutzername, Passwort | App/DB | `app/auth/users.py:authenticate` |
-| 2 | Anmeldung LDAP | Benutzername, Passwort | LDAP-Server des Betreibers | `app/auth/auth_ldap.py` |
-| 3 | Anmeldung OIDC | ID-Token-Claims (Name, Gruppen) | OIDC-Anbieter | `app/auth/auth_oidc.py`, `app/auth/auth_external.py` |
-| 4 | Dokument hochladen und einlesen | Datei, Text, Bilder | Dateisystem, Qdrant; Bildbeschreibung und Kontext-Anreicherung ggf. LLM | `app/ingest/`, `app/vector/ingestion.py` |
-| 5 | Chatfrage | Frage, Anhangsnamen | optional PII-Filter, danach Embedding, Qdrant, LLM | `app/web/routes.py` (Chat-Route), `app/utils/pii_filter_client.py` |
-| 6 | Websuche (pro Modell zuschaltbar) | Suchanfrage, mit PII-Filter maskiert; ohne Filter nur nach ausdrücklicher Freigabe (`SEARCH_ALLOW_UNMASKED`) unmaskiert | SearXNG, und von dort Suchmaschinen | `app/tools/web_search_tool.py`, `app/tools/web_access.py` |
+| 2 | Anmeldung LDAP | Benutzername, Passwort | LDAP-Server des Betreibers | `app/auth/ldap.py` |
+| 3 | Anmeldung OIDC | ID-Token-Claims (Name, Gruppen) | OIDC-Anbieter | `app/auth/oidc.py`, `app/auth/external.py` |
+| 4 | Dokument hochladen und einlesen | Datei, Text, Bilder | Dateisystem, Qdrant; Bildbeschreibung und Kontext-Anreicherung ggf. LLM | `app/ingest/`, `app/ingest/pipeline.py` |
+| 5 | Chatfrage | Frage, Anhangsnamen | optional PII-Filter, danach Embedding, Qdrant, LLM | `app/api/routes.py` (Chat-Route), `app/chat/pii_client.py` |
+| 6 | Websuche (pro Modell zuschaltbar) | Suchanfrage, mit PII-Filter maskiert; ohne Filter nur nach ausdrücklicher Freigabe (`SEARCH_ALLOW_UNMASKED`) unmaskiert | SearXNG, und von dort Suchmaschinen | `app/agent/tools/web_search.py`, `app/agent/tools/web_access.py` |
 | 7 | Compaction | älterer Verlauf | LLM des Chat-Modells; Ergebnis in `sessions.summary` | `app/chat/compaction.py` |
-| 8 | Externe Quelle | Frage-Embedding, Filter (Benutzer/Gruppen) | Fremder Qdrant | `app/vector/sources.py` |
-| 9 | Diktat | Audio | STT-Dienst | `app/stt/stt_stream.py` |
-| 10 | SQL-Datenbank als Knowledge | SELECT-Abfragen des Modells, Ergebnistabellen (begrenzt), Schema; mit PII-Filter maskiert, sonst unverändert | Fremde Datenbank über den SQL-Worker (`tool-worker-sql`); Ergebnis an das LLM | `app/sqlsource/`, `tool_worker/sqlengine.py` |
+| 8 | Externe Quelle | Frage-Embedding, Filter (Benutzer/Gruppen) | Fremder Qdrant | `app/knowledge/external.py` |
+| 9 | Diktat | Audio | STT-Dienst | `app/chat/stt_stream.py` |
+| 10 | SQL-Datenbank als Knowledge | SELECT-Abfragen des Modells, Ergebnistabellen (begrenzt), Schema; mit PII-Filter maskiert, sonst unverändert | Fremde Datenbank über den SQL-Worker (`tool-worker-sql`); Ergebnis an das LLM | `app/knowledge/sql/`, `tool_worker/sqlengine.py` |
 
 ## Verschlüsselung
 
 - **At rest:** keine Verschlüsselung auf Anwendungsebene. Datenbank, Dateien und Qdrant liegen im Klartext. Plattenverschlüsselung (LUKS, Volume-Verschlüsselung) liegt beim Betreiber.
-- **In transit:** App selbst spricht HTTP; TLS über den Reverse Proxy des Betreibers (`SECURITY.md`). Ausgehende URLs (LLM, Qdrant, Suche, STT, LDAP) sind frei wählbar, `http://` ist erlaubt. LDAP prüft Zertifikate (`app/auth/auth_ldap.py`), Adressen im Link-Local-Bereich sind gesperrt (`app/llm/registry.py:_reject_link_local`).
+- **In transit:** App selbst spricht HTTP; TLS über den Reverse Proxy des Betreibers (`SECURITY.md`). Ausgehende URLs (LLM, Qdrant, Suche, STT, LDAP) sind frei wählbar, `http://` ist erlaubt. LDAP prüft Zertifikate (`app/auth/ldap.py`), Adressen im Link-Local-Bereich sind gesperrt (`app/llm/registry.py:_reject_link_local`).
 - **Fehlerverhalten:** Es gibt keinen Schlüssel, der fehlen könnte; Zugangsdaten stehen im Klartext in der DB.
 
 ## Aufbewahrung und Löschung
@@ -59,7 +59,7 @@ flowchart TB
 |---|---|---|---|
 | Chats und Nachrichten | unbegrenzt | Nutzer (`delete_session_route`) oder Admin beim Löschen des Benutzers (`app/auth/user_admin.py:delete_user`) | nein |
 | Chat-Anhänge | mit dem Chat | `app/chat/attachments.py:cleanup_session_attachments` | beim Löschen des Chats |
-| Eigene Dokumente | unbegrenzt | Nutzer (`app/web/api_routes.py:delete_document`: Uploader oder mit Schreibrecht), Chat-Anhänge unter *Meine Uploads* | nein |
+| Eigene Dokumente | unbegrenzt | Nutzer (`app/api/api_routes.py:delete_document`: Uploader oder mit Schreibrecht), Chat-Anhänge unter *Meine Uploads* | nein |
 | Zusammenfassung des Verlaufs | mit dem Chat | gelöscht mit der Session | beim Löschen |
 | Konten | unbegrenzt | Admin | nein |
 | Backups | betreiberabhängig | Betreiber | - |
@@ -80,5 +80,5 @@ Nur die vom Betreiber konfigurierten: LLM-Verbindungen (*Administration › Verb
 ## Bekannte Lücken
 
 1. Keine automatische Aufbewahrungsfrist: Chats und Ablagen bleiben bis zur manuellen Löschung, das Audit-Log (Migration `0036`, `app/auth/audit.py`) wächst ohne Rotation/Anonymisierung; Fristen legt der Betreiber fest.
-2. Der PII-Filter maskiert nur Nutzereingaben; Dokumentinhalte, die per Suche ins LLM gelangen, werden nicht maskiert. Bei einem Fehler des Filters bricht der **Chat** mit einer Fehlermeldung ab (`app/web/routes.py`, `mask_or_fail`) und die **Websuche** ebenso (`app/tools/web_search_tool.py`); es geht nichts unmaskiert hinaus. Der Chat maskiert den **ganzen Kontext** (Zusammenfassung, Verlauf, neue Frage) in einem Aufruf (`app/chat/pii_session.py`); auch das Zusammenfassungs-Modell der Compaction sieht nur maskierten Text. Gespeichert wird weiterhin Klartext. **Bleibende Lücken:** Dokument-Treffer (Ergebnisse der Dokumentsuche) und Inhalte des Wissens gehen unmaskiert an das Modell; Suchanfragen des Modells enthalten Platzhalter statt Namen. Mit der Freigabe "ohne PII-Filter" verlassen Suchanfragen das System unmaskiert.
+2. Der PII-Filter maskiert nur Nutzereingaben; Dokumentinhalte, die per Suche ins LLM gelangen, werden nicht maskiert. Bei einem Fehler des Filters bricht der **Chat** mit einer Fehlermeldung ab (`app/api/routes.py`, `mask_or_fail`) und die **Websuche** ebenso (`app/agent/tools/web_search.py`); es geht nichts unmaskiert hinaus. Der Chat maskiert den **ganzen Kontext** (Zusammenfassung, Verlauf, neue Frage) in einem Aufruf (`app/chat/pii_session.py`); auch das Zusammenfassungs-Modell der Compaction sieht nur maskierten Text. Gespeichert wird weiterhin Klartext. **Bleibende Lücken:** Dokument-Treffer (Ergebnisse der Dokumentsuche) und Inhalte des Wissens gehen unmaskiert an das Modell; Suchanfragen des Modells enthalten Platzhalter statt Namen. Mit der Freigabe "ohne PII-Filter" verlassen Suchanfragen das System unmaskiert.
 3. `delete_user` (`app/auth/user_admin.py:161`) entfernt Chats, Nachrichten, Gruppenmitgliedschaften, Freigaben und das Konto, die Anhänge der Chats räumt die Route danach auf. Uploads unter *Meine Uploads* und Ablagen des Benutzers werden dort **nicht ausdrücklich** gelöscht (nicht abschließend geprüft, ob sie anderweitig mit entfallen). Vor Produktivbetrieb klären.

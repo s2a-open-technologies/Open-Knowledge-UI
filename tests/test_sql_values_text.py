@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.sqlsource import values as v
+from app.knowledge.sql import values as v
 
 VALUES = [
     "Stuhl",

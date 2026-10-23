@@ -1,9 +1,9 @@
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
 from app.llm import connections as store
 from app.llm import registry
-from app.web.admin_routes import admin_bp
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ def test_same_url_or_other_fields_keep_key_without_reentry(client, conn):
 
 
 def test_tool_worker_overview_reports_reachability(client, monkeypatch):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     monkeypatch.setattr(
         wc.ToolWorkerClient,
@@ -103,7 +103,7 @@ def test_tool_worker_overview_reports_reachability(client, monkeypatch):
 
 
 def test_tool_worker_settings_can_be_saved_and_are_validated(client, monkeypatch):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     monkeypatch.setattr(
         wc.ToolWorkerClient,
@@ -117,7 +117,7 @@ def test_tool_worker_settings_can_be_saved_and_are_validated(client, monkeypatch
 
 
 def test_tool_worker_overview_includes_the_sql_worker(client, monkeypatch):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     monkeypatch.setattr(
         wc.ToolWorkerClient,

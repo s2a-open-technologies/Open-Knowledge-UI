@@ -101,7 +101,7 @@ class DatabaseService:
 
             ensure_model_settings(db, fresh)
             self._init_app_password(db)
-            from app.rag.knowledge import ensure_default_knowledge
+            from app.knowledge.service import ensure_default_knowledge
 
             ensure_default_knowledge(db)
             from app.llm.connections import ensure_default_connection
@@ -373,7 +373,7 @@ class DatabaseService:
         for key, default, description in behavior_settings:
             all_settings[key] = ("llm", default, description)
 
-        from app.toolworker.config import SETTINGS as tool_worker_settings
+        from app.agent.toolworker.config import SETTINGS as tool_worker_settings
 
         for key, default, description in tool_worker_settings:
             all_settings[key] = ("tools", default, description)

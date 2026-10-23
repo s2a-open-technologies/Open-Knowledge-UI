@@ -25,11 +25,11 @@ from flask import Blueprint, current_app, jsonify, request
 from app.auth.access import accessible_knowledge_ids, can_access_knowledge
 from app.auth.auth import current_user, require_role
 from app.auth.users import role_at_least
+from app.knowledge.service import list_knowledge
 from app.llm import registry
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
 from app.rag.helper import make_helper
-from app.rag.knowledge import list_knowledge
 from app.rag.profiles import ProfileError
 
 rag_bp = Blueprint("rag_api", __name__, url_prefix="/api")
@@ -179,7 +179,7 @@ def retrieval_test():
             )
         run_client, collection, layout = client, k["collection_name"], None
         if k.get("kind") == "external":
-            from app.vector import sources
+            from app.knowledge import external as sources
 
             src = sources.parse_config(k.get("source_config"))
             try:

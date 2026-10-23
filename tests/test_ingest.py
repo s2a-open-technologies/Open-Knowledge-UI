@@ -7,18 +7,18 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.api.users import users_bp
 from app.auth import access
-from app.auth.user_admin_routes import users_bp
 from app.core.models import User
 from app.core.settings_service import SettingsService
 from app.ingest import indexer
-from app.rag import knowledge
-from app.vector import ingestion as ingestion_module
-from app.vector.collections import ensure_collection
-from app.vector.ingestion import DocumentIngestion
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
+from app.ingest import pipeline as ingestion_module
+from app.ingest.pipeline import DocumentIngestion
+from app.knowledge import service as knowledge
+from app.rag.collections import ensure_collection
 
 VOCAB = ["kuendigung", "kaution", "miete", "dach", "frist", "strom"]
 
@@ -361,7 +361,7 @@ class FakeVision:
 def test_docling_produces_markdown_with_headings_tables_and_image_descriptions(
     docx_file,
 ):
-    from app.loaders import CustomDOCXLoader
+    from app.ingest.loaders import CustomDOCXLoader
 
     vision = FakeVision()
     docs = list(CustomDOCXLoader(str(docx_file), model=vision).lazy_load())
@@ -620,9 +620,9 @@ def test_tables_become_csv_files_and_references_in_the_markdown(
 def test_extracted_tables_have_no_points_of_their_own_but_are_readable_by_the_pandas_tool(
     db, qd, no_enrichment, tmp_path, worker
 ):
+    from app.agent.tools.custom_tools import CustomTools
     from app.rag import retrieval
     from app.rag.retrieval import RetrievalScope
-    from app.tools.custom_tools import CustomTools
 
     ingest_docx(qd, make_docx_with_tables(tmp_path))
     refs, _ = qd.scroll(
@@ -737,7 +737,7 @@ def test_table_helpers_name_files_uniquely_and_safely():
 def test_reference_chunk_of_a_plain_data_file_describes_columns_and_content(tmp_path):
     import pandas as pd
 
-    from app.vector.ingestion import describe_data_file
+    from app.ingest.pipeline import describe_data_file
 
     path = tmp_path / "umsatz.csv"
     pd.DataFrame({"Monat": ["Jan", "Feb"], "Umsatz": [100.0, 250.5]}).to_csv(
@@ -771,7 +771,7 @@ def test_the_reference_in_the_document_carries_the_column_hints_of_its_table():
 def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(
     db, qd, no_enrichment, tmp_path
 ):
-    from app.vector import ingestion
+    from app.ingest import pipeline as ingestion
 
     folder = tmp_path / "ref"
     folder.mkdir()
@@ -938,7 +938,7 @@ def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
 
 
 def test_page_marks_replace_docling_page_breaks_only_when_consistent():
-    from app.loaders.preprocess_base import PAGE_BREAK, apply_page_marks
+    from app.ingest.loaders.preprocess_base import PAGE_BREAK, apply_page_marks
 
     md = f"Seite eins\n\n{PAGE_BREAK}\n\nSeite zwei\n\n{PAGE_BREAK}\n\nSeite drei"
     out = apply_page_marks(md, [1, 2, 3])

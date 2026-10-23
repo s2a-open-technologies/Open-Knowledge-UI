@@ -14,8 +14,8 @@ from PIL import Image
 
 from app.chat import attachments
 from app.ingest import image_text, prompts, tasks
+from app.knowledge import service as knowledge  # noqa: F401
 from app.llm import connections as store
-from app.rag import knowledge  # noqa: F401
 from tests.test_access import add_user, app, client_for, conn  # noqa: F401
 from tests.test_ingest import FakeDense, FakeSparse, no_enrichment, qd  # noqa: F401
 from tests.test_web_and_vision import ADMIN, put_tasks
@@ -132,7 +132,7 @@ def test_an_image_attachment_becomes_searchable_text(
             ["Rechnung Nr. 2026-0147\n\nBetrag: 4.812,30 EUR"]
         ),
     )
-    from app.vector.collections import ensure_collection
+    from app.rag.collections import ensure_collection
 
     ensure_collection(qd, "user_uploads", 7)
     folder = Path("data/attachments/s-1/a-1")
@@ -239,7 +239,7 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_images(app, db, conn, upload_env, monkeypatch):
-    from app.web import routes
+    from app.api import routes
 
     CapturingAgent.sent = []
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())
@@ -301,7 +301,7 @@ def test_foreign_or_unknown_attachment_ids_are_ignored(app, db, chat_images):
 def test_the_pii_filter_masks_the_text_but_the_image_is_sent_unchanged(
     app, db, chat_images, monkeypatch
 ):
-    from app.web import routes
+    from app.api import routes
 
     store.save_model_config(chat_images, {"vision": True})
 

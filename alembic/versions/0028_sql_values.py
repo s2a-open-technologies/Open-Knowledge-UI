@@ -20,7 +20,7 @@ down_revision = "0027"
 branch_labels = None
 depends_on = None
 
-# Der Wert von SQL_VALUES_HINT muss zu app/toolworker/config.py:SQL_VALUES_HINT_DEFAULT passen (Test)
+# Der Wert von SQL_VALUES_HINT muss zu app/agent/toolworker/config.py:SQL_VALUES_HINT_DEFAULT passen (Test)
 SETTINGS = [
     (
         "SQL_VALUES_MAX_DISTINCT",

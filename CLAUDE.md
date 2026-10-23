@@ -23,11 +23,11 @@ python run_mac.py                   # macOS: app native, helpers + workers in Do
 
 ## Big picture
 
-- **Chat request** (`app/web/routes.py`, `POST /chat`, SSE): resolves the model (`app/llm/registry.py`), builds a per-request `RetrievalScope` (ContextVar in `app/rag/retrieval.py`: document collections, foreign Qdrants, `sql_sources`), picks tools with `select_tools` (`app/agent/document_agent.py`), masks the whole context through the PII filter (`app/chat/pii_session.py`, fail-closed) and streams the LangChain agent. Tools read the scope, never the request.
-- **Knowledge has three kinds** (`knowledge.kind`): `local` (own Qdrant collection, ingestion pipeline in `app/ingest/`), `external` (foreign Qdrant, read-only), `sql` (`app/sqlsource/`: live read-only SQL, value directory for spellings). `app/rag/knowledge.py:is_remote` marks the read-only kinds; access is grants + `is_public` in `app/auth/access.py` (editors may write everything shared with their groups).
-- **Code and database access never runs in the app.** `tool_worker/` is a separate Flask service (same image, `TOOL_WORKER_ROLE=pandas|sql`): sandboxed Pandas and read-only SQL (`sqlcheck.py` AST validation + read-only sessions). The app only talks to it via `app/toolworker/client.py`; there is no in-app fallback.
+- **Chat request** (`app/api/routes.py`, `POST /chat`, SSE): resolves the model (`app/llm/registry.py`), builds a per-request `RetrievalScope` (ContextVar in `app/rag/retrieval.py`: document collections, foreign Qdrants, `sql_sources`), picks tools with `select_tools` (`app/agent/document_agent.py`), masks the whole context through the PII filter (`app/chat/pii_session.py`, fail-closed) and streams the LangChain agent. Tools read the scope, never the request.
+- **Knowledge has three kinds** (`knowledge.kind`): `local` (own Qdrant collection, ingestion pipeline in `app/ingest/`), `external` (foreign Qdrant, read-only), `sql` (`app/knowledge/sql/`: live read-only SQL, value directory for spellings). `app/knowledge/service.py:is_remote` marks the read-only kinds; access is grants + `is_public` in `app/auth/access.py` (editors may write everything shared with their groups).
+- **Code and database access never runs in the app.** `tool_worker/` is a separate Flask service (same image, `TOOL_WORKER_ROLE=pandas|sql`): sandboxed Pandas and read-only SQL (`sqlcheck.py` AST validation + read-only sessions). The app only talks to it via `app/agent/toolworker/client.py`; there is no in-app fallback.
 - **Embedding/rerank backends** are a registry (`app/rag/models_runtime.py`); remote ones go through `app/rag/endpoints.py` per connection kind (`llm` OpenAI-style, `tei`, `infinity`).
-- **Settings live in the DB** (`settings` table, seeded by Alembic migrations and `SETTINGS` lists such as `app/toolworker/config.py`), not in env vars; a DB value silently beats `.env`. Infra keys (`DATA_DIR`, `QDRANT_*`) are env-only.
+- **Settings live in the DB** (`settings` table, seeded by Alembic migrations and `SETTINGS` lists such as `app/agent/toolworker/config.py`), not in env vars; a DB value silently beats `.env`. Infra keys (`DATA_DIR`, `QDRANT_*`) are env-only.
 
 ## Rules
 
@@ -35,4 +35,4 @@ python run_mac.py                   # macOS: app native, helpers + workers in Do
 - Add every user-visible change to `CHANGELOG.md` under `[Unreleased]` (German); the release is cut with `scripts/release.py`.
 - The project is called **Open Knowledge UI** (slug `open-knowledge-ui`, GitHub `s2a-open-technologies/Open-Knowledge-UI`); the old names are gone everywhere, including the default Qdrant collection `open_knowledge_ui`.
 - UI text, error messages and docs are German. Name no function in `app/` starting with `test_`. Migrations must be Postgres-safe and idempotent.
-- Measure before choosing a retrieval or matching method (see `app/sqlsource/values.py`, `app/rag/` profiles); do not swap defaults without re-measuring.
+- Measure before choosing a retrieval or matching method (see `app/knowledge/sql/values.py`, `app/rag/` profiles); do not swap defaults without re-measuring.

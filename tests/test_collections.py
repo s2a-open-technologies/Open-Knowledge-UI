@@ -2,8 +2,8 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client import models as qm
 
-from app.vector import collections
-from app.vector.collections import SPARSE_VECTOR, ensure_collection
+from app.rag import collections
+from app.rag.collections import SPARSE_VECTOR, ensure_collection
 
 
 @pytest.fixture

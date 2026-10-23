@@ -26,8 +26,8 @@ import time
 
 from langchain_core.messages import HumanMessage
 
+from app.core.phase_logger import Phase, phase_logger
 from app.llm.factory import build_chat_llm
-from app.utils.phase_logger import Phase, phase_logger
 
 
 class TaskLLM:

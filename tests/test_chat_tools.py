@@ -95,7 +95,7 @@ def test_conversation_only_hint_forbids_inventing_documents():
 
 
 def test_write_summary_description_does_not_force_a_document_search():
-    from app.tools.custom_tools import WRITE_SUMMARY_DESCRIPTION
+    from app.agent.tools.custom_tools import WRITE_SUMMARY_DESCRIPTION
 
     assert (
         "Gespräch ODER" in WRITE_SUMMARY_DESCRIPTION

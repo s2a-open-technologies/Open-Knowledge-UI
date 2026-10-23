@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from app.sqlsource.config import SqlConfigError, merge_password, parse_config, validate
+from app.knowledge.sql.config import (
+    SqlConfigError,
+    merge_password,
+    parse_config,
+    validate,
+)
 
 
 def cfg(**over):

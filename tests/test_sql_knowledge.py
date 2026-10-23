@@ -3,11 +3,11 @@ import sqlite3
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.auth import access
-from app.rag import knowledge
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
+from app.knowledge import service as knowledge
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -60,11 +60,11 @@ def test_admin_creates_a_sql_knowledge_without_any_collection(app, db, shop):
 
 
 def test_the_password_never_leaks_but_is_stored(app, db, shop, monkeypatch):
-    from app.sqlsource import config as sqlcfg
+    from app.knowledge.sql import config as sqlcfg
 
     # Verbindungsprobe ohne echten Server: der Worker-Test wird ersetzt
     monkeypatch.setattr(
-        "app.web.api_routes._sql_probe",
+        "app.api.api_routes._sql_probe",
         lambda cfg: {"version": "x", "tables": [], "write_privilege": False},
     )
     r = create(
@@ -121,7 +121,7 @@ def test_connection_test_lists_tables_and_warns_about_write_rights(app, db, shop
 
 
 def test_worker_down_gives_a_clear_503_without_address(app, db, shop):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     def down(*a, **k):
         raise ConnectionError("http://tool-worker-sql:8090 refused")
@@ -158,10 +158,10 @@ def test_visibility_follows_the_usual_grants(app, db, shop):
 def test_changing_the_source_keeps_the_password_for_the_same_target(
     app, db, shop, monkeypatch
 ):
-    from app.sqlsource import config as sqlcfg
+    from app.knowledge.sql import config as sqlcfg
 
     monkeypatch.setattr(
-        "app.web.api_routes._sql_probe",
+        "app.api.api_routes._sql_probe",
         lambda cfg: {"version": "x", "tables": [], "write_privilege": False},
     )
     k = create(

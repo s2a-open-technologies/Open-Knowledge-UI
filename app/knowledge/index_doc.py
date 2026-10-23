@@ -215,7 +215,7 @@ def refresh_index(knowledge_id: int | None) -> bool:
     """
     try:
         from app.core.database_service import get_db_service
-        from app.rag.knowledge import get_knowledge, is_remote, knowledge_paths
+        from app.knowledge.service import get_knowledge, is_remote, knowledge_paths
 
         knowledge = get_knowledge(knowledge_id)
         if not knowledge or is_remote(knowledge):
@@ -236,7 +236,7 @@ def refresh_index(knowledge_id: int | None) -> bool:
 def ensure_index(knowledge: dict) -> str | None:
     """Das Verzeichnis dieses Knowledge; fehlt es (Bestand vor Migration 0029), wird es einmal erzeugt.
     Fremde Quellen (Qdrant, SQL) haben keines."""
-    from app.rag.knowledge import is_remote
+    from app.knowledge.service import is_remote
 
     if is_remote(knowledge):
         return None

@@ -39,8 +39,9 @@ from qdrant_client import models as qdrant_models
 from tqdm import tqdm
 
 from app.core.database_service import get_db_service
+from app.core.phase_logger import Phase, phase_logger
+from app.core.qdrant_client import get_qdrant_client
 from app.core.settings_service import SettingsService
-from app.ingest.index_doc import refresh_index
 from app.ingest.indexer import (
     PARSER_VERSION,
     build_points,
@@ -48,20 +49,19 @@ from app.ingest.indexer import (
     save_markdown,
     upsert_points,
 )
+
+# Custom imports
+from app.ingest.loaders import CustomDOCXLoader, CustomPDFLoader
 from app.ingest.tables import (
     column_hints_text,
     delete_tables,
     is_extracted_table,
     make_sink,
 )
+from app.knowledge.files import IMAGE_EXTS, read_uploader
+from app.knowledge.index_doc import refresh_index
 from app.llm.local_llm import TaskLLM
-
-# Custom imports
-from app.loaders import CustomDOCXLoader, CustomPDFLoader
 from app.rag import model_settings, models_runtime
-from app.utils.file_manager import IMAGE_EXTS, read_uploader
-from app.utils.phase_logger import Phase, phase_logger
-from app.utils.qdrant_client import get_qdrant_client
 
 logger = getLogger(__name__)
 
@@ -313,7 +313,7 @@ class DocumentIngestion:
     ):
         """
         Args:
-            knowledge: Knowledge-Bereich (dict aus ``app.rag.knowledge``); ``None``
+            knowledge: Knowledge-Bereich (dict aus ``app.knowledge.service``); ``None``
                 steht fuer den Standard-Bereich.
             collection_name: ueberschreibt die Collection (z. B. Chat-Anhaenge).
             extra_metadata: wird jedem Chunk-Payload hinzugefuegt (z. B. session_id).
@@ -324,7 +324,7 @@ class DocumentIngestion:
             attachment_markdown_dir: Chat-Anhaenge: hier wird das Markdown abgelegt
                 (``self.last_markdown_path``), sonst nirgends.
         """
-        from app.rag.knowledge import get_knowledge, knowledge_paths
+        from app.knowledge.service import get_knowledge, knowledge_paths
 
         if knowledge is None:
             knowledge = get_knowledge(None)
@@ -424,7 +424,7 @@ class DocumentIngestion:
 
     def _setup_collection(self):
         """Setting up the collection"""
-        from app.vector.collections import ensure_collection
+        from app.rag.collections import ensure_collection
 
         ensure_collection(self._get_client(), self.collection_name, self.dimensions)
         self._close_client()

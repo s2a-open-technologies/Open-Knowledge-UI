@@ -35,8 +35,8 @@ from qdrant_client import models as qdrant_models
 from werkzeug.utils import secure_filename
 
 from app.core.database_service import get_db_service
-from app.utils.file_manager import DOCUMENT_EXTS, IMAGE_EXTS
-from app.vector.collections import USER_UPLOADS_COLLECTION
+from app.knowledge.files import DOCUMENT_EXTS, IMAGE_EXTS
+from app.rag.collections import USER_UPLOADS_COLLECTION
 
 logger = getLogger(__name__)
 
@@ -110,8 +110,8 @@ def start_attachment_ingestion(
 
 def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> None:
     from app import wait_for_resources
+    from app.ingest.pipeline import DocumentIngestion
     from app.rag import model_settings, models_runtime
-    from app.vector.ingestion import DocumentIngestion
 
     db = get_db_service()
     try:

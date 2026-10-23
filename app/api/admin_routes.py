@@ -25,9 +25,9 @@ from flask import Blueprint, jsonify, request
 from app.auth.access import can_use_model
 from app.auth.auth import auth_required_api, current_user, require_role
 from app.auth.users import role_at_least
+from app.core.device import torch_device
 from app.llm import connections as store
 from app.llm import registry
-from app.utils.device import torch_device
 
 admin_bp = Blueprint("admin_api", __name__, url_prefix="/api")
 
@@ -190,7 +190,7 @@ def models_list():
             result["default"] = ""
     # Das Modell-Knowledge ist immer die Basis und im Chat nicht abwaehlbar: ``knowledge_base`` und
     # ``knowledge_locked`` bekommen auch Admins, sonst sehen sie es als normale, abwaehlbare Auswahl.
-    from app.rag.knowledge import list_knowledge
+    from app.knowledge.service import list_knowledge
 
     names = {k["id"]: k["name"] for k in list_knowledge()}
     for m in result["models"]:
@@ -217,7 +217,7 @@ def models_config_save():
     data = request.get_json() or {}
     ref = data.pop("ref", "")
     if data.get("web_search"):
-        from app.tools.web_access import web_search_available
+        from app.agent.tools.web_access import web_search_available
 
         if not web_search_available():
             return _error(
@@ -434,9 +434,9 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
 
 
 def _embedding_overview() -> dict:
+    from app.knowledge.service import list_knowledge
     from app.rag import model_settings, models_runtime
     from app.rag import sparse as sparse_lang
-    from app.rag.knowledge import list_knowledge
 
     emb, rr = model_settings.embedding_spec(), model_settings.reranker_spec()
     stale = [k for k in list_knowledge() if model_settings.is_stale(k)]
@@ -614,9 +614,9 @@ class _FormSettings:
 
 
 def _tools_overview() -> dict:
+    from app.agent.tools.web_access import web_search_available, web_search_masked
     from app.core.database_service import get_db_service
     from app.core.settings_service import SettingsService
-    from app.tools.web_access import web_search_available, web_search_masked
 
     db = get_db_service().get_session()
     try:
@@ -683,7 +683,7 @@ def tools_save():
             values["STT_BASEURL"] = _clean_url(stt.get("base_url"), "Spracheingabe")
             values["STT_MODEL"] = (stt.get("model") or "").strip()
             if "mode" in stt:
-                from app.stt import stt_config
+                from app.chat import stt as stt_config
 
                 mode = str(stt.get("mode") or "auto").strip().lower()
                 if mode not in stt_config.MODES:
@@ -759,7 +759,7 @@ def tools_save():
         finally:
             db.close()
         if any(k.startswith("STT_") for k in values):
-            from app.stt import stt_config
+            from app.chat import stt as stt_config
 
             stt_config.clear_probe_cache()
     # Ohne PII-Filter darf keine Websuche an Modellen haengen (sie steht dann nicht mehr bereit)
@@ -771,9 +771,9 @@ def tools_save():
 def tools_test():
     """Testet die eingegebenen Werte (auch ungespeichert). Ein leeres Key-Feld nutzt den
     gespeicherten Key nur fuer die gespeicherte Adresse (sonst liesse er sich ausleiten)."""
+    from app.api.user_routes import _test_pii_filter, _test_search, _test_stt
     from app.core.database_service import get_db_service
     from app.core.settings_service import SettingsService
-    from app.web.user_routes import _test_pii_filter, _test_search, _test_stt
 
     data = request.get_json() or {}
     kind = data.get("kind")
@@ -842,7 +842,7 @@ def tools_test():
 @admin_bp.route("/admin/auth", methods=["GET"])
 @require_role("admin")
 def auth_overview():
-    from app.auth import auth_external
+    from app.auth import external as auth_external
 
     cfg = auth_external.load_config()
     pub = auth_external.public_config(cfg)
@@ -855,7 +855,7 @@ def auth_overview():
 @require_role("admin")
 def auth_save():
     """Speichert die Einstellungen. Leere Geheimnis-Felder behalten den gespeicherten Wert."""
-    from app.auth import auth_external
+    from app.auth import external as auth_external
 
     try:
         auth_external.save_config(request.get_json() or {})
@@ -870,7 +870,9 @@ def auth_test():
     """Testet LDAP bzw. OIDC mit den eingegebenen Werten (ohne zu speichern, ohne Sitzung).
 
     Ein leeres Geheimnis-Feld nutzt das gespeicherte, aber nur bei unveraenderter Adresse."""
-    from app.auth import auth_external, auth_ldap, auth_oidc
+    from app.auth import external as auth_external
+    from app.auth import ldap as auth_ldap
+    from app.auth import oidc as auth_oidc
 
     data = request.get_json() or {}
     kind = data.get("kind")
@@ -970,8 +972,8 @@ def agent_behavior_save():
 
 
 def _tool_worker_view():
-    from app.toolworker import config as worker_config
-    from app.toolworker.client import get_client
+    from app.agent.toolworker import config as worker_config
+    from app.agent.toolworker.client import get_client
 
     sql = get_client("sql").ping()
     return {
@@ -992,7 +994,7 @@ def tool_worker_overview():
 @require_role("admin")
 def tool_worker_save():
     """Speichert Adresse und Limits des Tool-Workers (nur genannte Felder)."""
-    from app.toolworker import config as worker_config
+    from app.agent.toolworker import config as worker_config
 
     try:
         worker_config.save(request.get_json() or {})

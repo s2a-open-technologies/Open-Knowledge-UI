@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass
 from logging import getLogger
 
-from app.utils.device import onnx_providers, torch_device
+from app.core.device import onnx_providers, torch_device
 
 logger = getLogger(__name__)
 

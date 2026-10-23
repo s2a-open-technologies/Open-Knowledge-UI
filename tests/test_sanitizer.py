@@ -25,14 +25,14 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from flask import Flask
 
+from app.agent.tools import web_access
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.chat.pii_client import PIIFilterClient, mapping_pairs, parse_response
 from app.core.settings_service import SettingsService
 from app.llm import connections as store
 from app.llm import registry
-from app.tools import web_access
-from app.utils.pii_filter_client import PIIFilterClient, mapping_pairs, parse_response
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -372,7 +372,7 @@ def test_tools_api_exposes_and_saves_the_release(app, db, searx):
 
 
 def test_mask_or_fail_masks_and_raises_on_errors(sanitizer):
-    from app.utils.pii_filter_client import PIIFilterUnavailable, mask_or_fail
+    from app.chat.pii_client import PIIFilterUnavailable, mask_or_fail
 
     client = PIIFilterClient(sanitizer)
     text, mapping = mask_or_fail(client, "Hallo Max Mustermann")
@@ -414,7 +414,7 @@ class FakeAgent:
 
 def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
-    monkeypatch.setattr("app.web.routes.resources_ready", lambda: True)
+    monkeypatch.setattr("app.api.routes.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     set_settings(
@@ -425,7 +425,7 @@ def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
     )
     app.extensions["agent_tools"] = []
     agent = FakeAgent(chunks)
-    monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.api.routes.get_agent", lambda *a, **k: agent)
     return agent
 
 

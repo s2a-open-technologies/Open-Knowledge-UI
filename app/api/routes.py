@@ -38,10 +38,12 @@ from flask import (
 
 from app import resources_ready, wait_for_resources
 from app.agent.document_agent import CONVERSATION_ONLY_HINT, DocumentAgent, select_tools
+from app.agent.tools.web_access import build_web_search_tool, pii_client
 from app.auth.access import accessible_knowledge_ids, can_use_model
 from app.auth.auth import auth_required_api, current_user
 from app.auth.users import LoginThrottledError, authenticate, role_at_least
 from app.chat import compaction
+from app.chat.pii_client import PIIFilterUnavailable
 from app.chat.pii_session import (
     PIISession,
     StreamDemasker,
@@ -50,13 +52,11 @@ from app.chat.pii_session import (
     unavailable_message,
 )
 from app.core.database_service import get_db_service
+from app.core.phase_logger import Phase, phase_logger
 from app.core.settings_service import SettingsService
 from app.llm.registry import ModelUnavailableError, get_agent, resolve_model
 from app.rag import sparse as sparse_lang
 from app.rag.retrieval import RetrievalScope, set_scope
-from app.tools.web_access import build_web_search_tool, pii_client
-from app.utils.phase_logger import Phase, phase_logger
-from app.utils.pii_filter_client import PIIFilterUnavailable
 
 bp = Blueprint("main", __name__)
 logger = logging.getLogger(__name__)
@@ -471,7 +471,7 @@ def chat():
 
     # Durchsuchte Collections dieses Requests: gewaehlte Knowledge-Bereiche plus
     # (falls vorhanden) die Anhaenge dieser Session.
-    from app.rag.knowledge import list_knowledge
+    from app.knowledge.service import list_knowledge
 
     all_knowledge = list_knowledge()
     # Nie Collections aus dem Request ungeprueft uebernehmen.
@@ -499,10 +499,10 @@ def chat():
     sql_knowledge = [k for k in all_knowledge if k.get("kind") == "sql"]
     all_knowledge = [k for k in all_knowledge if k.get("kind") != "sql"]
     from app.auth.access import user_group_names
-    from app.ingest.index_doc import ensure_index, inline_hint
+    from app.knowledge.index_doc import ensure_index, inline_hint
+    from app.knowledge.service import knowledge_paths
     from app.rag import model_settings
     from app.rag.helper import make_helper
-    from app.rag.knowledge import knowledge_paths
     from app.rag.profiles import config_for_knowledge
 
     scope = RetrievalScope(
@@ -560,11 +560,11 @@ def chat():
         hints += hint
     has_sql = bool(scope.sql_sources)
     if has_sql:
-        from app.toolworker import config as worker_config
+        from app.agent.toolworker import config as worker_config
 
         names = ", ".join(f"„{name}“" for _id, name, _cfg in scope.sql_sources)
         hints += "\n\n" + worker_config.sql_prompt().replace("{sources}", names)
-        from app.sqlsource import valueindex
+        from app.knowledge.sql import valueindex
 
         if any(valueindex.has_values(kid) for kid, _name, _cfg in scope.sql_sources):
             hints += "\n\n" + worker_config.values_hint()
@@ -946,7 +946,7 @@ def stop_chat():
 @auth_required_api
 def stt_config_route():
     """Ob und wie die Spracheingabe laeuft (``stream`` live, ``upload`` aufnehmen und senden)."""
-    from app.stt import stt_config
+    from app.chat import stt as stt_config
 
     return jsonify(stt_config.client_config())
 
@@ -955,7 +955,7 @@ def stt_config_route():
 @auth_required_api
 def stt():
     """Wandelt eine Aufnahme in Text um (OpenAI-kompatibler Standard ``/audio/transcriptions``)."""
-    from app.stt import stt_config
+    from app.chat import stt as stt_config
 
     audio_file = request.files.get("audio")
     if audio_file is None or not audio_file.filename:

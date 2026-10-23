@@ -18,7 +18,7 @@
 
 """Wertverzeichnis einer SQL-Quelle aufbauen, lesen und durchsuchen (Persistenz, Job, Vorschlag).
 
-Die Textsuche selbst steht in ``app/sqlsource/values.py``. Gespeichert werden nur die verschiedenen Werte
+Die Textsuche selbst steht in ``app/knowledge/sql/values.py``. Gespeichert werden nur die verschiedenen Werte
 ausgewaehlter Textspalten mit Haeufigkeit (Tabelle ``sql_values``), keine Zeilen.
 """
 
@@ -27,13 +27,13 @@ import threading
 from datetime import datetime
 from logging import getLogger
 
+from app.agent.toolworker import config as worker_config
+from app.agent.toolworker.client import ToolWorkerUnavailable, get_client
 from app.core.database_service import get_db_service
 from app.core.models import SqlValue, SqlValueIndex
-from app.rag.knowledge import get_knowledge
-from app.sqlsource import values as text
-from app.sqlsource.config import parse_config
-from app.toolworker import config as worker_config
-from app.toolworker.client import ToolWorkerUnavailable, get_client
+from app.knowledge.service import get_knowledge
+from app.knowledge.sql import values as text
+from app.knowledge.sql.config import parse_config
 
 logger = getLogger(__name__)
 

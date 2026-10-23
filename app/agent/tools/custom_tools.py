@@ -33,12 +33,12 @@ from charset_normalizer import from_bytes
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.ingest.index_doc import read_indexes
+from app.agent.toolworker import config as worker_config
+from app.agent.toolworker.client import ToolWorkerUnavailable, get_client
+from app.core.phase_logger import Phase, phase_logger
+from app.knowledge.index_doc import read_indexes
 from app.rag.format import format_hits, record_sources
 from app.rag.retrieval import get_scope_or_none
-from app.toolworker import config as worker_config
-from app.toolworker.client import ToolWorkerUnavailable, get_client
-from app.utils.phase_logger import Phase, phase_logger
 
 logger = getLogger(__name__)
 
@@ -831,5 +831,5 @@ class CustomTools:
         ]
 
         # Die Websuche kommt nicht hierher: sie wird pro Modell zugeschaltet
-        # (app/tools/web_access.py, app/routes.py).
+        # (app/agent/tools/web_access.py, app/api/routes.py).
         return tools

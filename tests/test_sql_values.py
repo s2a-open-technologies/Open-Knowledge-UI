@@ -4,14 +4,15 @@ import time
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.chat.pii_session import PIISession, set_session
-from app.rag import knowledge, retrieval
+from app.knowledge import service as knowledge
+from app.knowledge.sql import valueindex
+from app.knowledge.sql.tools import SqlTools
+from app.rag import retrieval
 from app.rag.retrieval import RetrievalScope
-from app.sqlsource import valueindex
-from app.sqlsource.tools import SqlTools
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_pii_tools import FakeFilter
 
@@ -197,7 +198,7 @@ def test_full_flow_suggest_save_build_and_search(app, db, shop):
 
 
 def test_a_failed_rebuild_keeps_the_old_directory(app, db, shop):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     kid = make_source(app)
     admin = client_for(app, ADMIN)
@@ -225,7 +226,7 @@ def test_columns_that_are_not_categories_are_skipped_with_a_note(
 ):
     kid = make_source(app)
     admin = client_for(app, ADMIN)
-    from app.toolworker import config as wc
+    from app.agent.toolworker import config as wc
 
     monkeypatch.setattr(
         wc, "values_settings", lambda: (3, 20)
@@ -404,8 +405,8 @@ def test_find_values_masks_only_the_values_and_keeps_the_instructions_intact(bui
 def test_the_chat_hint_mentions_the_value_search_only_when_a_directory_exists(
     app, db, shop, built, monkeypatch
 ):
+    from app.agent.toolworker import config as wc
     from app.auth import access
-    from app.toolworker import config as wc
     from tests.test_sanitizer import chat_setup
 
     kid = built
@@ -487,8 +488,8 @@ def test_removing_a_table_from_the_allowed_list_removes_its_values(app, db, shop
 
 def test_search_filters_by_the_current_config_even_if_rows_remain(app, db, shop):
     """Verteidigung in der Tiefe: auch wenn Zeilen im Verzeichnis uebrig blieben, liefert die Suche sie nicht."""
-    from app.rag.knowledge import update_sql_source
-    from app.sqlsource.config import SqlConfig, parse_config
+    from app.knowledge.service import update_sql_source
+    from app.knowledge.sql.config import SqlConfig, parse_config
 
     kid = make_source(app)
     build_names(app, kid)

@@ -28,8 +28,8 @@ from pathlib import Path
 from flask import Flask
 
 from app.core.database_service import init_db_service
+from app.core.qdrant_client import get_qdrant_client
 from app.core.settings_service import LiveSettingsService, SettingsService
-from app.utils.qdrant_client import get_qdrant_client
 
 # fastembed >=0.6 emits a UserWarning that the paraphrase-multilingual-MiniLM-L12-v2
 # model now uses mean pooling instead of CLS embedding. The new behaviour is correct
@@ -124,8 +124,8 @@ def init_resources(app, preload=False):
     # Collections mit bekannter Dimension sofort anlegen (schnell; Dense + HNSW, BM25 mit IDF;
     # bestehende bekommen den IDF-Modifier nachgetragen). Wo die Dimension noch unbekannt ist
     # (frische Installation), legt model_settings.prepare sie nach dem Laden des Modells an.
-    from app.rag.knowledge import list_knowledge
-    from app.vector.collections import ensure_collection
+    from app.knowledge.service import list_knowledge
+    from app.rag.collections import ensure_collection
 
     try:
         for kb in list_knowledge():
@@ -197,7 +197,7 @@ def _load_resources_sync(app, settings_dict):
     """Laedt KI-Ressourcen synchron (blockierend)."""
     global _resources_error
     try:
-        from app.resources import load_resources
+        from app.agent.resources import load_resources
 
         load_resources(
             app=app,
@@ -347,38 +347,38 @@ def create_app(preload=False):
         app
     )  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
 
-    from app.web.routes import bp
+    from app.api.routes import bp
 
     app.register_blueprint(bp)
 
     # JSON-API für die React-SPA (Auth, Settings, Dokumente, VektordB, ...).
-    from app.web.api_routes import api_bp
+    from app.api.api_routes import api_bp
 
     app.register_blueprint(api_bp)
 
     # Connections und Modell-Konfigurationen (Admin-Bereich der SPA).
-    from app.web.admin_routes import admin_bp
+    from app.api.admin_routes import admin_bp
 
     app.register_blueprint(admin_bp)
 
     # Benutzer, Gruppen, Freigaben und eigenes Passwort.
-    from app.auth.user_admin_routes import users_bp
+    from app.api.users import users_bp
 
     app.register_blueprint(users_bp)
 
     # Retrieval-Profile und Pipeline-Test.
-    from app.rag.routes import rag_bp
+    from app.api.retrieval import rag_bp
 
     app.register_blueprint(rag_bp)
 
     # User Routes enthalten jetzt auch die ehemaligen Admin-Funktionen
     # (Vektordatenbank, Settings, Summaries).
-    from app.web.user_routes import user_bp
+    from app.api.user_routes import user_bp
 
     app.register_blueprint(user_bp)
 
     # WebSocket-Proxy fuer Live-STT-Streaming (Browser <-> Parakeet).
-    from app.stt.stt_stream import sock
+    from app.chat.stt_stream import sock
 
     sock.init_app(app)
 

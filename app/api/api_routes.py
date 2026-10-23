@@ -19,7 +19,7 @@
 """
 JSON-API für die React-SPA.
 
-Die Route-/Business-Logik wird wo möglich aus ``app.web.user_routes`` wiederverwendet
+Die Route-/Business-Logik wird wo möglich aus ``app.api.user_routes`` wiederverwendet
 (Service-Tests, Konstanten, Datei-Helfer). Die Endpunkte hier liefern reine
 JSON-Antworten (kein ``render_template``, keine Redirects) — die SPA rendert
 clientseitig.
@@ -65,9 +65,11 @@ from app.chat import data_export, my_uploads
 from app.chat import summaries as summaries_store
 from app.core.database_service import get_db_service
 from app.core.settings_service import SettingsService
-from app.ingest.index_doc import ensure_index, get_index, refresh_index
-from app.rag import model_settings
-from app.rag.knowledge import (
+from app.ingest import reindex
+from app.knowledge import external as sources
+from app.knowledge.files import check_data_file_exists, delete_associated_file
+from app.knowledge.index_doc import ensure_index, get_index, refresh_index
+from app.knowledge.service import (
     create_external_knowledge,
     create_knowledge,
     create_sql_knowledge,
@@ -82,9 +84,8 @@ from app.rag.knowledge import (
     update_knowledge,
     update_sql_source,
 )
-from app.sqlsource import config as sqlcfg
-from app.utils.file_manager import check_data_file_exists, delete_associated_file
-from app.vector import reindex, sources
+from app.knowledge.sql import config as sqlcfg
+from app.rag import model_settings
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -126,7 +127,7 @@ def _get_data_dir() -> str:
 
 
 def _abort_if_reindexing(knowledge_id: int) -> None:
-    from app.vector import reindex
+    from app.ingest import reindex
 
     if reindex.is_locked(knowledge_id):
         abort(
@@ -227,8 +228,8 @@ def _index_data_references_best_effort() -> None:
         if resources is None:
             return
         dense, sparse, _ = resources
+        from app.ingest.pipeline import index_data_references
         from app.rag import sparse as sparse_lang
-        from app.vector.ingestion import index_data_references
 
         knowledge = _current_knowledge()
         paths = knowledge_paths(knowledge)
@@ -293,7 +294,7 @@ def auth_login():
 @api_bp.route("/auth/providers", methods=["GET"])
 def auth_providers():
     """Welche externen Anmeldungen der Login-Bildschirm anbieten soll (ohne Anmeldung abrufbar)."""
-    from app.auth import auth_external
+    from app.auth import external as auth_external
 
     cfg = auth_external.load_config()
     return jsonify(
@@ -308,14 +309,15 @@ def auth_providers():
 
 
 def _public_base_url() -> str:
-    from app.auth import auth_external
+    from app.auth import external as auth_external
 
     return auth_external.load_config()["base_url"] or request.host_url.rstrip("/")
 
 
 @api_bp.route("/auth/oidc/login", methods=["GET"])
 def auth_oidc_login():
-    from app.auth import auth_external, auth_oidc
+    from app.auth import external as auth_external
+    from app.auth import oidc as auth_oidc
 
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
@@ -329,7 +331,8 @@ def auth_oidc_login():
 
 @api_bp.route("/auth/oidc/callback", methods=["GET"])
 def auth_oidc_callback():
-    from app.auth import auth_external, auth_oidc
+    from app.auth import external as auth_external
+    from app.auth import oidc as auth_oidc
 
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
@@ -429,7 +432,7 @@ def knowledge_list():
 @api_bp.route("/knowledge", methods=["POST"])
 @require_role("user")
 def knowledge_create():
-    from app.vector.collections import ensure_collection
+    from app.rag.collections import ensure_collection
 
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
@@ -586,8 +589,8 @@ def _create_external(name: str, data: dict):
 
 def _sql_probe(cfg: "sqlcfg.SqlConfig") -> dict:
     """Verbindungsprobe ueber den SQL-Worker. Wirft ValueError (Text fuer den Admin) bzw. RuntimeError (Worker nicht erreichbar)."""
-    from app.toolworker import client as worker
-    from app.toolworker import config as worker_config
+    from app.agent.toolworker import client as worker
+    from app.agent.toolworker import config as worker_config
 
     try:
         out = worker.get_client("sql").sql(
@@ -612,7 +615,7 @@ def _sql_source_from(data: dict, stored: dict | None = None) -> "sqlcfg.SqlConfi
     ):  # der Dialog kennt das Wertverzeichnis nicht
         cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": old.value_columns})
     # Gesperrte oder nicht mehr freigegebene Spalten fliegen aus der Auswahl des Wertverzeichnisses
-    from app.sqlsource import valueindex
+    from app.knowledge.sql import valueindex
 
     cfg = sqlcfg.SqlConfig(
         **{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)}
@@ -675,8 +678,8 @@ def _sql_knowledge_or_404(knowledge_id: int):
 
 
 def _values_overview(k: dict) -> dict:
-    from app.sqlsource import valueindex
-    from app.toolworker import config as worker_config
+    from app.agent.toolworker import config as worker_config
+    from app.knowledge.sql import valueindex
 
     cfg = sqlcfg.parse_config(k["source_config"])
     max_distinct, max_results = worker_config.values_settings()
@@ -698,7 +701,7 @@ def sql_values_overview(knowledge_id):
 @require_role("admin")
 def sql_values_suggest(knowledge_id):
     """Textspalten mit Vorschlag (aufnehmen oder nicht, mit Begruendung). Liest nur Zaehlungen aus der Quelle."""
-    from app.sqlsource import valueindex
+    from app.knowledge.sql import valueindex
 
     k = _sql_knowledge_or_404(knowledge_id)
     try:
@@ -749,7 +752,7 @@ def sql_values_save(knowledge_id):
 @api_bp.route("/knowledge/<int:knowledge_id>/sql-values/build", methods=["POST"])
 @require_role("admin")
 def sql_values_build(knowledge_id):
-    from app.sqlsource import valueindex
+    from app.knowledge.sql import valueindex
 
     k = _sql_knowledge_or_404(knowledge_id)
     if not sqlcfg.parse_config(k["source_config"]).value_columns:
@@ -765,7 +768,7 @@ def sql_values_build(knowledge_id):
 @require_role("admin")
 def sql_values_search(knowledge_id):
     """Probe: welche Werte findet die Suche zu einem Begriff (wie das Modell sie sieht)."""
-    from app.sqlsource import valueindex
+    from app.knowledge.sql import valueindex
 
     _sql_knowledge_or_404(knowledge_id)
     term = str((request.get_json() or {}).get("term") or "")
@@ -903,7 +906,7 @@ def knowledge_update(knowledge_id):
         except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
             return _sql_error(e)
         update_sql_source(knowledge_id, cfg.to_dict())
-        from app.sqlsource import valueindex
+        from app.knowledge.sql import valueindex
 
         valueindex.prune(
             knowledge_id, cfg.to_dict()
@@ -1276,7 +1279,7 @@ def document_markdown(doc_id):
 @require_role("user")
 @knowledge_scoped
 def upload_document():
-    from app.utils.file_manager import store_uploaded_files
+    from app.knowledge.files import store_uploaded_files
 
     result = store_uploaded_files(
         request.files.getlist("files"),
@@ -1365,7 +1368,7 @@ def clear_uploaded_files():
 @require_role("user")
 @knowledge_scoped
 def data_files():
-    from app.utils.file_manager import list_data_files
+    from app.knowledge.files import list_data_files
 
     return jsonify(list_data_files(knowledge_paths(_current_knowledge()).data_dir))
 
@@ -1375,7 +1378,7 @@ DATA_PREVIEW_ROWS = 200
 
 def _data_file_path(filename: str) -> Path | None:
     """Strukturierte Datei im Datenordner des aktuellen Knowledge (nie ausserhalb)."""
-    from app.utils.file_manager import STRUCTURED_EXTS
+    from app.knowledge.files import STRUCTURED_EXTS
 
     folder = knowledge_paths(_current_knowledge()).data_dir.resolve()
     path = (folder / os.path.basename(filename)).resolve()
@@ -1399,7 +1402,7 @@ def data_file_view(filename):
     if request.args.get("download") == "1":
         return send_file(path, as_attachment=True, download_name=path.name)
 
-    from app.vector.ingestion import _load_dataframe
+    from app.ingest.pipeline import _load_dataframe
 
     try:
         df = _load_dataframe(str(path))
@@ -1424,7 +1427,7 @@ def data_file_view(filename):
 @require_role("user")
 @knowledge_scoped
 def delete_data_file_route(filename):
-    from app.utils.file_manager import delete_data_file
+    from app.knowledge.files import delete_data_file
 
     paths = knowledge_paths(_current_knowledge())
     if not delete_data_file(filename, data_dir=paths.data_dir):
@@ -1432,7 +1435,7 @@ def delete_data_file_route(filename):
 
     # Zugehörigen Verweis-Chunk aus der Vektordatenbank entfernen (best-effort).
     try:
-        from app.vector.ingestion import delete_data_reference
+        from app.ingest.pipeline import delete_data_reference
 
         delete_data_reference(_kb_col(), f"{paths.name_prefix}{filename}")
     except Exception as e:
@@ -1449,7 +1452,7 @@ def delete_data_file_route(filename):
 @knowledge_scoped
 def trigger_ingestion():
     from app import wait_for_resources
-    from app.vector import DocumentIngestion
+    from app.ingest.pipeline import DocumentIngestion
 
     try:
         if not wait_for_resources(timeout=180):
@@ -1709,7 +1712,7 @@ def vectordb_clear_all():
         return jsonify({"success": False, "error": "Bestätigung erforderlich"}), 400
 
     try:
-        from app.vector.collections import ensure_collection
+        from app.rag.collections import ensure_collection
 
         client.delete_collection(_kb_col())
         ensure_collection(

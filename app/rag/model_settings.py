@@ -207,8 +207,8 @@ def prepare(client) -> None:
     Fehler (z. B. kein Netz fuer den Download) werden im Modell-Status festgehalten und
     verhindern den Start nicht; sie erscheinen auf der Admin-Seite "Einlesen & Modelle".
     """
-    from app.rag.knowledge import list_knowledge
-    from app.vector.collections import ensure_collection
+    from app.knowledge.service import list_knowledge
+    from app.rag.collections import ensure_collection
 
     for kb in list_knowledge():
         if kb["embedding_dimension"] or kb.get("kind") in ("external", "sql"):

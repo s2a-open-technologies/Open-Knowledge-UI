@@ -24,10 +24,10 @@ from flask import Flask
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agent import context_guard
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.chat import compaction
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}

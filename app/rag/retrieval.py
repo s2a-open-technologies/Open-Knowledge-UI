@@ -41,10 +41,10 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from qdrant_client import models as qdrant_models
 
+from app.knowledge import external as sources
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
-from app.vector import sources
-from app.vector.collections import USER_UPLOADS_COLLECTION
+from app.rag.collections import USER_UPLOADS_COLLECTION
 
 logger = getLogger(__name__)
 
@@ -114,7 +114,7 @@ def get_scope() -> RetrievalScope:
         return scope
     # Ohne Scope (Skripte): die aktuelle Collection des Standard-Knowledge
     try:
-        from app.rag.knowledge import get_knowledge
+        from app.knowledge.service import get_knowledge
 
         return RetrievalScope(collections=(get_knowledge(None)["collection_name"],))
     except Exception:

@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
+from app.agent.tools.custom_tools import CustomTools
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.chat import summaries
 from app.rag.retrieval import RetrievalScope, set_scope
-from app.tools.custom_tools import CustomTools
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 

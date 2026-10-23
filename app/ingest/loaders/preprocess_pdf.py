@@ -20,7 +20,7 @@
 PDF-spezifisches Preprocessing via Docling.
 
 Nutzt DocumentConverter mit waehlbarer OCR (OCR_ENGINE, siehe
-``app/loaders/ocr.py``) und TableFormer (do_table_structure=True) fuer
+``app/ingest/loaders/ocr.py``) und TableFormer (do_table_structure=True) fuer
 saubere Tabellenextraktion. Bilder werden ueber generate_picture_images=True
 als PIL-Bilder zur Verfuegung gestellt und in Lesereihenfolge via VisionLLM
 beschrieben; Ergebnis ist Markdown.
@@ -32,8 +32,8 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 
 # Custom imports
-from app.loaders.ocr import build_ocr_options
-from app.loaders.preprocess_base import PreprocessBase
+from app.ingest.loaders.ocr import build_ocr_options
+from app.ingest.loaders.preprocess_base import PreprocessBase
 
 
 class PreprocessPDF(PreprocessBase):

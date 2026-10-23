@@ -1,7 +1,7 @@
 import sys
 import types
 
-from app.utils import device
+from app.core import device
 
 
 def fake_torch(cuda=False, mps=False):

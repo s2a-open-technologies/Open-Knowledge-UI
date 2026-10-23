@@ -27,7 +27,7 @@ SQL_PROMPT = (
     "und Namen aus den Ergebnissen wieder und erfinde nichts.]"
 )
 
-# Der Wert von SQL_PROMPT muss zu app/toolworker/config.py:SQL_PROMPT_DEFAULT passen (Test)
+# Der Wert von SQL_PROMPT muss zu app/agent/toolworker/config.py:SQL_PROMPT_DEFAULT passen (Test)
 SETTINGS = [
     (
         "SQL_WORKER_URL",

@@ -86,7 +86,7 @@ def store_uploaded_files(
       sofort für die Pandas-Tools verfügbar (keine Ingestion, keine Vektoren).
     - Dokumente (PDF/DOCX/DOC/ODT/MD) gehen nach data/files zur Ingestion.
 
-    ``paths`` (``app.rag.knowledge.KnowledgePaths``) legt die Zielordner eines
+    ``paths`` (``app.knowledge.service.KnowledgePaths``) legt die Zielordner eines
     Knowledge-Bereichs fest; ohne Angabe gelten die Standard-Ordner.
 
     Returns:

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.rag import knowledge
+from app.knowledge import service as knowledge
 
 
 def test_default_knowledge_is_seeded_once(db):

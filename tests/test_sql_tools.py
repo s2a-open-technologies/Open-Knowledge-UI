@@ -8,10 +8,11 @@ from app.agent.document_agent import KNOWLEDGE_TOOLS, SQL_TOOLS, select_tools
 from app.auth import access
 from app.chat.pii_session import PIISession, set_session
 from app.core.models import Message
-from app.rag import knowledge, retrieval
+from app.knowledge import service as knowledge
+from app.knowledge.sql import format as sqlformat
+from app.knowledge.sql.tools import SqlTools
+from app.rag import retrieval
 from app.rag.retrieval import RetrievalScope
-from app.sqlsource import format as sqlformat
-from app.sqlsource.tools import SqlTools
 from tests.test_access import (  # noqa: F401
     add_user,
     app,
@@ -173,7 +174,7 @@ def test_without_a_source_or_with_two_sources_the_tool_asks(db, shop):
 
 
 def test_a_down_worker_gives_a_clear_message_without_the_address(db, shop):
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     def down(*a, **k):
         raise ConnectionError("http://tool-worker-sql:8090")
@@ -375,7 +376,7 @@ def run_chat(app, db, monkeypatch, pii_url, answer, who="[NAME_1]"):
         ],
         [answer],
     )
-    monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: tool_agent)
+    monkeypatch.setattr("app.api.routes.get_agent", lambda *a, **k: tool_agent)
     res = client_for(app, ed).post(
         "/chat",
         json={

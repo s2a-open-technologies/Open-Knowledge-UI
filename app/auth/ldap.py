@@ -30,7 +30,7 @@ from ldap3 import ALL, SUBTREE, SYNC, Connection, Server, Tls
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
-from app.auth.auth_external import group_name_from
+from app.auth.external import group_name_from
 
 logger = getLogger(__name__)
 

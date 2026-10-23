@@ -159,7 +159,7 @@ def delete_tables(paths, collection_name: str, file_group_id: str) -> int:
         csv.unlink(missing_ok=True)
         removed += 1
         try:
-            from app.vector.ingestion import delete_data_reference
+            from app.ingest.pipeline import delete_data_reference
 
             delete_data_reference(collection_name, f"{paths.name_prefix}{csv.name}")
         except Exception as e:

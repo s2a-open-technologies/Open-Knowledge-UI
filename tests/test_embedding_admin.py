@@ -3,12 +3,13 @@ import json
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.knowledge import service as knowledge
 from app.llm import connections as store
-from app.rag import knowledge, model_settings
+from app.rag import model_settings
 from app.rag import models_runtime as mr
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 

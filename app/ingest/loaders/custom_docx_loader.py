@@ -17,29 +17,25 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-PDF Loader wrapper
+DOCX/DOC/ODT Loader wrapper
 """
 
-# Standard library
 from collections.abc import Iterator
 
 from langchain_community.document_loaders.base import BaseLoader
-
-# Third party
 from langchain_core.documents import Document
 
-# Custom imports
-from app.loaders.markdown_document import markdown_document
-from app.loaders.preprocess_pdf import PreprocessPDF
+from app.ingest.loaders.markdown_document import markdown_document
+from app.ingest.loaders.preprocess_docx import PreprocessDOCX
 
 
-class CustomPDFLoader(BaseLoader):
-    """Wrapper Class for custom loader"""
+class CustomDOCXLoader(BaseLoader):
+    """Wrapper Class for DOCX/DOC/ODT loading with image extraction."""
 
     def __init__(self, file_path: str, model=None, table_sink=None):
         self.file_path = file_path
         self.table_sink = table_sink
-        self.processor = PreprocessPDF(model=model)
+        self.processor = PreprocessDOCX(model=model)
 
     def lazy_load(self) -> Iterator[Document]:
         """Liefert ein Document mit dem gesamten Markdown der Datei."""

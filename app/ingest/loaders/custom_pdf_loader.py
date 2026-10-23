@@ -17,9 +17,31 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Utilities module
+PDF Loader wrapper
 """
 
-from app.utils.phase_logger import Phase, phase_logger
+# Standard library
+from collections.abc import Iterator
 
-__all__ = ["Phase", "phase_logger"]
+from langchain_community.document_loaders.base import BaseLoader
+
+# Third party
+from langchain_core.documents import Document
+
+# Custom imports
+from app.ingest.loaders.markdown_document import markdown_document
+from app.ingest.loaders.preprocess_pdf import PreprocessPDF
+
+
+class CustomPDFLoader(BaseLoader):
+    """Wrapper Class for custom loader"""
+
+    def __init__(self, file_path: str, model=None, table_sink=None):
+        self.file_path = file_path
+        self.table_sink = table_sink
+        self.processor = PreprocessPDF(model=model)
+
+    def lazy_load(self) -> Iterator[Document]:
+        """Liefert ein Document mit dem gesamten Markdown der Datei."""
+        markdown = self.processor.process_document(self.file_path, self.table_sink)
+        yield markdown_document(markdown, self.file_path)

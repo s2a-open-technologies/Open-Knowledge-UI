@@ -22,7 +22,7 @@ import threading
 
 import requests
 
-from app.toolworker import config
+from app.agent.toolworker import config
 
 NETWORK_MARGIN_S = 15
 

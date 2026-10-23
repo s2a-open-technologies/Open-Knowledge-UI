@@ -30,10 +30,10 @@ from qdrant_client import models as qdrant_models
 from app.chat import attachments
 from app.core.database_service import get_db_service
 from app.core.models import ChatAttachment, ChatSession, UserDocument
-from app.ingest.index_doc import refresh_index
 from app.ingest.tables import delete_tables
-from app.rag.knowledge import knowledge_paths
-from app.utils.file_manager import delete_associated_file
+from app.knowledge.files import delete_associated_file
+from app.knowledge.index_doc import refresh_index
+from app.knowledge.service import knowledge_paths
 
 logger = getLogger(__name__)
 

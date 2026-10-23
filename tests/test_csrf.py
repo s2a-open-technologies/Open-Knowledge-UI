@@ -3,9 +3,9 @@
 import pytest
 from flask import Flask
 
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.core.csrf import COOKIE, HEADER, init_csrf, same_origin
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 
 
 @pytest.fixture

@@ -40,12 +40,12 @@ from qdrant_client import models as qdrant_models
 
 from app.core.database_service import get_db_service
 from app.core.models import UserDocument
-from app.ingest.index_doc import refresh_index
 from app.ingest.indexer import PARSER_VERSION, save_markdown
 from app.ingest.tables import make_sink
-from app.rag import knowledge as kb_store
+from app.knowledge import service as kb_store
+from app.knowledge.index_doc import refresh_index
 from app.rag import model_settings, models_runtime
-from app.vector.collections import ensure_collection
+from app.rag.collections import ensure_collection
 
 logger = getLogger(__name__)
 
@@ -165,8 +165,8 @@ def reindex_knowledge(
     k: dict, client, sparse, progress=lambda done, total: None
 ) -> None:
     """Baut ein Knowledge mit dem aktuellen globalen Modell und den aktuellen Einstellungen neu auf."""
+    from app.ingest.pipeline import DocumentIngestion, index_data_references
     from app.rag import sparse as sparse_lang
-    from app.vector.ingestion import DocumentIngestion, index_data_references
 
     spec = model_settings.embedding_spec()
     language = (

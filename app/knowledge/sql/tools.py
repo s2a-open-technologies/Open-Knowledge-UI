@@ -22,15 +22,15 @@ from logging import getLogger
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
+from app.agent.toolworker import config as worker_config
+from app.agent.toolworker.client import ToolWorkerUnavailable, get_client
+from app.chat.pii_client import PIIFilterUnavailable
 from app.chat.pii_session import get_session, unavailable_message
+from app.core.phase_logger import Phase, phase_logger
+from app.knowledge.sql import format as fmt
+from app.knowledge.sql import valueindex
+from app.knowledge.sql.config import parse_config
 from app.rag.retrieval import get_scope_or_none
-from app.sqlsource import format as fmt
-from app.sqlsource import valueindex
-from app.sqlsource.config import parse_config
-from app.toolworker import config as worker_config
-from app.toolworker.client import ToolWorkerUnavailable, get_client
-from app.utils.phase_logger import Phase, phase_logger
-from app.utils.pii_filter_client import PIIFilterUnavailable
 
 logger = getLogger(__name__)
 

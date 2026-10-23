@@ -3,9 +3,9 @@ import time
 
 import pytest
 
+from app.agent.tools.custom_tools import CustomTools
 from app.rag import retrieval
 from app.rag.retrieval import RetrievalScope
-from app.tools.custom_tools import CustomTools
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_other_knowledge_files_cannot_be_read_by_the_code(tools):
 
 
 def test_without_a_worker_there_is_no_fallback(tools, monkeypatch):
-    from app.toolworker import client as worker_client
+    from app.agent.toolworker import client as worker_client
 
     t, _ = tools
 
@@ -132,6 +132,6 @@ def test_without_a_worker_there_is_no_fallback(tools, monkeypatch):
 def test_exec_is_gone_from_the_app():
     import inspect
 
-    from app.tools import custom_tools
+    from app.agent.tools import custom_tools
 
     assert "exec(" not in inspect.getsource(custom_tools.CustomTools.run_pandas)

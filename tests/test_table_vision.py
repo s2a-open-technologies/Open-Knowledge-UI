@@ -10,14 +10,14 @@ import pandas as pd
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.ingest import prompts, tasks
 from app.ingest import table_vision as tv
 from app.llm import connections as store
 from app.llm import registry
 from app.llm.local_llm import VisionLLM
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_web_and_vision import ADMIN, put_tasks
 
@@ -326,10 +326,12 @@ def _extract(base, doc, file_path):
 
 
 def test_extraction_uses_the_corrected_table_for_pdfs(db, monkeypatch):
-    from app.loaders.preprocess_base import PreprocessBase
+    from app.ingest.loaders.preprocess_base import PreprocessBase
 
     base = PreprocessBase(model=FakeModel(), table_model=FakeModel(GOOD))
-    monkeypatch.setattr("app.loaders.preprocess_base._vision_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.ingest.loaders.preprocess_base._vision_enabled", lambda: True
+    )
     monkeypatch.setattr(
         tv.PageRenderer, "crop", lambda self, *a: FakeRenderer().crop(*a)
     )
@@ -346,11 +348,13 @@ def test_extraction_uses_the_corrected_table_for_pdfs(db, monkeypatch):
 
 
 def test_word_tables_and_a_disabled_task_never_call_the_model(db, monkeypatch):
-    from app.loaders.preprocess_base import PreprocessBase
+    from app.ingest.loaders.preprocess_base import PreprocessBase
 
     model = FakeModel(GOOD)
     base = PreprocessBase(model=FakeModel(), table_model=model)
-    monkeypatch.setattr("app.loaders.preprocess_base._vision_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.ingest.loaders.preprocess_base._vision_enabled", lambda: True
+    )
     assert base._table_refiner("vertrag.docx") is None  # kein Seitenbild bei Word
     s = db.get_session()
     from app.core.settings_service import SettingsService
@@ -358,7 +362,9 @@ def test_word_tables_and_a_disabled_task_never_call_the_model(db, monkeypatch):
     SettingsService(s).set("INGEST_TABLE_VISION", "false")
     s.close()
     assert base._table_refiner("vertrag.pdf") is None
-    monkeypatch.setattr("app.loaders.preprocess_base._vision_enabled", lambda: False)
+    monkeypatch.setattr(
+        "app.ingest.loaders.preprocess_base._vision_enabled", lambda: False
+    )
     assert base._table_refiner("vertrag.pdf") is None and model.calls == 0
 
 
@@ -484,7 +490,7 @@ def _doc_with_split_table(second_header=None, text_between=False):
 
 
 def test_extraction_merges_a_table_across_pages_into_one_csv_and_one_reference(db):
-    from app.loaders.preprocess_base import PreprocessBase
+    from app.ingest.loaders.preprocess_base import PreprocessBase
 
     base = PreprocessBase(model=FakeModel(), table_model=FakeModel())
     base._table_refiner = lambda fp: None
@@ -499,7 +505,7 @@ def test_extraction_merges_a_table_across_pages_into_one_csv_and_one_reference(d
     "kwargs", [{"text_between": True}, {"second_header": ["Kunde", "Stadt"]}]
 )
 def test_text_between_or_another_header_keeps_the_tables_apart(db, kwargs):
-    from app.loaders.preprocess_base import PreprocessBase
+    from app.ingest.loaders.preprocess_base import PreprocessBase
 
     base = PreprocessBase(model=FakeModel(), table_model=FakeModel())
     base._table_refiner = lambda fp: None

@@ -25,11 +25,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 from flask import Flask
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.chat import stt as stt_config
 from app.core.settings_service import SettingsService
-from app.stt import stt_config
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -275,7 +275,7 @@ def test_silent_wav_is_a_valid_one_second_wav():
 
 
 def test_stream_proxy_sends_the_key_to_the_upstream(monkeypatch):
-    import app.stt.stt_stream as stream
+    import app.chat.stt_stream as stream
 
     captured = {}
     monkeypatch.setattr(

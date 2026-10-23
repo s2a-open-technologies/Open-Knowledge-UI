@@ -2,11 +2,11 @@ import pytest
 from flask import Flask
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.auth import users
 from app.core.models import ChatSession, User
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 
 
 @pytest.fixture(autouse=True)

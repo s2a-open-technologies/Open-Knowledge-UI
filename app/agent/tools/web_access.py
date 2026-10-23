@@ -63,7 +63,7 @@ def pii_client():
         return None
     key = (cfg["pii_url"], cfg["pii_key"], cfg["pii_timeout"], cfg["pii_max_chars"])
     if key not in _clients:
-        from app.utils.pii_filter_client import PIIFilterClient
+        from app.chat.pii_client import PIIFilterClient
 
         _clients[key] = PIIFilterClient(
             full_url=cfg["pii_url"],
@@ -95,7 +95,7 @@ def build_web_search_tool():
     cfg = _settings()
     if not (cfg["searxng_url"] and (_masking_active(cfg) or cfg["allow_unmasked"])):
         return None
-    from app.tools.web_search_tool import create_web_search_tool
+    from app.agent.tools.web_search import create_web_search_tool
 
     return create_web_search_tool(
         searxng_url=cfg["searxng_url"],

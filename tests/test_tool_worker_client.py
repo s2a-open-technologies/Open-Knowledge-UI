@@ -1,6 +1,6 @@
 import pytest
 
-from app.toolworker.client import ToolWorkerClient, ToolWorkerUnavailable
+from app.agent.toolworker.client import ToolWorkerClient, ToolWorkerUnavailable
 
 LIMITS = {"timeout_s": 5, "memory_mb": 256, "max_output_chars": 1000}
 
@@ -87,7 +87,7 @@ def test_sql_unavailable_variants_do_not_leak_the_address(status):
 
 
 def test_overrides_are_kept_per_role():
-    from app.toolworker import client as wc
+    from app.agent.toolworker import client as wc
 
     a, _ = client_with(200, {})
     b, _ = client_with(200, {})

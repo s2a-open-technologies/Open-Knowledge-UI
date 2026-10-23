@@ -1,7 +1,7 @@
 import io
 import logging
 
-from app.utils.phase_logger import Phase, PhaseLogger
+from app.core.phase_logger import Phase, PhaseLogger
 
 
 def _logger(monkeypatch, level):

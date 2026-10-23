@@ -3,17 +3,18 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.retrieval import rag_bp
+from app.api.routes import bp as main_bp
+from app.api.users import users_bp
 from app.auth import access
-from app.auth.user_admin_routes import users_bp
 from app.core.models import User
-from app.rag import knowledge, model_settings
+from app.knowledge import service as knowledge
+from app.rag import model_settings
 from app.rag import profiles as prof
+from app.rag.collections import ensure_collection
 from app.rag.profiles import ProfileError
-from app.rag.routes import rag_bp
-from app.vector.collections import ensure_collection
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_rag import FakeDense, FakeSparse, add_point
 
 # --- Konfiguration ---------------------------------------------------------
@@ -111,7 +112,7 @@ def test_thorough_profile_adds_llm_questions_and_fast_matches_legacy_behavior(db
 
 
 def test_new_profiles_start_from_the_standard_profile(db):
-    from app.rag import routes
+    from app.api import retrieval as routes
 
     assert routes.profiles.default_config()["rerank"]["enabled"] is True
 

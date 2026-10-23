@@ -2,15 +2,15 @@ import pytest
 from flask import Flask
 from werkzeug.security import generate_password_hash
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.api.users import users_bp
 from app.auth import access, user_admin
 from app.auth.user_admin import AdminError
-from app.auth.user_admin_routes import users_bp
 from app.core.models import User
+from app.knowledge import service as knowledge
 from app.llm import connections as store
-from app.rag import knowledge
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 
 
 def add_user(db, username, role="user", password="pw"):
@@ -506,7 +506,7 @@ class FakeAgent:
 @pytest.fixture
 def chat_env(app, db, conn, monkeypatch):
     """/chat ohne LLM: ein Fake-Agent, der Scope wird mitgeschrieben."""
-    from app.web import routes
+    from app.api import routes
 
     seen = []
     monkeypatch.setattr(routes, "set_scope", lambda scope: seen.append(scope))

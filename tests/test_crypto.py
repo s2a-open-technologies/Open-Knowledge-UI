@@ -9,8 +9,8 @@ from sqlalchemy import text
 
 from app.core import crypto
 from app.core.settings_service import SettingsService
+from app.knowledge import service as knowledge
 from app.llm import connections as store
-from app.rag import knowledge
 
 
 def raw(db, sql, **params):

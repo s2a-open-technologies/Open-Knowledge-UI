@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.utils.file_manager import delete_associated_file
+from app.knowledge.files import delete_associated_file
 
 
 @pytest.mark.parametrize("ext", [".pdf", ".docx", ".doc", ".odt", ".md"])

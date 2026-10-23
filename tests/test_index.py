@@ -5,16 +5,17 @@ import pytest
 from flask import Flask
 from werkzeug.security import generate_password_hash
 
+from app.agent.tools.custom_tools import CustomTools
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
+from app.api.users import users_bp
 from app.auth import access
-from app.auth.user_admin_routes import users_bp
 from app.core.models import User
-from app.ingest import index_doc
-from app.rag import knowledge, retrieval
+from app.knowledge import index_doc
+from app.knowledge import service as knowledge
+from app.rag import retrieval
 from app.rag.retrieval import RetrievalScope
-from app.tools.custom_tools import CustomTools
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_ingest import (  # noqa: F401
     DOC,
     FakeDense,
@@ -219,7 +220,7 @@ def client_for(app, user):
 
 
 def test_api_changes_refresh_the_index(app, db, qd):
-    from app.vector.collections import ensure_collection
+    from app.rag.collections import ensure_collection
 
     kb = default_kb()
     ensure_collection(qd, "open_knowledge_ui", 7)
@@ -326,8 +327,8 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_env(app, db, monkeypatch):
+    from app.api import routes
     from app.llm import connections as store
-    from app.web import routes
 
     CapturingAgent.messages = []
     conn = store.create_connection("C", "http://x/v1", "k")

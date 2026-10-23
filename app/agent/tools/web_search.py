@@ -29,7 +29,7 @@ import requests
 from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
-from app.utils.phase_logger import Phase, phase_logger
+from app.core.phase_logger import Phase, phase_logger
 
 logger = getLogger(__name__)
 
@@ -170,7 +170,7 @@ def create_web_search_tool(
         if pii_filter_client:
             import re
 
-            from app.utils.pii_filter_client import mapping_pairs
+            from app.chat.pii_client import mapping_pairs
 
             try:
                 filter_result = pii_filter_client.filter_text(query)

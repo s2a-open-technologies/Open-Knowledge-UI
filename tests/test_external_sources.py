@@ -5,14 +5,14 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from qdrant_client import models as qm
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.auth import access
-from app.rag import knowledge
+from app.knowledge import external as sources
+from app.knowledge import service as knowledge
 from app.rag import models_runtime as mr
 from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope
-from app.vector import sources
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 from tests.test_rag import FakeDense as KeywordDense
 from tests.test_rag import FakeSparse, cfg, with_scope

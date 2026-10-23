@@ -1,14 +1,14 @@
 import pytest
 from flask import Flask
 
+from app.agent.tools import web_access
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.routes import bp as main_bp
 from app.core.settings_service import SettingsService
 from app.llm import connections as store
 from app.llm import registry
 from app.llm.local_llm import VisionLLM
-from app.tools import web_access
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import client_for
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
@@ -127,7 +127,7 @@ def test_tools_api_is_admin_only_and_validates(app, db):
 def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(
     app, db, monkeypatch
 ):
-    import app.web.user_routes as ur
+    import app.api.user_routes as ur
 
     seen = []
     monkeypatch.setattr(
@@ -228,7 +228,7 @@ def test_vision_and_context_use_separate_models_and_parameters(app, db, monkeypa
         lambda *a, **k: built.append((a[2], a[3])) or real(*a, **k),
     )
     vision, context = local_llm.TaskLLM("vision"), local_llm.TaskLLM("context")
-    
+
     assert (
         built[0][0] == "m2"
         and built[0][1]["temperature"] == 0.7
@@ -306,7 +306,7 @@ def test_empty_prompt_in_the_database_falls_back_to_the_seed(app, db):
 
 
 def test_vision_can_be_switched_off(app, db):
-    from app.loaders.preprocess_base import _vision_enabled
+    from app.ingest.loaders.preprocess_base import _vision_enabled
 
     admin = client_for(app, ADMIN)
     assert _vision_enabled() is True

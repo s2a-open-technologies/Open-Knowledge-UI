@@ -50,7 +50,7 @@ def fixed_encryption_key(monkeypatch):
 def silence_phase_logger():
     """Der PhaseLogger erzeugt Records ohne Zeilennummer; pytests Log-Format
     (%(lineno)d) scheitert daran. Fuer Tests abschalten."""
-    from app.utils.phase_logger import phase_logger
+    from app.core.phase_logger import phase_logger
 
     phase_logger.logger.disabled = True
     yield
@@ -60,8 +60,8 @@ def silence_phase_logger():
 @pytest.fixture
 def worker(monkeypatch, db):
     """Pandas-Auswertungen laufen gegen einen Worker im selben Prozess."""
-    from app.tools.custom_tools import CustomTools
-    from app.toolworker import client as worker_client
+    from app.agent.tools.custom_tools import CustomTools
+    from app.agent.toolworker import client as worker_client
     from tests import worker_support
 
     w = worker_support.install(monkeypatch)
@@ -79,7 +79,7 @@ def worker(monkeypatch, db):
 @pytest.fixture
 def sql_worker(monkeypatch, db, tmp_path):
     """SQL-Abfragen laufen gegen einen Worker im selben Prozess; SQLite-Dateien liegen in tmp_path/sqlite."""
-    from app.toolworker import client as worker_client
+    from app.agent.toolworker import client as worker_client
     from tests import worker_support
 
     folder = tmp_path / "sqlite"

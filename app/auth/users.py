@@ -214,7 +214,8 @@ def authenticate(
 def _try_ldap(username: str, password: str) -> dict | None:
     """LDAP-Anmeldung, falls eingerichtet. Fehler des Verzeichnisses gelten als nicht angemeldet."""
     try:
-        from app.auth import auth_external, auth_ldap
+        from app.auth import external as auth_external
+        from app.auth import ldap as auth_ldap
 
         cfg = auth_external.load_config()
         if not cfg["ldap"]["enabled"] or not username or not password:

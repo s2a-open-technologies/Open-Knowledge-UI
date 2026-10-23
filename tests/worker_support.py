@@ -1,6 +1,6 @@
 """Testhilfe: Worker im selben Prozess (Flask-Testclient) statt Container."""
 
-from app.toolworker import client as worker_client
+from app.agent.toolworker import client as worker_client
 from tool_worker.server import create_app
 
 TOKEN = "test-token-" + "x" * 20

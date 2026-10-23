@@ -80,7 +80,7 @@ def upload_document():
     if request.method == "GET":
         return redirect("/documents/upload")
 
-    from app.utils.file_manager import store_uploaded_files
+    from app.knowledge.files import store_uploaded_files
 
     result = store_uploaded_files(request.files.getlist("files"))
 
@@ -175,7 +175,7 @@ def delete_my_document(doc_id):
             return jsonify({"success": False, "error": f"Qdrant Fehler: {e!s}"}), 500
 
     if payload:
-        from app.utils.file_manager import delete_associated_file
+        from app.knowledge.files import delete_associated_file
 
         deleted = delete_associated_file(payload)
         if deleted:
@@ -193,7 +193,7 @@ def delete_my_document(doc_id):
 def trigger_ingestion():
     """Ingestion der hochgeladenen Dateien starten"""
     from app import wait_for_resources
-    from app.vector import DocumentIngestion
+    from app.ingest.pipeline import DocumentIngestion
 
     try:
         if not wait_for_resources(timeout=180):
@@ -271,7 +271,7 @@ def delete_vectordb_document(doc_id):
         )
 
         if payload:
-            from app.utils.file_manager import delete_associated_file
+            from app.knowledge.files import delete_associated_file
 
             delete_associated_file(payload)
 
@@ -298,7 +298,7 @@ def vectordb_batch_delete():
         return jsonify({"success": False, "error": "Filename erforderlich"}), 400
 
     try:
-        from app.utils.file_manager import delete_associated_file
+        from app.knowledge.files import delete_associated_file
 
         result = client.scroll(
             collection_name=COLLECTION_NAME,
@@ -635,7 +635,7 @@ def _test_llm(settings: SettingsService) -> dict:
 def _test_stt(settings: SettingsService) -> dict:
     """Spracheingabe testen: echte Transkription einer Sekunde Stille (beweist Adresse, Modell
     und Key) und, ob zusaetzlich Live-Streaming (``/audio/stream``) angeboten wird."""
-    from app.stt import stt_config
+    from app.chat import stt as stt_config
 
     cfg = stt_config.SttConfig(
         base_url=(settings.get("STT_BASEURL") or "").strip().rstrip("/"),
@@ -680,7 +680,7 @@ def _test_embedding(settings: SettingsService) -> dict:
 
 def _test_qdrant(settings: SettingsService) -> dict:
     """Qdrant-Verbindung testen (über die bestehende Client-Factory)."""
-    from app.utils.qdrant_client import get_qdrant_client, test_connection
+    from app.core.qdrant_client import get_qdrant_client, test_connection
 
     host = settings.get("QDRANT_HOST", "localhost")
     port = settings.get_int("QDRANT_PORT", 6333)
@@ -752,12 +752,8 @@ PII_TEST_TEXT = (
 def _test_pii_filter(settings: SettingsService) -> dict:
     """PII-Filter testen: echte Maskierung eines Beispieltexts mit erfundenen Daten und Pruefung
     des Vertrags (docs/sanitizer-api.md): Text veraendert, Mapping erkannt, Demaskierung stimmt."""
+    from app.chat.pii_client import PIIFilterClient, mapping_pairs, parse_response
     from app.chat.pii_session import timeout_for
-    from app.utils.pii_filter_client import (
-        PIIFilterClient,
-        mapping_pairs,
-        parse_response,
-    )
 
     url = settings.get("PII_FILTER_URL") or ""
     api_key = settings.get("PII_FILTER_API_KEY") or ""

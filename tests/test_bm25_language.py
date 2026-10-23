@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import pytest
 from qdrant_client import QdrantClient
 
-from app.rag import knowledge, model_settings, pipeline
+from app.knowledge import service as knowledge
+from app.rag import model_settings, pipeline
 from app.rag import sparse as sparse_lang
 from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope, set_scope
 from tests.test_access import app, client_for  # noqa: F401
@@ -146,7 +147,7 @@ def test_each_collection_is_searched_in_the_language_it_was_indexed_with(
 
 
 def test_documents_are_indexed_in_the_knowledge_language_attachments_in_the_default(db):
-    from app.vector.ingestion import DocumentIngestion
+    from app.ingest.pipeline import DocumentIngestion
 
     router = FakeRouter()
     german_kb = SimpleNamespace(

@@ -32,7 +32,7 @@ import re
 import threading
 from contextvars import ContextVar
 
-from app.utils.pii_filter_client import (
+from app.chat.pii_client import (
     PIIFilterClient,
     PIIFilterUnavailable,
     mapping_pairs,

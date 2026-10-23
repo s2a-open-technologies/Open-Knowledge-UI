@@ -2,15 +2,15 @@ import pytest
 from flask import Flask
 from qdrant_client import QdrantClient
 
+from app.api.admin_routes import admin_bp
+from app.api.api_routes import api_bp
+from app.api.retrieval import rag_bp
+from app.api.routes import bp as main_bp
+from app.api.users import users_bp
 from app.auth import access
-from app.auth.user_admin_routes import users_bp
 from app.core.models import Group, GroupMember
-from app.rag import knowledge
+from app.knowledge import service as knowledge
 from app.rag import models_runtime as mr
-from app.rag.routes import rag_bp
-from app.web.admin_routes import admin_bp
-from app.web.api_routes import api_bp
-from app.web.routes import bp as main_bp
 from tests.test_access import add_user, client_for
 
 
@@ -172,7 +172,7 @@ def test_the_group_rule_does_not_reach_other_groups_or_other_roles(app, db):
 def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_access(
     app, db
 ):
-    from app.ingest.index_doc import get_index
+    from app.knowledge.index_doc import get_index
 
     bob = add_user(db, "bob", "user")
     reader = add_user(db, "leser", "user")
@@ -196,7 +196,7 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
     assert r.post(f"/api/knowledge/{kid}/index/refresh").status_code == 404
     stranger = client_for(app, add_user(db, "fremd", "user"))
     assert stranger.get(f"/api/knowledge/{kid}/index").status_code == 404
-    from app.ingest import index_doc
+    from app.knowledge import index_doc
 
     index_doc._store(kid, "alt")
     assert (

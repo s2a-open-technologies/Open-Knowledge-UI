@@ -269,8 +269,8 @@ def list_models(force: bool = False) -> dict:
                 }
             )
 
+    from app.agent.tools.web_access import web_search_available, web_search_masked
     from app.llm.factory import global_chat_defaults
-    from app.tools.web_access import web_search_available, web_search_masked
 
     return {
         "models": models,

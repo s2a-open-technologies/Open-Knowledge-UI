@@ -1,6 +1,6 @@
 import pytest
 
-from app.toolworker import config
+from app.agent.toolworker import config
 
 
 def test_defaults_are_seeded(db):

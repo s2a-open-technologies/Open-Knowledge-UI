@@ -1,7 +1,7 @@
 # ruff: noqa: F811  (Fixtures aus anderen Testmodulen werden importiert und als Argument genutzt)
 from app.auth import access
+from app.knowledge import service as knowledge
 from app.llm import connections as store
-from app.rag import knowledge
 from tests.test_access import (  # noqa: F401
     add_user,
     app,

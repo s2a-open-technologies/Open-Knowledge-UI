@@ -8,8 +8,8 @@ from qdrant_client import models as qm
 from app.rag import format as rag_format
 from app.rag import pipeline, queries, retrieval
 from app.rag import profiles as prof
+from app.rag.collections import ensure_collection
 from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope
-from app.vector.collections import ensure_collection
 
 VOCAB = ["kuendigung", "kaution", "miete", "dach", "frist", "strom"]
 
@@ -585,7 +585,7 @@ def test_helper_in_scope_reaches_the_pipeline(db, retriever, client):
 
 
 def test_tool_output_contains_sources_end_to_end(db, retriever, client):
-    from app.tools.custom_tools import CustomTools
+    from app.agent.tools.custom_tools import CustomTools
 
     add_point(
         client,
