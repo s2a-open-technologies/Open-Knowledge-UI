@@ -28,7 +28,7 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
     "sonner": "^1.7.1",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
