@@ -16,7 +16,7 @@
 
 [project]
 name = "open-knowledge-ui"
-version = "0.2.5"
+version = "0.2.6"
 description = "German Flask RAG app with SSE chat, SQLAlchemy multi-user management, Qdrant hybrid search, Pandas analytics tools, and Ollama/OpenAI-compatible LLMs."
 readme = "README.md"
 requires-python = ">=3.12"

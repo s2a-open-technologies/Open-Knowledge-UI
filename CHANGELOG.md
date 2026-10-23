@@ -6,6 +6,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-23
+
 ### Neu
 
 - **Contributor License Agreement (CLA).** [`CLA.md`](./CLA.md) regelt die Rechte an Beiträgen: Einzelpersonen und Unternehmen übertragen der S2A Open Technologies gGmbH alle übertragbaren ausschließlichen Nutzungs- und Verwertungsrechte; das Urheberrecht selbst bleibt nach § 29 UrhG beim Contributor, die Beiträge bleiben unter AGPL-3.0-or-later verfügbar. Die Annahme ist Voraussetzung für die Übernahme eines Beitrags und ist in `CONTRIBUTING.md`, `AUTHORS.md`, `README.md` und im PR-Template verlinkt.
@@ -248,7 +250,8 @@ Erste Version mit React-Oberfläche, Mehrbenutzerbetrieb und konfigurierbaren Mo
 - Messung mit `bge-m3` und `bge-reranker-v2-m3` auf einer RTX 3060 (gleiche 13 Fragen): Hybrid allein Treffer@1 12/13 (MiniLM: 10/13), mit Reranker 13/13.
 - Chat-Anhänge offener Chats sind nach einem Wechsel des Embedding-Modells nicht mehr durchsuchbar (kurzlebig, neu anhängen genügt).
 
-[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/s2a-open-technologies/Open-Knowledge-UI/compare/v0.2.2...v0.2.3
