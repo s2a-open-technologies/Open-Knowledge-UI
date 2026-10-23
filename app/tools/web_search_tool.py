@@ -20,6 +20,7 @@
 Web-Suche Tool für SearXNG Metasuchmaschine
 """
 
+import logging
 import random
 import time
 from logging import getLogger
@@ -34,28 +35,28 @@ logger = getLogger(__name__)
 
 # Realistische Browser User-Agent Rotation
 _BROWSER_UAS = [
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
 ]
 
 
 def _get_headers() -> dict:
     """Generiert realistische Browser-Header für SearXNG-Requests."""
     return {
-        'User-Agent': random.choice(_BROWSER_UAS),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
+        "User-Agent": random.choice(_BROWSER_UAS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
 
 
@@ -156,7 +157,9 @@ def create_web_search_tool(
         Strukturiertes Tool für LangChain
     """
 
-    def _web_search(query: str, num_results: int = 10, categories: str | None = None) -> str:
+    def _web_search(
+        query: str, num_results: int = 10, categories: str | None = None
+    ) -> str:
         """Führt Web-Suche via SearXNG durch."""
 
         start_time = time.time()
@@ -196,7 +199,7 @@ def create_web_search_tool(
                 return "FEHLER: Die Suchanfrage bestand nur aus personenbezogenen Angaben und wurde nicht gesendet."
 
         phase_logger.log_phase(
-            Phase.TOOL_EXECUTION, f"Tool: web_search | Query: {search_query[:100]}"
+            Phase.TOOL_EXECUTION, f"Tool: web_search | {len(search_query)} Zeichen"
         )
 
         if not searxng_url:
@@ -204,6 +207,7 @@ def create_web_search_tool(
                 Phase.TOOL_EXECUTION,
                 "Tool: web_search | Fehler: Keine SearXNG URL konfiguriert",
                 duration=0.0,
+                level=logging.WARNING,
             )
             return "FEHLER: SearXNG-URL ist nicht konfiguriert. Bitte im Settings-Panel 'SEARCH_SEARXNG_URL' setzen."
 
@@ -232,6 +236,7 @@ def create_web_search_tool(
                     Phase.TOOL_EXECUTION,
                     f"Tool: web_search | HTTP {response.status_code}",
                     duration=0.0,
+                    level=logging.WARNING,
                 )
                 return f"FEHLER: SearXNG API returned HTTP {response.status_code}"
 
@@ -280,13 +285,19 @@ def create_web_search_tool(
 
         except requests.exceptions.Timeout:
             phase_logger.log_phase(
-                Phase.TOOL_EXECUTION, "Tool: web_search | Timeout", duration=0.0
+                Phase.TOOL_EXECUTION,
+                "Tool: web_search | Timeout",
+                duration=0.0,
+                level=logging.WARNING,
             )
             return "FEHLER: SearXNG-Request timeout nach 10 Sekunden."
 
         except requests.exceptions.RequestException as e:
             phase_logger.log_phase(
-                Phase.TOOL_EXECUTION, f"Tool: web_search | Fehler: {e}", duration=0.0
+                Phase.TOOL_EXECUTION,
+                f"Tool: web_search | Fehler: {e}",
+                duration=0.0,
+                level=logging.WARNING,
             )
             return f"FEHLER: Verbindung zu SearXNG fehlgeschlagen: {e}"
 
@@ -295,6 +306,7 @@ def create_web_search_tool(
                 Phase.TOOL_EXECUTION,
                 f"Tool: web_search | Unerwarteter Fehler: {e}",
                 duration=0.0,
+                level=logging.ERROR,
             )
             return f"FEHLER: {type(e).__name__}: {e}"
 

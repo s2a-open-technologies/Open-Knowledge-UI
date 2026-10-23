@@ -162,6 +162,10 @@ def build_points(
     return points
 
 
-def upsert_points(client, collection_name: str, points: list[qdrant_models.PointStruct]) -> None:
+def upsert_points(
+    client, collection_name: str, points: list[qdrant_models.PointStruct]
+) -> None:
     for i in range(0, len(points), UPSERT_BATCH):
-        client.upsert(collection_name=collection_name, points=points[i : i + UPSERT_BATCH])
+        client.upsert(
+            collection_name=collection_name, points=points[i : i + UPSERT_BATCH]
+        )

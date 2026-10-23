@@ -20,11 +20,11 @@
 Phase Logger for tracking Agent execution phases
 """
 
-import time
 import logging
-from enum import Enum
-from typing import Optional
+import os
+import time
 from contextlib import contextmanager
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +43,22 @@ class Phase(str, Enum):
 
 
 class PhaseLogger:
+    """Phasen-Log. Ohne ``level`` ist ein Eintrag DEBUG (Ablaufdetail); sichtbar sind
+    standardmaessig nur Zusammenfassungen (INFO) sowie Warnungen und Fehler. Der
+    Schwellwert kommt aus ``LOG_LEVEL`` (nur env, Default INFO). Nutzerinhalte
+    (Fragen, Suchbegriffe, SQL) gehoeren nie in eine Meldung."""
+
     def __init__(self, name: str = "PhaseLogger"):
         self.name = name
         self.logger = logging.getLogger(name)
 
         if not self.logger.handlers:
-            self.logger.setLevel(logging.INFO)
+            threshold = getattr(
+                logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO
+            )
+            self.logger.setLevel(threshold)
             handler = logging.StreamHandler()
-            handler.setLevel(logging.INFO)
+            handler.setLevel(threshold)
             formatter = logging.Formatter(
                 "[%(asctime)s] [%(phase)s] %(message)s | Duration: %(duration)s"
             )
@@ -58,25 +66,39 @@ class PhaseLogger:
             self.logger.addHandler(handler)
 
     @contextmanager
-    def phase(self, phase: Phase, message: str, **kwargs):
+    def phase(self, phase: Phase, message: str, level: int = logging.DEBUG, **kwargs):
         start_time = time.time()
-        self._log(phase, message, 0.0, **kwargs)
+        self._log(phase, message, 0.0, level, **kwargs)
         try:
             yield
         finally:
             duration = time.time() - start_time
-            self._log(phase, message, duration, **kwargs, end=True)
+            self._log(phase, message, duration, level, **kwargs, end=True)
 
     def log_phase(
-        self, phase: Phase, message: str, duration: Optional[float] = None, **kwargs
+        self,
+        phase: Phase,
+        message: str,
+        duration: float | None = None,
+        level: int = logging.DEBUG,
+        **kwargs,
     ):
-        self._log(phase, message, duration, **kwargs)
+        self._log(phase, message, duration, level, **kwargs)
 
-    def _log(self, phase: Phase, message: str, duration: Optional[float], **kwargs):
+    def _log(
+        self,
+        phase: Phase,
+        message: str,
+        duration: float | None,
+        level: int = logging.DEBUG,
+        **kwargs,
+    ):
+        if not self.logger.isEnabledFor(level):
+            return
         duration_str = f"{duration:.2f}s" if duration is not None else "N/A"
 
         record = self.logger.makeRecord(
-            self.logger.name, logging.INFO, None, None, message, (), None
+            self.logger.name, level, None, None, message, (), None
         )
         record.phase = phase.value
         record.duration = duration_str

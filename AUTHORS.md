@@ -22,6 +22,9 @@ Autor und ursprünglicher Entwickler von Open Knowledge UI (seit 2026).
 
 ## Mitarbeit
 
-Beiträge folgen `CONTRIBUTING.md`; mit einem Beitrag gibst du deine Änderungen
-dasselbe Licensing (AGPL-3.0-or-later) und überträgst das Nutzungsrecht an die
-S2A Open Technologies gGmbH. Contributions tragen sich hier mit Namen ein.
+Beiträge folgen [`CONTRIBUTING.md`](./CONTRIBUTING.md). Vor der Übernahme muss die
+[Contributor License Agreement (CLA)](./CLA.md) angenommen werden. Sie überträgt der
+S2A Open Technologies gGmbH alle übertragbaren ausschließlichen Nutzungs- und
+Verwertungsrechte am Beitrag; das Urheberrecht selbst bleibt nach § 29 UrhG beim
+Contributor. Die Beiträge stehen der Allgemeinheit unter AGPL-3.0-or-later zur
+Verfügung. Contributions tragen sich hier mit Namen ein.

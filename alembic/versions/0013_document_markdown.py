@@ -26,7 +26,9 @@ def upgrade() -> None:
     cols = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("user_documents")}
     with op.batch_alter_table("user_documents") as batch_op:
         if "markdown_path" not in cols:
-            batch_op.add_column(sa.Column("markdown_path", sa.String(500), nullable=True))
+            batch_op.add_column(
+                sa.Column("markdown_path", sa.String(500), nullable=True)
+            )
         if "parser_version" not in cols:
             batch_op.add_column(sa.Column("parser_version", sa.Integer, nullable=True))
 

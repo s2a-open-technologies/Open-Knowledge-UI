@@ -67,7 +67,9 @@ def apply_page_marks(markdown: str, pages: list[int]) -> str:
     breaks = len(pattern.findall(markdown))
     if len(pages) < 2 or breaks != len(pages) - 1:
         if breaks:
-            logger.warning(f"Seitenzuordnung verworfen: {breaks} Seitenwechsel, {len(pages)} Seiten")
+            logger.warning(
+                f"Seitenzuordnung verworfen: {breaks} Seitenwechsel, {len(pages)} Seiten"
+            )
         return pattern.sub("\n\n", markdown)
     numbers = iter(pages[1:])
     out = pattern.sub(lambda _m: f"\n\n<!--p:{next(numbers)}-->\n\n", markdown)
@@ -135,11 +137,16 @@ class PreprocessBase:
     """
 
     def __init__(
-        self, model: VisionLLM = None, max_retries: int = 3, retry_delay: float = 2.0,
+        self,
+        model: VisionLLM = None,
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
         table_model=None,
     ):
         self.model = model or VisionLLM()
-        self._table_model = table_model  # Standard: TaskLLM("tables"), erst bei Bedarf angelegt
+        self._table_model = (
+            table_model  # Standard: TaskLLM("tables"), erst bei Bedarf angelegt
+        )
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
@@ -231,7 +238,9 @@ class PreprocessBase:
         # Bildbeschreibung abschaltbar (Einlesen & Modelle): dann kein Vision-Aufruf,
         # die Bild-Marker verschwinden aus dem Text.
         unique_pil = self._collect_unique_pictures(doc) if _vision_enabled() else {}
-        pictures = [item for item, _ in doc.iterate_items() if isinstance(item, PictureItem)]
+        pictures = [
+            item for item, _ in doc.iterate_items() if isinstance(item, PictureItem)
+        ]
 
         descriptions: list[str] = []
         current_image = 0
@@ -301,13 +310,26 @@ class PreprocessBase:
                 try:
                     table_markdown = item.export_to_markdown(doc=doc)
                     frame = item.export_to_dataframe(doc=doc)
-                    if refiner is not None and frame.shape[0] >= 2 and frame.shape[1] >= 2:
+                    if (
+                        refiner is not None
+                        and frame.shape[0] >= 2
+                        and frame.shape[1] >= 2
+                    ):
                         frame = refiner(item, doc, frame, table_markdown)
                 except Exception as e:
-                    logger.warning(f"{file_path}: Tabelle {len(parts) + 1} nicht extrahierbar: {e}")
+                    logger.warning(
+                        f"{file_path}: Tabelle {len(parts) + 1} nicht extrahierbar: {e}"
+                    )
                     gap = True
                     continue
-                parts.append({"markdown": table_markdown, "frame": frame, "geo": table_geometry(item, doc), "gap": gap})
+                parts.append(
+                    {
+                        "markdown": table_markdown,
+                        "frame": frame,
+                        "geo": table_geometry(item, doc),
+                        "gap": gap,
+                    }
+                )
                 gap = False
         finally:
             if refiner is not None:
@@ -317,7 +339,13 @@ class PreprocessBase:
         groups: list[list[dict]] = []
         for part in parts:
             last = groups[-1][-1] if groups else None
-            if last is not None and not part["gap"] and is_continuation(last["frame"], last["geo"], part["frame"], part["geo"]):
+            if (
+                last is not None
+                and not part["gap"]
+                and is_continuation(
+                    last["frame"], last["geo"], part["frame"], part["geo"]
+                )
+            ):
                 groups[-1].append(part)
             else:
                 groups.append([part])
@@ -326,8 +354,14 @@ class PreprocessBase:
         for number, group in enumerate(groups, start=1):
             merged = len(group) > 1
             try:
-                frame = merge_frames([p["frame"] for p in group]) if merged else group[0]["frame"]
-                table_markdown = frame.to_markdown(index=False) if merged else group[0]["markdown"]
+                frame = (
+                    merge_frames([p["frame"] for p in group])
+                    if merged
+                    else group[0]["frame"]
+                )
+                table_markdown = (
+                    frame.to_markdown(index=False) if merged else group[0]["markdown"]
+                )
                 info = table_sink(frame, number)
             except Exception as e:
                 logger.warning(f"{file_path}: Tabelle {number} nicht extrahierbar: {e}")
@@ -336,7 +370,9 @@ class PreprocessBase:
                 continue
             marker = TABLE_MARKER.format(number)
             markdown = markdown.replace(group[0]["markdown"], marker, 1)
-            for extra in group[1:]:  # weitere Seiten der Tabelle stehen nur noch in der CSV
+            for extra in group[
+                1:
+            ]:  # weitere Seiten der Tabelle stehen nur noch in der CSV
                 markdown = markdown.replace(extra["markdown"], "", 1)
             pages = (group[0]["geo"].page, group[-1]["geo"].page) if merged else None
             replacements[marker] = render_reference(info, number, table_markdown, pages)
@@ -348,7 +384,11 @@ class PreprocessBase:
         """Aufrufbares Objekt fuer den zweiten Durchgang per Vision-Modell oder ``None`` (nur PDF, nur wenn aktiv)."""
         if not str(file_path).lower().endswith(".pdf") or not _vision_enabled():
             return None
-        from app.ingest.table_vision import DEFAULT_MAX_ROW_DEVIATION, PageRenderer, refine_table
+        from app.ingest.table_vision import (
+            DEFAULT_MAX_ROW_DEVIATION,
+            PageRenderer,
+            refine_table,
+        )
         from app.ingest.tasks import load_task
 
         try:
@@ -365,7 +405,9 @@ class PreprocessBase:
 
         class _Refiner:
             def __call__(self, item, doc, frame, markdown):
-                fixed = refine_table(item, doc, frame, markdown, renderer, model, prompt, deviation)
+                fixed = refine_table(
+                    item, doc, frame, markdown, renderer, model, prompt, deviation
+                )
                 return frame if fixed is None else fixed
 
             def close(self):

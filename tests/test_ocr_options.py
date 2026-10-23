@@ -1,4 +1,4 @@
-"""OCR-Auswahl per env (app/components/ocr.py): Mapping, Fail-soft-Fallback, Sprach-Parsing."""
+"""OCR-Auswahl per env (app/loaders/ocr.py): Mapping, Fail-soft-Fallback, Sprach-Parsing."""
 
 from types import SimpleNamespace
 
@@ -9,9 +9,9 @@ from docling.datamodel.pipeline_options import (
     TesseractCliOcrOptions,
 )
 
-import app.components.preprocess_pdf as pp
-from app.components import ocr
-from app.components.ocr import DEFAULT_LANGUAGES, build_ocr_options
+import app.loaders.preprocess_pdf as pp
+from app.loaders import ocr
+from app.loaders.ocr import DEFAULT_LANGUAGES, build_ocr_options
 
 KEYS = ("OCR_ENGINE", "OCR_LANGUAGES", "OCR_TESSERACT_CMD")
 
@@ -97,7 +97,9 @@ def test_unknown_engine_falls_back_and_warns(monkeypatch, caplog):
 
 def test_tesseract_cmd_is_passed_through(monkeypatch):
     _clean_env(monkeypatch)
-    monkeypatch.setenv("OCR_TESSERACT_CMD", "C:/Program Files (x86)/Tesseract-OCR/tesseract.exe")
+    monkeypatch.setenv(
+        "OCR_TESSERACT_CMD", "C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"
+    )
     _, options = build_ocr_options()
     assert options.tesseract_cmd == "C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"
 

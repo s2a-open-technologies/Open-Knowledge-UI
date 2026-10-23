@@ -26,7 +26,7 @@ def upgrade() -> None:
             "INSERT INTO settings "
             "(key, value, default_value, category, is_sensitive, description) "
             "VALUES (:key, :value, :value, :category, :is_sensitive, :description) "
-                "ON CONFLICT (key) DO NOTHING"
+            "ON CONFLICT (key) DO NOTHING"
         ),
         {
             "key": "UI_THEME",

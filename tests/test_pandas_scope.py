@@ -14,7 +14,9 @@ def tools(tmp_path, worker):
     (data / "knowledge_2").mkdir(parents=True)
     (data / "knowledge_3").mkdir()
     (data / "umsatz.csv").write_text("monat,betrag\njan,100\nfeb,250\n")
-    (data / "knowledge_2" / "vertrag--ab12--tabelle-1.csv").write_text("posten,betrag\nmiete,950\nkaution,2850\n")
+    (data / "knowledge_2" / "vertrag--ab12--tabelle-1.csv").write_text(
+        "posten,betrag\nmiete,950\nkaution,2850\n"
+    )
     (data / "knowledge_3" / "geheim.csv").write_text("name,gehalt\nanna,9999\n")
     (tmp_path / "ausserhalb.csv").write_text("x,y\n1,2\n")
     return CustomTools(llm=None, retriever=None, data_dir=str(data)), data
@@ -40,7 +42,10 @@ def test_without_a_scope_the_flat_data_dir_is_used(tools):
 def test_only_the_data_of_the_selected_knowledge_is_listed(tools):
     t, data = tools
     use_scope(data, ("", "."), ("knowledge_2/", "knowledge_2"))
-    assert sorted(t.list_files()) == ["knowledge_2/vertrag--ab12--tabelle-1.csv", "umsatz.csv"]
+    assert sorted(t.list_files()) == [
+        "knowledge_2/vertrag--ab12--tabelle-1.csv",
+        "umsatz.csv",
+    ]
 
 
 def test_other_knowledge_is_neither_listed_nor_readable(tools):
@@ -54,7 +59,16 @@ def test_other_knowledge_is_neither_listed_nor_readable(tools):
     assert "9999" not in t.preview_data("knowledge_3/geheim.csv")
 
 
-@pytest.mark.parametrize("name", ["../ausserhalb.csv", "knowledge_2/../knowledge_3/geheim.csv", "/etc/passwd.csv", "../../data/umsatz.csv", "knowledge_2/../umsatz.csv"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../ausserhalb.csv",
+        "knowledge_2/../knowledge_3/geheim.csv",
+        "/etc/passwd.csv",
+        "../../data/umsatz.csv",
+        "knowledge_2/../umsatz.csv",
+    ],
+)
 def test_path_tricks_do_not_escape_the_allowed_folders(tools, name):
     t, data = tools
     use_scope(data, ("knowledge_2/", "knowledge_2"))
@@ -72,7 +86,9 @@ def test_allowed_files_can_be_analysed(tools):
     t, data = tools
     use_scope(data, ("", "."), ("knowledge_2/", "knowledge_2"))
     assert "350" in t.run_pandas("umsatz.csv", "result = df['betrag'].sum()")
-    assert "3800" in t.run_pandas("knowledge_2/vertrag--ab12--tabelle-1.csv", "result = df['betrag'].sum()")
+    assert "3800" in t.run_pandas(
+        "knowledge_2/vertrag--ab12--tabelle-1.csv", "result = df['betrag'].sum()"
+    )
 
 
 def test_changed_files_are_reloaded(tools):

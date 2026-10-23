@@ -62,9 +62,18 @@ def suggest(profile: list[dict], max_distinct: int) -> list[dict]:
         elif SENSITIVE_NAME.search(c["column"]):
             include, reason = False, "Schlüssel-, Kontakt- oder Personenspalte"
         elif c["distinct"] > max_distinct:
-            include, reason = False, f"mehr als {max_distinct} verschiedene Werte (Freitext oder Schlüssel)"
-        elif c["non_null"] >= MIN_ROWS_FOR_UNIQUE_RULE and c["distinct"] / c["non_null"] > MOSTLY_UNIQUE:
-            include, reason = False, "fast jeder Wert ist eindeutig (Freitext oder Name)"
+            include, reason = (
+                False,
+                f"mehr als {max_distinct} verschiedene Werte (Freitext oder Schlüssel)",
+            )
+        elif (
+            c["non_null"] >= MIN_ROWS_FOR_UNIQUE_RULE
+            and c["distinct"] / c["non_null"] > MOSTLY_UNIQUE
+        ):
+            include, reason = (
+                False,
+                "fast jeder Wert ist eindeutig (Freitext oder Name)",
+            )
         out.append({**c, "include": include, "reason": reason})
     return out
 
@@ -72,12 +81,16 @@ def suggest(profile: list[dict], max_distinct: int) -> list[dict]:
 def clean_value_columns(cfg) -> dict:
     """Die gewaehlten Spalten ohne alles, was die aktuelle Konfiguration nicht (mehr) zulaesst."""
     allowed = {t.lower() for t in cfg.tables}
-    blocked = {t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()}
+    blocked = {
+        t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()
+    }
     out = {}
     for table, columns in cfg.value_columns.items():
         if allowed and table.lower() not in allowed:
             continue
-        kept = tuple(c for c in columns if c.lower() not in blocked.get(table.lower(), set()))
+        kept = tuple(
+            c for c in columns if c.lower() not in blocked.get(table.lower(), set())
+        )
         if kept:
             out[table] = kept
     return out
@@ -85,7 +98,11 @@ def clean_value_columns(cfg) -> dict:
 
 def _permitted(cfg):
     """Prueffunktion (tabelle, spalte): gewaehlt, Tabelle freigegeben, Spalte nicht gesperrt."""
-    allowed = {(t.lower(), c.lower()) for t, cols in clean_value_columns(cfg).items() for c in cols}
+    allowed = {
+        (t.lower(), c.lower())
+        for t, cols in clean_value_columns(cfg).items()
+        for c in cols
+    }
     return lambda table, column: (table.lower(), column.lower()) in allowed
 
 
@@ -122,9 +139,14 @@ def _payload(cfg, extra: dict) -> dict:
     limits = worker_config.load_sql()
     return {
         "connection": cfg.connection(),
-        "allowed_tables": sorted(cfg.allowed_tables()) if cfg.allowed_tables() else None,
+        "allowed_tables": sorted(cfg.allowed_tables())
+        if cfg.allowed_tables()
+        else None,
         "blocked_columns": {t: sorted(c) for t, c in cfg.blocked().items()},
-        "limits": {"timeout_s": max(limits.timeout_s, 30), "max_cell_chars": limits.max_cell_chars},
+        "limits": {
+            "timeout_s": max(limits.timeout_s, 30),
+            "max_cell_chars": limits.max_cell_chars,
+        },
         **extra,
     }
 
@@ -161,7 +183,11 @@ def status(knowledge_id: int) -> dict:
             "built_at": row.built_at.isoformat() if row and row.built_at else None,
             "value_count": row.value_count if row else 0,
             "column_count": row.column_count if row else 0,
-            "error": (row.error if row and row.error else ("Aufbau wurde unterbrochen" if st == "error" and row else "")),
+            "error": (
+                row.error
+                if row and row.error
+                else ("Aufbau wurde unterbrochen" if st == "error" and row else "")
+            ),
         }
     finally:
         db.close()
@@ -193,23 +219,43 @@ def build(knowledge_id: int, source_config) -> None:
             for column in columns:
                 try:
                     out = get_client("sql").sql(
-                        "distinct", _payload(cfg, {"table": table, "column": column, "max_distinct": max_distinct}), 180
+                        "distinct",
+                        _payload(
+                            cfg,
+                            {
+                                "table": table,
+                                "column": column,
+                                "max_distinct": max_distinct,
+                            },
+                        ),
+                        180,
                     )
                 except ToolWorkerUnavailable as e:
                     raise ValueError(str(e)) from None
                 if not out.get("ok"):
-                    raise ValueError(f"{table}.{column}: {out.get('error') or 'nicht lesbar'}")
+                    raise ValueError(
+                        f"{table}.{column}: {out.get('error') or 'nicht lesbar'}"
+                    )
                 if out.get("too_many"):
                     skipped.append(f"{table}.{column}")
                     continue
-                collected += [(table, column, value, count) for value, count in out.get("values") or []]
+                collected += [
+                    (table, column, value, count)
+                    for value, count in out.get("values") or []
+                ]
         db = get_db_service().get_session()
         try:
             db.query(SqlValue).filter_by(knowledge_id=knowledge_id).delete()
             db.bulk_insert_mappings(
                 SqlValue,
                 [
-                    {"knowledge_id": knowledge_id, "table_name": t, "column_name": c, "value": v, "count": n}
+                    {
+                        "knowledge_id": knowledge_id,
+                        "table_name": t,
+                        "column_name": c,
+                        "value": v,
+                        "count": n,
+                    }
                     for t, c, v, n in collected
                 ],
             )
@@ -219,14 +265,28 @@ def build(knowledge_id: int, source_config) -> None:
             raise
         finally:
             db.close()
-        note = f"Übersprungen (zu viele verschiedene Werte): {', '.join(skipped)}" if skipped else ""
+        note = (
+            f"Übersprungen (zu viele verschiedene Werte): {', '.join(skipped)}"
+            if skipped
+            else ""
+        )
         _set_status(
-            knowledge_id, status="ready", built_at=datetime.utcnow(), value_count=len(collected),
-            column_count=len({(t, c) for t, c, _, _ in collected}), error=note,
+            knowledge_id,
+            status="ready",
+            built_at=datetime.utcnow(),
+            value_count=len(collected),
+            column_count=len({(t, c) for t, c, _, _ in collected}),
+            error=note,
         )
     except Exception as e:  # noqa: BLE001 - der Admin sieht den Grund, das alte Verzeichnis bleibt
         logger.warning(f"Wertverzeichnis {knowledge_id}: {type(e).__name__}: {e}")
-        _set_status(knowledge_id, status="error", error=str(e)[:500] if isinstance(e, ValueError) else "Aufbau fehlgeschlagen")
+        _set_status(
+            knowledge_id,
+            status="error",
+            error=str(e)[:500]
+            if isinstance(e, ValueError)
+            else "Aufbau fehlgeschlagen",
+        )
     finally:
         with _running_lock:
             _running.discard(knowledge_id)
@@ -239,7 +299,9 @@ def start_build(knowledge_id: int, source_config) -> bool:
             return False
         _running.add(knowledge_id)
     _set_status(knowledge_id, status="building", error="")
-    threading.Thread(target=build, args=(knowledge_id, source_config), daemon=True).start()
+    threading.Thread(
+        target=build, args=(knowledge_id, source_config), daemon=True
+    ).start()
     return True
 
 
@@ -258,7 +320,9 @@ def entries(knowledge_id: int) -> list[dict]:
     cached = _cache.get(knowledge_id)
     if cached and cached[0] == stamp:
         return cached[1]
-    permitted = _permitted(cfg)  # Verteidigung in der Tiefe: nie ausliefern, was die Konfiguration nicht erlaubt
+    permitted = _permitted(
+        cfg
+    )  # Verteidigung in der Tiefe: nie ausliefern, was die Konfiguration nicht erlaubt
     db = get_db_service().get_session()
     try:
         rows = [
@@ -276,6 +340,18 @@ def has_values(knowledge_id: int) -> bool:
     return status(knowledge_id)["value_count"] > 0
 
 
-def search(knowledge_id: int, term: str, table: str | None = None, column: str | None = None, limit: int | None = None):
+def search(
+    knowledge_id: int,
+    term: str,
+    table: str | None = None,
+    column: str | None = None,
+    limit: int | None = None,
+):
     _, max_results = worker_config.values_settings()
-    return text.rank(term, entries(knowledge_id), limit=limit or max_results, table=table, column=column)
+    return text.rank(
+        term,
+        entries(knowledge_id),
+        limit=limit or max_results,
+        table=table,
+        column=column,
+    )

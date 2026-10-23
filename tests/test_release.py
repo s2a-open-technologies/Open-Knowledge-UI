@@ -10,28 +10,31 @@ spec = importlib.util.spec_from_file_location("release_script", SCRIPT)
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
-PYPROJECT = '''[project]
+PYPROJECT = """[project]
 name = "open-knowledge-ui"
 version = "0.1.0"
 dependencies = ["x[y]>=1.0"]
 
 [tool.other]
 version = "9.9.9"
-'''
+"""
 PACKAGE_JSON = '{\n  "name": "frontend",\n  "private": true,\n  "version": "0.1.0",\n  "type": "module"\n}\n'
-PACKAGE_LOCK = json.dumps(
-    {
-        "name": "frontend",
-        "version": "0.1.0",
-        "lockfileVersion": 3,
-        "packages": {
-            "": {"name": "frontend", "version": "0.1.0", "dependencies": {}},
-            "node_modules/dep": {"version": "0.1.0"},
+PACKAGE_LOCK = (
+    json.dumps(
+        {
+            "name": "frontend",
+            "version": "0.1.0",
+            "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "frontend", "version": "0.1.0", "dependencies": {}},
+                "node_modules/dep": {"version": "0.1.0"},
+            },
         },
-    },
-    indent=2,
-) + "\n"
-UV_LOCK = '''version = 1
+        indent=2,
+    )
+    + "\n"
+)
+UV_LOCK = """version = 1
 
 [[package]]
 name = "other"
@@ -42,7 +45,7 @@ source = { registry = "https://pypi.org/simple" }
 name = "open-knowledge-ui"
 version = "0.1.0"
 source = { virtual = "." }
-'''
+"""
 
 
 @pytest.fixture(autouse=True)
@@ -55,14 +58,28 @@ def git_identity(monkeypatch):
 
 def sh(root, *args, check=True):
     return subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, check=check,
-        env={"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "T",
-             "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin:/usr/local/bin", "HOME": str(root)},
+        ["git", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=check,
+        env={
+            "GIT_AUTHOR_NAME": "T",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "T",
+            "GIT_COMMITTER_EMAIL": "t@t",
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(root),
+        },
     ).stdout.strip()
 
 
 def commit(root, message, filename="x.txt"):
-    (root / filename).write_text(message + "\n" + (root / filename).read_text() if (root / filename).exists() else message)
+    (root / filename).write_text(
+        message + "\n" + (root / filename).read_text()
+        if (root / filename).exists()
+        else message
+    )
     sh(root, "add", "-A")
     sh(root, "commit", "-q", "-m", message)
 
@@ -93,7 +110,12 @@ def run(root, *argv):
 
 @pytest.mark.parametrize(
     "current,kind,expected",
-    [("0.1.0", "patch", "0.1.1"), ("0.1.9", "minor", "0.2.0"), ("1.2.3", "major", "2.0.0"), ("0.1.0", "1.4.2", "1.4.2")],
+    [
+        ("0.1.0", "patch", "0.1.1"),
+        ("0.1.9", "minor", "0.2.0"),
+        ("1.2.3", "major", "2.0.0"),
+        ("0.1.0", "1.4.2", "1.4.2"),
+    ],
 )
 def test_next_version(current, kind, expected):
     assert release.next_version(current, kind) == expected
@@ -112,25 +134,38 @@ def test_versions_are_read_from_all_four_files(repo):
 
 
 def test_inconsistent_versions_are_reported(repo):
-    (repo / "frontend" / "package.json").write_text(PACKAGE_JSON.replace("0.1.0", "0.2.0"))
+    (repo / "frontend" / "package.json").write_text(
+        PACKAGE_JSON.replace("0.1.0", "0.2.0")
+    )
     with pytest.raises(release.ReleaseError, match="uneinheitlich"):
         release.current_version(repo)
 
 
 def test_write_version_changes_only_the_projects_own_entries(repo):
     changed = release.write_version(repo, "0.1.0", "0.2.0")
-    assert sorted(changed) == ["frontend/package-lock.json", "frontend/package.json", "pyproject.toml", "uv.lock"]
+    assert sorted(changed) == [
+        "frontend/package-lock.json",
+        "frontend/package.json",
+        "pyproject.toml",
+        "uv.lock",
+    ]
     assert 'version = "0.2.0"' in (repo / "pyproject.toml").read_text()
-    assert 'version = "9.9.9"' in (repo / "pyproject.toml").read_text()  # anderer Abschnitt unberuehrt
+    assert (
+        'version = "9.9.9"' in (repo / "pyproject.toml").read_text()
+    )  # anderer Abschnitt unberuehrt
     lock = json.loads((repo / "frontend" / "package-lock.json").read_text())
     assert lock["version"] == "0.2.0" and lock["packages"][""]["version"] == "0.2.0"
-    assert lock["packages"]["node_modules/dep"]["version"] == "0.1.0"  # Fremdpaket unberuehrt
+    assert (
+        lock["packages"]["node_modules/dep"]["version"] == "0.1.0"
+    )  # Fremdpaket unberuehrt
     uv = (repo / "uv.lock").read_text()
     assert 'name = "other"\nversion = "0.1.0"' in uv
     assert 'name = "open-knowledge-ui"\nversion = "0.2.0"' in uv
     assert release.current_version(repo) == "0.2.0"
     # Formatierung bleibt: nur die Versionen unterscheiden sich
-    assert (repo / "frontend" / "package.json").read_text() == PACKAGE_JSON.replace("0.1.0", "0.2.0")
+    assert (repo / "frontend" / "package.json").read_text() == PACKAGE_JSON.replace(
+        "0.1.0", "0.2.0"
+    )
 
 
 # --- Commits und Changelog -------------------------------------------------
@@ -162,7 +197,11 @@ def test_render_notes_groups_in_fixed_order():
             {"subject": "chore(release): v0.1.0", "body": ""},
         ]
     )
-    assert notes.index("### Neu") < notes.index("### Fehlerbehebungen") < notes.index("### Sonstiges")
+    assert (
+        notes.index("### Neu")
+        < notes.index("### Fehlerbehebungen")
+        < notes.index("### Sonstiges")
+    )
     assert "- a" in notes and "- b" in notes and "release" not in notes
 
 
@@ -171,20 +210,36 @@ BASE = "# Changelog\n\nText\n\n## [Unreleased]\n\n"
 
 def test_unreleased_body_is_moved_to_the_new_version():
     text = BASE + "### Neu\n\n- Handgeschrieben\n"
-    out = release.update_changelog(text, "0.1.0", "2026-10-12", "GENERIERT", None, "https://github.com/o/r")
-    assert "## [Unreleased]\n\n## [0.1.0] - 2026-10-12\n\n### Neu\n\n- Handgeschrieben" in out
+    out = release.update_changelog(
+        text, "0.1.0", "2026-10-12", "GENERIERT", None, "https://github.com/o/r"
+    )
+    assert (
+        "## [Unreleased]\n\n## [0.1.0] - 2026-10-12\n\n### Neu\n\n- Handgeschrieben"
+        in out
+    )
     assert "GENERIERT" not in out
     assert "[Unreleased]: https://github.com/o/r/compare/v0.1.0...HEAD" in out
     assert "[0.1.0]: https://github.com/o/r/releases/tag/v0.1.0" in out
 
 
 def test_empty_unreleased_uses_generated_notes_and_links_are_ordered():
-    first = release.update_changelog(BASE + "- eins\n", "0.1.0", "2026-10-01", "", None, "https://github.com/o/r")
-    second = release.update_changelog(first, "0.2.0", "2026-10-12", "### Neu\n\n- aus Commits", "0.1.0", "https://github.com/o/r")
+    first = release.update_changelog(
+        BASE + "- eins\n", "0.1.0", "2026-10-01", "", None, "https://github.com/o/r"
+    )
+    second = release.update_changelog(
+        first,
+        "0.2.0",
+        "2026-10-12",
+        "### Neu\n\n- aus Commits",
+        "0.1.0",
+        "https://github.com/o/r",
+    )
     assert "## [0.2.0] - 2026-10-12\n\n### Neu\n\n- aus Commits" in second
     assert second.index("## [0.2.0]") < second.index("## [0.1.0]")
-    links = second[second.index("[Unreleased]:"):]
-    assert links.splitlines()[0].startswith("[Unreleased]: https://github.com/o/r/compare/v0.2.0")
+    links = second[second.index("[Unreleased]:") :]
+    assert links.splitlines()[0].startswith(
+        "[Unreleased]: https://github.com/o/r/compare/v0.2.0"
+    )
     assert "[0.2.0]: https://github.com/o/r/compare/v0.1.0...v0.2.0" in links
     assert links.index("[0.2.0]") < links.index("[0.1.0]")
     assert release.changelog_section(second, "0.1.0") == "- eins"
@@ -194,7 +249,11 @@ def test_empty_unreleased_uses_generated_notes_and_links_are_ordered():
 
 def test_changelog_is_created_when_missing_and_duplicates_are_rejected():
     out = release.update_changelog("", "0.1.0", "2026-10-12", "- x", None, None)
-    assert out.startswith("# Changelog") and "## [0.1.0] - 2026-10-12" in out and "[0.1.0]:" not in out
+    assert (
+        out.startswith("# Changelog")
+        and "## [0.1.0] - 2026-10-12" in out
+        and "[0.1.0]:" not in out
+    )
     with pytest.raises(release.ReleaseError, match="bereits"):
         release.update_changelog(out, "0.1.0", "2026-10-12", "", None, None)
 
@@ -212,7 +271,9 @@ def test_first_release_keeps_the_version_and_creates_commit_and_tag(repo):
     assert sh(repo, "status", "--porcelain") == ""
     changelog = (repo / "CHANGELOG.md").read_text()
     assert "## [0.1.0]" in changelog and "erstes Feature" in changelog
-    assert "erstes Feature" in sh(repo, "tag", "-n99", "v0.1.0")  # annotierter Tag mit Notizen
+    assert "erstes Feature" in sh(
+        repo, "tag", "-n99", "v0.1.0"
+    )  # annotierter Tag mit Notizen
     assert sh(repo, "cat-file", "-t", "v0.1.0") == "tag"
 
 
@@ -262,7 +323,9 @@ def test_wrong_branch_blocks_the_release(repo, capsys):
 def test_version_must_increase_and_tag_must_not_exist(repo, capsys):
     run(repo, "bump", "0.1.0")
     commit(repo, "fix: x", "x.txt")
-    assert run(repo, "bump", "0.1.0") == 1  # gleiche Version, aber es gibt schon einen Tag
+    assert (
+        run(repo, "bump", "0.1.0") == 1
+    )  # gleiche Version, aber es gibt schon einen Tag
     assert run(repo, "bump", "patch") == 0
     assert run(repo, "bump", "0.0.5") == 1
     err = capsys.readouterr().err
@@ -309,11 +372,23 @@ def test_publish_only_shows_commands_without_yes(repo, tmp_path, capsys):
 
     assert run(repo, "publish") == 0
     assert "git push origin v0.1.0" in capsys.readouterr().out
-    assert subprocess.run(["git", "tag"], cwd=remote, capture_output=True, text=True).stdout.strip() == ""
+    assert (
+        subprocess.run(
+            ["git", "tag"], cwd=remote, capture_output=True, text=True
+        ).stdout.strip()
+        == ""
+    )
 
     assert run(repo, "publish", "--yes") == 0
-    assert subprocess.run(["git", "tag"], cwd=remote, capture_output=True, text=True).stdout.split() == ["v0.1.0"]
-    assert "master" in subprocess.run(["git", "branch"], cwd=remote, capture_output=True, text=True).stdout
+    assert subprocess.run(
+        ["git", "tag"], cwd=remote, capture_output=True, text=True
+    ).stdout.split() == ["v0.1.0"]
+    assert (
+        "master"
+        in subprocess.run(
+            ["git", "branch"], cwd=remote, capture_output=True, text=True
+        ).stdout
+    )
 
 
 def test_publish_without_a_tag_fails(repo):

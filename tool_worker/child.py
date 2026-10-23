@@ -15,14 +15,42 @@ sys.path.insert(0, ROOT)
 _REAL_STDOUT = sys.__stdout__
 
 READ_ALLOWED = (
-    "/proc/cpuinfo", "/proc/meminfo", "/proc/self/", "/sys/devices/system/cpu", "/etc/localtime",
-    "/usr/share/zoneinfo", "/dev/urandom", "/dev/null", "/etc/mime.types",
+    "/proc/cpuinfo",
+    "/proc/meminfo",
+    "/proc/self/",
+    "/sys/devices/system/cpu",
+    "/etc/localtime",
+    "/usr/share/zoneinfo",
+    "/dev/urandom",
+    "/dev/null",
+    "/etc/mime.types",
 )
-DENY_PREFIXES = ("socket.", "ctypes.", "subprocess.", "os.exec", "os.spawn", "os.posix_spawn", "os.fork")
+DENY_PREFIXES = (
+    "socket.",
+    "ctypes.",
+    "subprocess.",
+    "os.exec",
+    "os.spawn",
+    "os.posix_spawn",
+    "os.fork",
+)
 DENY_EVENTS = {
-    "os.system", "os.remove", "os.rename", "os.mkdir", "os.rmdir", "os.chmod", "os.chown", "os.symlink",
-    "os.link", "os.truncate", "os.putenv", "os.kill", "pickle.find_class", "shutil.copyfile",
-    "shutil.rmtree", "shutil.move",
+    "os.system",
+    "os.remove",
+    "os.rename",
+    "os.mkdir",
+    "os.rmdir",
+    "os.chmod",
+    "os.chown",
+    "os.symlink",
+    "os.link",
+    "os.truncate",
+    "os.putenv",
+    "os.kill",
+    "pickle.find_class",
+    "shutil.copyfile",
+    "shutil.rmtree",
+    "shutil.move",
 }
 WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
 
@@ -57,7 +85,9 @@ def _install_hook(roots: list[str]) -> None:
                 raise PermissionError("Dateizugriff blockiert")
         elif event in ("os.listdir", "os.scandir"):
             p = args[0]
-            if p is not None and not under(os.fsdecode(p) if not isinstance(p, int) else "/"):
+            if p is not None and not under(
+                os.fsdecode(p) if not isinstance(p, int) else "/"
+            ):
                 raise PermissionError("Dateizugriff blockiert")
         elif event in DENY_EVENTS or event.startswith(DENY_PREFIXES):
             raise PermissionError("Aktion blockiert")
@@ -78,10 +108,42 @@ def _limits(memory_mb: int, cpu_s: int) -> None:
 SAFE_BUILTINS = {
     n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
     for n in (
-        "range", "len", "sum", "min", "max", "abs", "round", "sorted", "enumerate", "zip", "map", "filter",
-        "list", "dict", "set", "tuple", "str", "int", "float", "bool", "print", "isinstance", "all", "any",
-        "reversed", "divmod", "pow", "repr", "Exception", "ValueError", "KeyError", "TypeError",
-        "RuntimeError", "IndexError", "AttributeError", "ZeroDivisionError",
+        "range",
+        "len",
+        "sum",
+        "min",
+        "max",
+        "abs",
+        "round",
+        "sorted",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "print",
+        "isinstance",
+        "all",
+        "any",
+        "reversed",
+        "divmod",
+        "pow",
+        "repr",
+        "Exception",
+        "ValueError",
+        "KeyError",
+        "TypeError",
+        "RuntimeError",
+        "IndexError",
+        "AttributeError",
+        "ZeroDivisionError",
     )
 }
 SAFE_BUILTINS.update({"True": True, "False": False, "None": None})
@@ -103,14 +165,30 @@ def main() -> None:
         except FrameError as e:
             raise SystemExit(_emit({"ok": False, "error": f"FEHLER: {e}"}))
         if df.empty:
-            raise SystemExit(_emit({"ok": True, "output": "Die Datei ist leer oder enthält keine Daten."}))
+            raise SystemExit(
+                _emit(
+                    {
+                        "ok": True,
+                        "output": "Die Datei ist leer oder enthält keine Daten.",
+                    }
+                )
+            )
         code = compile(job["code"], "<analyse>", "exec")
         _install_hook(_roots())
-        scope = {"__builtins__": SAFE_BUILTINS, "df": df, "pd": pd, "np": np, "result": None}
+        scope = {
+            "__builtins__": SAFE_BUILTINS,
+            "df": df,
+            "pd": pd,
+            "np": np,
+            "result": None,
+        }
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             exec(code, scope)  # noqa: S102 - bewusst: geprueft, begrenzt, isoliert
-        out = {"ok": True, "output": format_report(buf.getvalue().strip(), scope.get("result"))}
+        out = {
+            "ok": True,
+            "output": format_report(buf.getvalue().strip(), scope.get("result")),
+        }
     except SystemExit:
         raise
     except MemoryError:

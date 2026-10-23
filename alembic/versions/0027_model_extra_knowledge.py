@@ -25,7 +25,12 @@ def upgrade() -> None:
     if "allow_extra_knowledge" not in cols:
         with op.batch_alter_table("model_configs") as batch_op:
             batch_op.add_column(
-                sa.Column("allow_extra_knowledge", sa.Boolean, nullable=False, server_default=sa.true())
+                sa.Column(
+                    "allow_extra_knowledge",
+                    sa.Boolean,
+                    nullable=False,
+                    server_default=sa.true(),
+                )
             )
 
 

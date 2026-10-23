@@ -81,7 +81,9 @@ def sanitize_params(raw: dict[str, Any] | None) -> dict[str, Any]:
         except (TypeError, ValueError):
             raise ValueError(f"{key} ist keine gültige Zahl") from None
         if (lo is not None and num < lo) or (hi is not None and num > hi):
-            raise ValueError(f"{key} muss zwischen {lo} und {hi or 'unbegrenzt'} liegen")
+            raise ValueError(
+                f"{key} muss zwischen {lo} und {hi or 'unbegrenzt'} liegen"
+            )
         clean[key] = num
     return clean
 
@@ -127,7 +129,9 @@ def ensure_default_connection(db_session) -> None:
 def list_connections() -> list[dict]:
     db = get_db_service().get_session()
     try:
-        return [_connection_dict(c) for c in db.query(Connection).order_by(Connection.id)]
+        return [
+            _connection_dict(c) for c in db.query(Connection).order_by(Connection.id)
+        ]
     finally:
         db.close()
 
@@ -147,7 +151,9 @@ def check_kind(kind: str) -> str:
     return kind
 
 
-def create_connection(name: str, base_url: str, api_key: str, enabled: bool = True, kind: str = "llm") -> dict:
+def create_connection(
+    name: str, base_url: str, api_key: str, enabled: bool = True, kind: str = "llm"
+) -> dict:
     check_kind(kind)
     db = get_db_service().get_session()
     try:
@@ -277,7 +283,9 @@ def _config_dict(m: ModelConfig) -> dict:
         "vision": bool(m.vision),
         "params": json.loads(m.params) if m.params else {},
         "knowledge_ids": json.loads(m.knowledge_ids) if m.knowledge_ids else None,
-        "allow_extra_knowledge": bool(m.allow_extra_knowledge) if m.allow_extra_knowledge is not None else True,
+        "allow_extra_knowledge": bool(m.allow_extra_knowledge)
+        if m.allow_extra_knowledge is not None
+        else True,
         "ref": make_clone_ref(m.id)
         if m.is_clone
         else make_base_ref(m.connection_id, m.base_model),
@@ -331,9 +339,7 @@ def _apply(m: ModelConfig, data: dict) -> None:
         m.allow_extra_knowledge = bool(data["allow_extra_knowledge"])
     if "knowledge_ids" in data:
         ids = data["knowledge_ids"]
-        m.knowledge_ids = (
-            json.dumps(sorted({int(i) for i in ids})) if ids else None
-        )
+        m.knowledge_ids = json.dumps(sorted({int(i) for i in ids})) if ids else None
 
 
 def save_model_config(ref: str, data: dict) -> dict | None:

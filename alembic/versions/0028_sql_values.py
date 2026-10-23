@@ -22,9 +22,21 @@ depends_on = None
 
 # Der Wert von SQL_VALUES_HINT muss zu app/toolworker/config.py:SQL_VALUES_HINT_DEFAULT passen (Test)
 SETTINGS = [
-    ("SQL_VALUES_MAX_DISTINCT", "5000", "Hoechstens so viele verschiedene Werte je Spalte im Wertverzeichnis (darueber ist es kein Kategoriefeld)"),
-    ("SQL_VALUES_MAX_RESULTS", "20", "Hoechstens so viele Werte liefert die Wertsuche an das Modell"),
-    ("SQL_VALUES_HINT", 'Für Textwerte (Namen, Kategorien, Orte) rufe vor dem SELECT sql_find_values mit dem Begriff aus der Frage auf: es liefert die exakten Schreibweisen aus der Datenbank (Ein-/Mehrzahl, Umlaute, zusammengesetzte Wörter). Setze diese Werte mit IN (...) ein, statt zu raten.', "Hinweis an das Modell, wenn ein Wertverzeichnis vorhanden ist"),
+    (
+        "SQL_VALUES_MAX_DISTINCT",
+        "5000",
+        "Hoechstens so viele verschiedene Werte je Spalte im Wertverzeichnis (darueber ist es kein Kategoriefeld)",
+    ),
+    (
+        "SQL_VALUES_MAX_RESULTS",
+        "20",
+        "Hoechstens so viele Werte liefert die Wertsuche an das Modell",
+    ),
+    (
+        "SQL_VALUES_HINT",
+        "Für Textwerte (Namen, Kategorien, Orte) rufe vor dem SELECT sql_find_values mit dem Begriff aus der Frage auf: es liefert die exakten Schreibweisen aus der Datenbank (Ein-/Mehrzahl, Umlaute, zusammengesetzte Wörter). Setze diese Werte mit IN (...) ein, statt zu raten.",
+        "Hinweis an das Modell, wenn ein Wertverzeichnis vorhanden ist",
+    ),
 ]
 
 
@@ -35,7 +47,12 @@ def upgrade() -> None:
         op.create_table(
             "sql_values",
             sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("knowledge_id", sa.Integer, sa.ForeignKey("knowledge.id", ondelete="CASCADE"), nullable=False),
+            sa.Column(
+                "knowledge_id",
+                sa.Integer,
+                sa.ForeignKey("knowledge.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
             sa.Column("table_name", sa.String(255), nullable=False),
             sa.Column("column_name", sa.String(255), nullable=False),
             sa.Column("value", sa.Text, nullable=False),
@@ -45,7 +62,12 @@ def upgrade() -> None:
     if "sql_value_index" not in tables:
         op.create_table(
             "sql_value_index",
-            sa.Column("knowledge_id", sa.Integer, sa.ForeignKey("knowledge.id", ondelete="CASCADE"), primary_key=True),
+            sa.Column(
+                "knowledge_id",
+                sa.Integer,
+                sa.ForeignKey("knowledge.id", ondelete="CASCADE"),
+                primary_key=True,
+            ),
             sa.Column("status", sa.String(20), nullable=False, server_default="idle"),
             sa.Column("built_at", sa.DateTime),
             sa.Column("value_count", sa.Integer, nullable=False, server_default="0"),
@@ -60,7 +82,12 @@ def upgrade() -> None:
                 "VALUES (:key, :value, :value, 'tools', :sensitive, :description) "
                 "ON CONFLICT (key) DO NOTHING"
             ),
-            {"key": key, "value": value, "sensitive": False, "description": description},
+            {
+                "key": key,
+                "value": value,
+                "sensitive": False,
+                "description": description,
+            },
         )
 
 

@@ -10,7 +10,12 @@ DIM = 4
 
 def vector(text: str) -> list[float]:
     words = set(re.findall(r"\w+", text.lower()))
-    return [float(len(words)), float(sum(len(w) for w in words)), float("miete" in words), float("wetter" in words)]
+    return [
+        float(len(words)),
+        float(sum(len(w) for w in words)),
+        float("miete" in words),
+        float("wetter" in words),
+    ]
 
 
 def relevance(query: str, text: str) -> float:
@@ -35,7 +40,10 @@ class _Base(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def _authorized(self) -> bool:
-        if self.api_key and self.headers.get("Authorization") != f"Bearer {self.api_key}":
+        if (
+            self.api_key
+            and self.headers.get("Authorization") != f"Bearer {self.api_key}"
+        ):
             self._send(401, {"error": "unauthorized"})
             return False
         return True
@@ -43,11 +51,13 @@ class _Base(BaseHTTPRequestHandler):
     def _path(self):
         path = self.path.split("?")[0]
         if self.prefix:
-            return path[len(self.prefix):] if path.startswith(self.prefix) else None
+            return path[len(self.prefix) :] if path.startswith(self.prefix) else None
         return path
 
     def _body(self):
-        return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        return json.loads(
+            self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}"
+        )
 
     def do_GET(self):
         if self._authorized():
@@ -74,7 +84,11 @@ class TEI(_Base):
 
     def get(self, path):
         if path == "/info":
-            kind = {"embedding": {"pooling": "cls"}} if self.mode == "embedding" else {"reranker": {}}
+            kind = (
+                {"embedding": {"pooling": "cls"}}
+                if self.mode == "embedding"
+                else {"reranker": {}}
+            )
             return self._send(200, {"model_id": self.model_id, "model_type": kind})
         if path == "/health":
             return self._send(200, {})
@@ -86,9 +100,17 @@ class TEI(_Base):
         if path == "/rerank" and self.mode == "reranker":
             if "texts" not in body:  # TEI kennt "documents" nicht
                 return self._send(422, {"error": "missing field `texts`"})
-            rows = [{"index": i, "score": relevance(body["query"], t)} for i, t in enumerate(body["texts"])]
-            return self._send(200, sorted(rows, key=lambda r: -r["score"]))  # TEI sortiert nach Score
-        self._send(404 if path not in ("/embed", "/rerank") else 424, {"error": "wrong model type"})
+            rows = [
+                {"index": i, "score": relevance(body["query"], t)}
+                for i, t in enumerate(body["texts"])
+            ]
+            return self._send(
+                200, sorted(rows, key=lambda r: -r["score"])
+            )  # TEI sortiert nach Score
+        self._send(
+            404 if path not in ("/embed", "/rerank") else 424,
+            {"error": "wrong model type"},
+        )
 
 
 class Infinity(_Base):
@@ -96,21 +118,48 @@ class Infinity(_Base):
 
     def get(self, path):
         if path == "/models":
-            return self._send(200, {"data": [
-                {"id": "emb-model", "object": "model", "capabilities": ["embed"]},
-                {"id": "rr-model", "object": "model", "capabilities": ["rerank"]},
-            ]})
+            return self._send(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "emb-model",
+                            "object": "model",
+                            "capabilities": ["embed"],
+                        },
+                        {
+                            "id": "rr-model",
+                            "object": "model",
+                            "capabilities": ["rerank"],
+                        },
+                    ]
+                },
+            )
         if path == "/health":
             return self._send(200, {})
         self._send(404, {"error": "not found"})
 
     def post(self, path, body):
         if path == "/embeddings" and body.get("model") == "emb-model":
-            data = [{"object": "embedding", "index": i, "embedding": vector(t)} for i, t in enumerate(body["input"])]
-            return self._send(200, {"object": "list", "data": data, "model": body["model"]})
+            data = [
+                {"object": "embedding", "index": i, "embedding": vector(t)}
+                for i, t in enumerate(body["input"])
+            ]
+            return self._send(
+                200, {"object": "list", "data": data, "model": body["model"]}
+            )
         if path == "/rerank" and body.get("model") == "rr-model":
-            rows = [{"index": i, "relevance_score": relevance(body["query"], t)} for i, t in enumerate(body["documents"])]
-            return self._send(200, {"object": "rerank", "results": sorted(rows, key=lambda r: -r["relevance_score"])})
+            rows = [
+                {"index": i, "relevance_score": relevance(body["query"], t)}
+                for i, t in enumerate(body["documents"])
+            ]
+            return self._send(
+                200,
+                {
+                    "object": "rerank",
+                    "results": sorted(rows, key=lambda r: -r["relevance_score"]),
+                },
+            )
         self._send(404, {"error": "model not found"})
 
 

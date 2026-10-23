@@ -22,11 +22,31 @@ branch_labels = None
 depends_on = None
 
 SETTINGS = [
-    ("AUTH_LDAP", "{}", True, "LDAP/AD-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)"),
-    ("AUTH_OIDC", "{}", True, "OIDC-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)"),
+    (
+        "AUTH_LDAP",
+        "{}",
+        True,
+        "LDAP/AD-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)",
+    ),
+    (
+        "AUTH_OIDC",
+        "{}",
+        True,
+        "OIDC-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)",
+    ),
     ("AUTH_DEFAULT_ROLE", "user", False, "Rolle neuer externer Konten"),
-    ("AUTH_AUTO_CREATE", "true", False, "Externe Konten beim ersten Login automatisch anlegen"),
-    ("APP_BASE_URL", "", False, "Oeffentliche Adresse der App (fuer den OIDC-Rueckruf)"),
+    (
+        "AUTH_AUTO_CREATE",
+        "true",
+        False,
+        "Externe Konten beim ersten Login automatisch anlegen",
+    ),
+    (
+        "APP_BASE_URL",
+        "",
+        False,
+        "Oeffentliche Adresse der App (fuer den OIDC-Rueckruf)",
+    ),
 ]
 
 
@@ -39,7 +59,9 @@ def upgrade() -> None:
     with op.batch_alter_table("users") as batch_op:
         if "auth_source" not in users:
             batch_op.add_column(
-                sa.Column("auth_source", sa.String(20), nullable=False, server_default="local")
+                sa.Column(
+                    "auth_source", sa.String(20), nullable=False, server_default="local"
+                )
             )
         if "external_id" not in users:
             batch_op.add_column(sa.Column("external_id", sa.String(255), nullable=True))
@@ -49,7 +71,9 @@ def upgrade() -> None:
     if "external" not in _cols("group_members"):
         with op.batch_alter_table("group_members") as batch_op:
             batch_op.add_column(
-                sa.Column("external", sa.Boolean, nullable=False, server_default=sa.false())
+                sa.Column(
+                    "external", sa.Boolean, nullable=False, server_default=sa.false()
+                )
             )
     bind = op.get_bind()
     for key, value, sensitive, description in SETTINGS:
@@ -59,7 +83,12 @@ def upgrade() -> None:
                 "VALUES (:key, :value, :value, 'auth', :sensitive, :description) "
                 "ON CONFLICT (key) DO NOTHING"
             ),
-            {"key": key, "value": value, "sensitive": sensitive, "description": description},
+            {
+                "key": key,
+                "value": value,
+                "sensitive": sensitive,
+                "description": description,
+            },
         )
 
 

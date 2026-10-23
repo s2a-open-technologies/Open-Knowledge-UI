@@ -67,7 +67,13 @@ def enabled() -> bool:
     return bool(load_task("images")["enabled"])
 
 
-def image_to_markdown(path: str | Path, filename: str, model=None, retries: int = RETRIES, delay: float = 2.0) -> str:
+def image_to_markdown(
+    path: str | Path,
+    filename: str,
+    model=None,
+    retries: int = RETRIES,
+    delay: float = 2.0,
+) -> str:
     """Liest das Bild mit dem Bildmodell und liefert Markdown (Ueberschrift = Dateiname).
 
     Raises:
@@ -78,7 +84,9 @@ def image_to_markdown(path: str | Path, filename: str, model=None, retries: int 
 
     cfg = load_task("images")
     if not cfg["enabled"]:
-        raise ImageReadError("Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle)")
+        raise ImageReadError(
+            "Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle)"
+        )
     image = encode_image(path)
     model = model or TaskLLM("images")
     message = model.generate_image_message(image, cfg["prompt"])
@@ -86,13 +94,21 @@ def image_to_markdown(path: str | Path, filename: str, model=None, retries: int 
     for attempt in range(1, retries + 1):
         try:
             result = model.generate(message)
-            text = (result.content if hasattr(result, "content") else str(result)).strip()
+            text = (
+                result.content if hasattr(result, "content") else str(result)
+            ).strip()
             if text:
                 return f"# {filename}\n\n{text}\n"
             last = ValueError("leere Antwort")
-        except Exception as e:  # Modell nicht erreichbar, Zeitueberschreitung, kein Bildmodell ...
+        except (
+            Exception
+        ) as e:  # Modell nicht erreichbar, Zeitueberschreitung, kein Bildmodell ...
             last = e
-        logger.warning(f"Bild {filename}: Versuch {attempt}/{retries} fehlgeschlagen: {str(last)[:120]}")
+        logger.warning(
+            f"Bild {filename}: Versuch {attempt}/{retries} fehlgeschlagen: {str(last)[:120]}"
+        )
         if attempt < retries:
             time.sleep(delay * attempt)
-    raise ImageReadError(f"Das Bildmodell konnte das Bild nicht lesen ({str(last)[:120]})")
+    raise ImageReadError(
+        f"Das Bildmodell konnte das Bild nicht lesen ({str(last)[:120]})"
+    )

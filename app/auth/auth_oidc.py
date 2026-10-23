@@ -76,7 +76,9 @@ def discover(cfg: dict, force: bool = False) -> dict:
         return cached[1]
     doc = _get(f"{issuer}/.well-known/openid-configuration", cfg["timeout"])
     if doc.get("issuer", "").rstrip("/") != issuer:
-        raise OidcError("Der Issuer der Discovery-Antwort passt nicht zur eingetragenen Adresse")
+        raise OidcError(
+            "Der Issuer der Discovery-Antwort passt nicht zur eingetragenen Adresse"
+        )
     for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
         if not doc.get(key):
             raise OidcError(f"Discovery ohne {key}")
@@ -94,8 +96,17 @@ def start_login(cfg: dict, base_url: str, session) -> str:
     doc = discover(cfg)
     state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
     verifier = secrets.token_urlsafe(64)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    session["oidc"] = {"state": state, "nonce": nonce, "verifier": verifier, "at": time.time()}
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    session["oidc"] = {
+        "state": state,
+        "nonce": nonce,
+        "verifier": verifier,
+        "at": time.time(),
+    }
     query = urlencode(
         {
             "response_type": "code",
@@ -134,7 +145,9 @@ def finish_login(cfg: dict, base_url: str, session, args: dict) -> dict:
         raise OidcError("Anmeldung abgelaufen, bitte erneut starten")
     if args.get("error"):
         raise OidcError(f"Anbieter meldet: {args.get('error')}")
-    if not args.get("state") or not secrets.compare_digest(str(args["state"]), saved["state"]):
+    if not args.get("state") or not secrets.compare_digest(
+        str(args["state"]), saved["state"]
+    ):
         raise OidcError("State stimmt nicht überein")
     code = args.get("code")
     if not code:
@@ -155,7 +168,9 @@ def finish_login(cfg: dict, base_url: str, session, args: dict) -> dict:
             allow_redirects=False,
         )
     except requests.RequestException as e:
-        raise OidcError(f"Token-Endpoint nicht erreichbar: {type(e).__name__}") from None
+        raise OidcError(
+            f"Token-Endpoint nicht erreichbar: {type(e).__name__}"
+        ) from None
     if resp.status_code != 200:
         raise OidcError(f"Token-Endpoint: HTTP {resp.status_code}")
     id_token = (resp.json() or {}).get("id_token")
@@ -163,9 +178,13 @@ def finish_login(cfg: dict, base_url: str, session, args: dict) -> dict:
         raise OidcError("Keine ID-Token in der Antwort")
     claims = _verify_token(cfg, doc, id_token, saved["nonce"])
 
-    name = str(claims.get(cfg["username_claim"]) or claims.get("email") or claims["sub"])
+    name = str(
+        claims.get(cfg["username_claim"]) or claims.get("email") or claims["sub"]
+    )
     raw_groups = claims.get(cfg["groups_claim"]) or []
-    groups = [raw_groups] if isinstance(raw_groups, str) else [str(g) for g in raw_groups]
+    groups = (
+        [raw_groups] if isinstance(raw_groups, str) else [str(g) for g in raw_groups]
+    )
     return {
         "external_id": str(claims["sub"]),
         "username": name,
@@ -176,7 +195,9 @@ def finish_login(cfg: dict, base_url: str, session, args: dict) -> dict:
 
 def _verify_token(cfg: dict, doc: dict, id_token: str, nonce: str) -> dict:
     try:
-        jwks = jwt.PyJWKClient(_check(doc["jwks_uri"]), timeout=cfg["timeout"], cache_keys=True)
+        jwks = jwt.PyJWKClient(
+            _check(doc["jwks_uri"]), timeout=cfg["timeout"], cache_keys=True
+        )
         return _decode(jwks, id_token, cfg, doc, nonce)
     except jwt.PyJWTError as e:
         raise OidcError(f"ID-Token ungültig: {type(e).__name__}") from None
@@ -192,5 +213,6 @@ def probe_oidc(cfg: dict, base_url: str) -> dict:
         "token_endpoint": doc["token_endpoint"],
         "jwks_reachable": True,
         "redirect_uri": redirect_uri(base_url) if base_url else None,
-        "pkce_supported": "S256" in (doc.get("code_challenge_methods_supported") or ["S256"]),
+        "pkce_supported": "S256"
+        in (doc.get("code_challenge_methods_supported") or ["S256"]),
     }

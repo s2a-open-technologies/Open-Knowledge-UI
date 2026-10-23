@@ -76,7 +76,8 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
     doc_filter = qdrant_models.Filter(
         must=[
             qdrant_models.FieldCondition(
-                key="file_group_id", match=qdrant_models.MatchValue(value=user_doc.document_id)
+                key="file_group_id",
+                match=qdrant_models.MatchValue(value=user_doc.document_id),
             )
         ]
     )
@@ -84,8 +85,11 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
     if client:
         try:
             points, _ = client.scroll(
-                collection_name=collection, scroll_filter=doc_filter, limit=1,
-                with_payload=True, with_vectors=False,
+                collection_name=collection,
+                scroll_filter=doc_filter,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
             )
             if points:
                 payload = points[0].payload
@@ -124,7 +128,9 @@ def list_uploads(user_id: int) -> list[dict]:
     db = get_db_service().get_session()
     try:
         items = []
-        for att in db.query(ChatAttachment).filter_by(user_id=user_id, status="ready").all():
+        for att in (
+            db.query(ChatAttachment).filter_by(user_id=user_id, status="ready").all()
+        ):
             session = db.query(ChatSession).filter_by(id=att.session_id).first()
             md = safe_markdown(att.markdown_path, ATTACHMENTS_ROOT)
             items.append(
@@ -133,7 +139,9 @@ def list_uploads(user_id: int) -> list[dict]:
                     "id": att.id,
                     "filename": _as_md(att.filename),
                     "source": (session.title or "Neuer Chat") if session else "Chat",
-                    "created_at": att.created_at.isoformat() if att.created_at else None,
+                    "created_at": att.created_at.isoformat()
+                    if att.created_at
+                    else None,
                     "size": md.stat().st_size if md else None,
                     "has_markdown": md is not None,
                 }
@@ -153,7 +161,9 @@ def get_owned(kind: str, item_id: str, user_id: int):
     db = get_db_service().get_session()
     try:
         if kind == "chat":
-            row = db.query(ChatAttachment).filter_by(id=item_id, user_id=user_id).first()
+            row = (
+                db.query(ChatAttachment).filter_by(id=item_id, user_id=user_id).first()
+            )
         else:
             row = None
         if row is None:
@@ -165,7 +175,9 @@ def get_owned(kind: str, item_id: str, user_id: int):
 
 
 def read_markdown(kind: str, row) -> str | None:
-    path = safe_markdown(row.markdown_path, ATTACHMENTS_ROOT) if kind == "chat" else None
+    path = (
+        safe_markdown(row.markdown_path, ATTACHMENTS_ROOT) if kind == "chat" else None
+    )
     return path.read_text(encoding="utf-8") if path else None
 
 

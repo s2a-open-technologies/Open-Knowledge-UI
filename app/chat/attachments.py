@@ -65,7 +65,9 @@ def image_data_url(session_id: str, attachment_id: str) -> str | None:
     """Das Bild als ``data:``-URL oder ``None``, wenn der Anhang kein (lesbares) Bild ist."""
     path = image_copy_path(session_id, attachment_id)
     try:
-        return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+        return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode(
+            "ascii"
+        )
     except OSError:
         return None
 
@@ -74,7 +76,9 @@ def session_dir(session_id: str) -> Path:
     return ATTACHMENTS_ROOT / session_id
 
 
-def start_attachment_ingestion(file_storage, session_id: str, sparse, user_id: int | None = None) -> dict:
+def start_attachment_ingestion(
+    file_storage, session_id: str, sparse, user_id: int | None = None
+) -> dict:
     """Speichert die Datei, legt den DB-Eintrag an und startet die Ingestion
     im Hintergrund. Liefert den Anhang (Status ``processing``)."""
     filename = secure_filename(file_storage.filename or "") or "datei"
@@ -198,5 +202,7 @@ def delete_attachment(attachment, client) -> None:
                 )
         except Exception as e:
             logger.warning(f"Anhang-Vektoren konnten nicht gelöscht werden: {e}")
-    shutil.rmtree(session_dir(attachment.session_id) / attachment.id, ignore_errors=True)
+    shutil.rmtree(
+        session_dir(attachment.session_id) / attachment.id, ignore_errors=True
+    )
     get_db_service().delete_attachment_row(attachment.id)

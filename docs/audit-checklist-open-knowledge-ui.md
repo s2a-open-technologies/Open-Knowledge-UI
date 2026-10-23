@@ -52,6 +52,7 @@
 | Copyright konsistent | ✅ | Dateiköpfe "SPDX-FileCopyrightText: 2026 S2A Open Technologies gGmbH" (+ Copyright-Zeile), generiert per Skript | Rechteinhaber GmbH, Urheber Christopher Abanilla (`AUTHORS.md`) |
 | SPDX-Header | ✅ | 105 Quelldateien mit `SPDX-License-Identifier: AGPL-3.0-or-later` + `SPDX-FileCopyrightText`; Rest per `REUSE.toml` (Override) | Fonts (`OFL-1.1` unter `LICENSES/`) sind ausdrücklich als Fremdcode annotiert |
 | `AUTHORS` / `THIRD_PARTY_NOTICES` | ✅ | `AUTHORS.md` (Rechteinhaber/Urheber), `THIRD_PARTY_NOTICES.md` (generiert über `scripts/third_party.py`: 197 Python- + 261 npm-Pakete, Stand 2026-10-15) | Generierte Snapshots; nach Dependency-Updates neu erzeugen |
+| Contributor CLA | ✅ | [`CLA.md`](../CLA.md) (Teil A Einzelpersonen, Teil B Unternehmen), Verweise in `CONTRIBUTING.md`, `AUTHORS.md`, `README.md` und PR-Template | Übertragung der übertragbaren Verwertungsrechte; Urheberrecht verbleibt beim Contributor (§ 29 UrhG) |
 | Lockfiles | ✅ | `uv.lock`, `frontend/package-lock.json` | CI nutzt `uv sync --frozen` |
 | Automatische Lizenzprüfung / `reuse lint` | ✅ | `REUSE.toml`, `LICENSES/OFL-1.1.txt`, `uvx reuse lint` läuft durch (`reuse` nicht als Projekt-Dep; ad hoc via uvx) | CI-Integration optional nachholen |
 | SBOM pro Image | ✅ | `.github/workflows/images.yml` (`sbom`-Job, `anchore/sbom-action`, CycloneDX je Image als Artefakt) | Läuft erst mit dem nächsten Image-Build (GitHub-Runner) |

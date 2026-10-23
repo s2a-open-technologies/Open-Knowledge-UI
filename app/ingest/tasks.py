@@ -30,9 +30,24 @@ from app.ingest import prompts
 TASKS = ("vision", "context", "tables", "images")
 MAX_PROMPT_CHARS = 8000
 
-_PROMPT_KEY = {"vision": "VISION_PROMPT", "context": "CONTEXT_PROMPT", "tables": "TABLES_PROMPT", "images": "IMAGES_PROMPT"}
-_SEED = {"VISION_PROMPT": prompts.VISION_PROMPT, "CONTEXT_PROMPT": prompts.CONTEXT_PROMPT, "TABLES_PROMPT": prompts.TABLES_PROMPT, "IMAGES_PROMPT": prompts.IMAGES_PROMPT}
-ENABLED_KEY = {"vision": "INGEST_VISION_ENABLED", "context": "INGEST_CONTEXT_ENRICHMENT", "tables": "INGEST_TABLE_VISION", "images": "INGEST_CHAT_IMAGES"}
+_PROMPT_KEY = {
+    "vision": "VISION_PROMPT",
+    "context": "CONTEXT_PROMPT",
+    "tables": "TABLES_PROMPT",
+    "images": "IMAGES_PROMPT",
+}
+_SEED = {
+    "VISION_PROMPT": prompts.VISION_PROMPT,
+    "CONTEXT_PROMPT": prompts.CONTEXT_PROMPT,
+    "TABLES_PROMPT": prompts.TABLES_PROMPT,
+    "IMAGES_PROMPT": prompts.IMAGES_PROMPT,
+}
+ENABLED_KEY = {
+    "vision": "INGEST_VISION_ENABLED",
+    "context": "INGEST_CONTEXT_ENRICHMENT",
+    "tables": "INGEST_TABLE_VISION",
+    "images": "INGEST_CHAT_IMAGES",
+}
 
 
 def _float(raw: str | None) -> float | None:
@@ -60,7 +75,9 @@ def load_task(task: str) -> dict:
         s = SettingsService(session)
         stored = session.query(Setting).filter_by(key=prompt_key).first()
         prompt = (s.get(prompt_key) or "").strip() or _SEED[prompt_key]
-        default_prompt = ((stored.default_value if stored else "") or "").strip() or _SEED[prompt_key]
+        default_prompt = (
+            (stored.default_value if stored else "") or ""
+        ).strip() or _SEED[prompt_key]
         return {
             "enabled": s.get_bool(ENABLED_KEY[task], True),
             "model_ref": s.get(f"{prefix}_MODEL_REF", "") or "",
@@ -68,10 +85,14 @@ def load_task(task: str) -> dict:
             "max_tokens": _int(s.get(f"{prefix}_MAX_TOKENS")),
             "prompt": prompt,
             "default_prompt": default_prompt,
-            "max_row_deviation": s.get_int("TABLES_MAX_ROW_DEVIATION", prompts.TABLES_MAX_ROW_DEVIATION)
+            "max_row_deviation": s.get_int(
+                "TABLES_MAX_ROW_DEVIATION", prompts.TABLES_MAX_ROW_DEVIATION
+            )
             if task == "tables"
             else None,
-            "excerpt_chars": s.get_int("CONTEXT_EXCERPT_CHARS", prompts.CONTEXT_EXCERPT_CHARS)
+            "excerpt_chars": s.get_int(
+                "CONTEXT_EXCERPT_CHARS", prompts.CONTEXT_EXCERPT_CHARS
+            )
             if task == "context"
             else None,
         }

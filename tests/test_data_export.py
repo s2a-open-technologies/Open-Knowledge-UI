@@ -25,21 +25,30 @@ def test_export_contains_only_own_data(db, app):  # noqa: F811
     alice = add_user(db, "alice")
     bob = add_user(db, "bob")
 
-    own = database_service.get_db_service().create_session("Alice-Frage", user_id=alice["id"])
+    own = database_service.get_db_service().create_session(
+        "Alice-Frage", user_id=alice["id"]
+    )
     _add_message(own.id, "user", "Was ist RAG?")
-    foreign = database_service.get_db_service().create_session("Bob-Geheimnis", user_id=bob["id"])
+    foreign = database_service.get_db_service().create_session(
+        "Bob-Geheimnis", user_id=bob["id"]
+    )
     _add_message(foreign.id, "user", "Fremdinhalt")
 
     summaries_store.user_dir(alice["id"], create=True)
     path = summaries_store.safe_path(alice["id"], "notiz.md")
     assert path is not None
     path.write_text("# Notiz\nInhalt von alice", encoding="utf-8")
-    database_service.get_db_service().create_summary_file("notiz.md", user_id=alice["id"])
+    database_service.get_db_service().create_summary_file(
+        "notiz.md", user_id=alice["id"]
+    )
 
     client = client_for(app, alice)
     res = client.get("/api/me/export")
     assert res.status_code == 200
-    assert 'filename="open-knowledge-ui-export-alice-' in res.headers["Content-Disposition"]
+    assert (
+        'filename="open-knowledge-ui-export-alice-'
+        in res.headers["Content-Disposition"]
+    )
 
     payload = json.loads(res.get_data(as_text=True))
     assert payload["format"] == "open-knowledge-ui-export"

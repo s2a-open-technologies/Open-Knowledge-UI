@@ -22,7 +22,7 @@ Liest aus DB mit Fallback auf Environment
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session as SQLAlchemySession
 
@@ -103,7 +103,7 @@ class SettingsService:
             "INGEST_CONTEXT_ENRICHMENT",
             "INGEST_KEEP_ORIGINAL",
             "INGEST_INDEX_ENABLED",
-        "BM25_LANGUAGE",
+            "BM25_LANGUAGE",
             "BM25_LANGUAGE",
             "INGEST_VISION_ENABLED",
             "INGEST_TABLE_VISION",
@@ -277,7 +277,7 @@ class SettingsService:
     def _stored(cls, key: str, value):
         return crypto.encrypt(value) if key in cls.encrypted_keys() else value
 
-    def get(self, key: str, default: Any = None) -> Optional[str]:
+    def get(self, key: str, default: Any = None) -> str | None:
         """
         Setting-Wert holen (Reihenfolge: DB → Env → Default)
         """
@@ -346,17 +346,17 @@ class SettingsService:
 
         self.db.commit()
 
-    def set_batch(self, settings_dict: Dict[str, str]) -> None:
+    def set_batch(self, settings_dict: dict[str, str]) -> None:
         """Mehrere Settings auf einmal speichern"""
         for key, value in settings_dict.items():
             self.set(key, value)
 
-    def get_all_by_category(self) -> Dict[str, List[Setting]]:
+    def get_all_by_category(self) -> dict[str, list[Setting]]:
         """Alle Settings gruppiert nach Kategorie (für Settings-Panel).
         Veraltete Settings (DEPRECATED_KEYS) und UI-exkludierte Keys
         (z.B. APP_PASSWORD_HASH) werden ausgeblendet."""
         settings = self.db.query(Setting).order_by(Setting.key).all()
-        result = {cat: [] for cat in self.CATEGORIES.keys()}
+        result = {cat: [] for cat in self.CATEGORIES}
         result["other"] = []  # Für Settings ohne Kategorie
 
         for setting in settings:
@@ -406,7 +406,7 @@ class SettingsService:
         }
         return names.get(category, category.capitalize())
 
-    def get_missing_from_env(self) -> List[str]:
+    def get_missing_from_env(self) -> list[str]:
         """Settings die in .env existieren aber nicht in DB.
         Veraltete Keys werden ignoriert."""
         existing_keys = {s.key for s in self.db.query(Setting.key).all()}

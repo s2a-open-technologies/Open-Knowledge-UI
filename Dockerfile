@@ -49,9 +49,11 @@ RUN pip install --no-cache-dir uv
 # Copy project files
 COPY pyproject.toml ./
 COPY README.md ./
+# Overrides fuer das pip-Interface (liest [tool.uv] nicht), z. B. pillow>=13.
+COPY uv-overrides.txt ./
 
 # Install dependencies system-wide (no .venv!)
-RUN uv pip install --system -e .
+RUN uv pip install --system -e . --override uv-overrides.txt
 
 # PyTorch mit CUDA: pyproject.toml pinnt torch fuer lokale Entwicklung auf das CPU-Wheel.
 # Im Image ersetzen wir es durch das CUDA-Build von PyPI (bringt die CUDA-Runtime mit, auf

@@ -136,7 +136,9 @@ def test_memory_hog_is_stopped(csv):
 
 def test_output_is_truncated(csv):
     out = run(csv, "print('x' * 100000)\nresult = 1", max_output_chars=500)
-    assert out["ok"] is True and len(out["output"]) <= 700 and "gekürzt" in out["output"]
+    assert (
+        out["ok"] is True and len(out["output"]) <= 700 and "gekürzt" in out["output"]
+    )
 
 
 # --- Audit-Hook: das, was die AST-Prüfung nicht sieht -----------------------
@@ -175,15 +177,27 @@ def run_child_directly(path, code, memory_mb=1024):
 
     child = os.path.join(os.path.dirname(sandbox.__file__), "child.py")
     job = json.dumps({"path": path, "code": code, "memory_mb": memory_mb, "cpu_s": 20})
-    out = subprocess.run([sys.executable, "-I", child], input=job.encode(), capture_output=True, timeout=30).stdout
+    out = subprocess.run(
+        [sys.executable, "-I", child],
+        input=job.encode(),
+        capture_output=True,
+        timeout=30,
+        check=False
+    ).stdout
     return json.loads(out)
 
 
 def test_hook_blocks_reading_other_files_without_ast(csv, tmp_path):
     secret = tmp_path / "geheim.txt"
     secret.write_text("TOPSECRET")
-    out = run_child_directly(csv, f"result = np.lib.npyio.DataSource().open({str(secret)!r}).read()")
-    assert out["ok"] is False and "blockiert" in out["error"] and "TOPSECRET" not in str(out)
+    out = run_child_directly(
+        csv, f"result = np.lib.npyio.DataSource().open({str(secret)!r}).read()"
+    )
+    assert (
+        out["ok"] is False
+        and "blockiert" in out["error"]
+        and "TOPSECRET" not in str(out)
+    )
 
 
 def test_hook_blocks_writing_without_ast(csv, tmp_path):

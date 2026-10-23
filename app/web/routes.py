@@ -22,6 +22,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 from flask import (
     Blueprint,
@@ -314,7 +315,9 @@ def _tool_text(output) -> str:
     """Text eines Werkzeug-Ergebnisses (nicht die ``repr`` der ToolMessage mit name=/tool_call_id=)."""
     content = getattr(output, "content", output)
     if isinstance(content, list):
-        content = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+        content = "".join(
+            p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+        )
     return str(content if content is not None else "")
 
 
@@ -328,12 +331,20 @@ def _tool_input_text(tool_input) -> str:
 def tools_block(tool_calls: list[dict]) -> str:
     """``<tools>[json]</tools>`` fuer den Verlauf: maskiert, gekuerzt, hoechstens ``MAX_TOOL_BLOCKS`` Aufrufe."""
     rows = [
-        {"name": tc["name"], "input": _tool_input_text(tc.get("input")), "output": (tc.get("output") or "")[:MAX_TOOL_CHARS]}
+        {
+            "name": tc["name"],
+            "input": _tool_input_text(tc.get("input")),
+            "output": (tc.get("output") or "")[:MAX_TOOL_CHARS],
+        }
         for tc in tool_calls[:MAX_TOOL_BLOCKS]
     ]
     if not rows:
         return ""
-    return "\n\n<tools>" + json.dumps(rows, ensure_ascii=False).replace("</", "<\\/") + "</tools>"
+    return (
+        "\n\n<tools>"
+        + json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
+        + "</tools>"
+    )
 
 
 @bp.route("/chat", methods=["POST"])
@@ -344,7 +355,11 @@ def chat():
     session_id = data.get("session_id")
     # None = alle Knowledge-Bereiche; Liste = nur diese (leer = keiner).
     knowledge_ids = data.get("knowledge_ids")
-    attachment_ids = data.get("attachment_ids") if isinstance(data.get("attachment_ids"), list) else []
+    attachment_ids = (
+        data.get("attachment_ids")
+        if isinstance(data.get("attachment_ids"), list)
+        else []
+    )
 
     if not user_message:
         return Response(
@@ -370,7 +385,10 @@ def chat():
         title = user_message[:50] + ("..." if len(user_message) > 50 else "")
         db.update_session_title(final_session_id, title)
 
-    phase_logger.log_phase(Phase.USER_INPUT, f"User-Query: {user_message[:100]}...")
+    chat_started = time.time()
+    phase_logger.log_phase(
+        Phase.USER_INPUT, f"Chat-Anfrage | {len(user_message)} Zeichen"
+    )
 
     if not resources_ready():
         try:
@@ -393,7 +411,9 @@ def chat():
     user = current_user()
     # Knowledge, das das Modell selbst mitbringt (vom Admin kuratiert): wer das
     # Modell nutzen darf, darf es durchsuchen. Sonst gelten die Rechte des Nutzers.
-    model_base: set[int] | None = None  # Knowledge, das das Modell mitbringt (Basis jeder Suche)
+    model_base: set[int] | None = (
+        None  # Knowledge, das das Modell mitbringt (Basis jeder Suche)
+    )
     model_allows_extra = True
     resolved = None
     try:
@@ -457,12 +477,18 @@ def chat():
     # Nie Collections aus dem Request ungeprueft uebernehmen.
     readable = accessible_knowledge_ids(user, "read")
     wanted = (
-        {int(i) for i in knowledge_ids if str(i).lstrip("-").isdigit()} if knowledge_ids is not None else None
+        {int(i) for i in knowledge_ids if str(i).lstrip("-").isdigit()}
+        if knowledge_ids is not None
+        else None
     )
     if model_base is not None:
         # Das Modell-Knowledge ist die Basis (wer das Modell nutzen darf, darf es durchsuchen, auch
         # ohne eigene Freigabe). Dazu kommt, was der Nutzer selbst waehlt und lesen darf.
-        extra = (wanted & readable) if (wanted is not None and model_allows_extra) else set()
+        extra = (
+            (wanted & readable)
+            if (wanted is not None and model_allows_extra)
+            else set()
+        )
         allowed = model_base | extra
         all_knowledge = [k for k in all_knowledge if k["id"] in allowed]
     else:
@@ -491,9 +517,14 @@ def chat():
         collections=tuple(k["collection_name"] for k in all_knowledge),
         session_id=final_session_id,
         # Jedes Knowledge sucht mit seinem Retrieval-Profil (sonst Standardprofil).
-        profiles=tuple((k["collection_name"], config_for_knowledge(k)) for k in all_knowledge),
+        profiles=tuple(
+            (k["collection_name"], config_for_knowledge(k)) for k in all_knowledge
+        ),
         # BM25-Sprache je Collection: jede Collection wird in der Sprache gefragt, mit der sie indexiert wurde
-        sparse_langs=tuple((k["collection_name"], sparse_lang.knowledge_language(k)) for k in all_knowledge),
+        sparse_langs=tuple(
+            (k["collection_name"], sparse_lang.knowledge_language(k))
+            for k in all_knowledge
+        ),
         helper=make_helper(resolved, user),
         # pandas-Tools sehen nur die strukturierten Dateien dieser Knowledge-Bereiche
         data_dirs=tuple(
@@ -509,10 +540,17 @@ def chat():
             for k in all_knowledge
             if k.get("kind") == "external" and k.get("source_config")
         ),
-        sql_sources=tuple((k["id"], k["name"], k["source_config"]) for k in sql_knowledge if k.get("source_config")),
+        sql_sources=tuple(
+            (k["id"], k["name"], k["source_config"])
+            for k in sql_knowledge
+            if k.get("source_config")
+        ),
         # jedes Knowledge wird mit dem Modell abgefragt, mit dem es indexiert wurde
         specs=tuple(
-            (k["collection_name"], json.dumps(model_settings.knowledge_spec(k).to_dict()))
+            (
+                k["collection_name"],
+                json.dumps(model_settings.knowledge_spec(k).to_dict()),
+            )
             for k in all_knowledge
         ),
     )
@@ -533,7 +571,9 @@ def chat():
 
     # Ohne Wissen und ohne Anhaenge gibt es nichts zu durchsuchen: dann bekommt der Agent keine
     # Wissens-Werkzeuge und beantwortet/fasst nur aus dem Gespraech zusammen.
-    has_knowledge = bool(scope.collections or scope.externals or scope.data_dirs or attached)
+    has_knowledge = bool(
+        scope.collections or scope.externals or scope.data_dirs or attached
+    )
     tools = select_tools(tools, has_knowledge, has_sql)
     if not has_knowledge and not has_sql:
         message_list[-1]["content"] += CONVERSATION_ONLY_HINT
@@ -549,7 +589,9 @@ def chat():
     compaction_note = None
     try:
         cfg = compaction.load_settings()
-        budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
+        budget = compaction.compute_budget(
+            compaction.effective_params(resolved.params), cfg
+        )
         if budget:
             overhead = compaction.estimate_tokens(
                 DocumentAgent.compose_prompt(resolved.system_prompt)
@@ -563,10 +605,16 @@ def chat():
                 budget,
                 cfg,
                 lambda: compaction.summary_llm(resolved, budget),
-                lambda text, through: db.set_session_summary(final_session_id, text, through),
+                lambda text, through: db.set_session_summary(
+                    final_session_id, text, through
+                ),
                 # Mit PII-Filter sieht auch das Zusammenfassungs-Modell nur maskierten Text
-                mask_many=(lambda texts: mask_conversation(pii_filter, texts)) if pii_filter else None,
-                unmask=(lambda text, mapping: pii_filter.demask(text, mapping)) if pii_filter else None,
+                mask_many=(lambda texts: mask_conversation(pii_filter, texts))
+                if pii_filter
+                else None,
+                unmask=(lambda text, mapping: pii_filter.demask(text, mapping))
+                if pii_filter
+                else None,
             )
             message_list = history + [new_message]
     except PIIFilterUnavailable:
@@ -579,12 +627,20 @@ def chat():
     # zerstoert er die Struktur, geht NICHTS ans Modell; der Nutzer bekommt eine Fehlermeldung.
     if pii_filter:
         try:
-            masked, pii_mapping = mask_conversation(pii_filter, [m["content"] for m in message_list])
-            message_list = [{"role": m["role"], "content": t} for m, t in zip(message_list, masked)]
+            masked, pii_mapping = mask_conversation(
+                pii_filter, [m["content"] for m in message_list]
+            )
+            message_list = [
+                {"role": m["role"], "content": t} for m, t in zip(message_list, masked)
+            ]
             if pii_mapping:
-                logger.info(f"PII-Filter: {len(pii_mapping)} Entitäten im Kontext maskiert")
+                logger.info(
+                    f"PII-Filter: {len(pii_mapping)} Entitäten im Kontext maskiert"
+                )
         except PIIFilterUnavailable as e:
-            logger.warning(f"PII-Filter nicht verfügbar ({e}) - Nachricht wird nicht gesendet")
+            logger.warning(
+                f"PII-Filter nicht verfügbar ({e}) - Nachricht wird nicht gesendet"
+            )
             return Response(
                 "data: "
                 + json.dumps(
@@ -600,7 +656,9 @@ def chat():
             )
     # Alle Platzhalter dieses Requests (Kontext, Werkzeug-Ergebnisse, Antwort) liegen in einer Sitzung
     pii_session = PIISession(pii_filter, pii_mapping)
-    message_list[-1]["content"] += hints  # Hinweise (Anhaenge, Inhaltsverzeichnis) sind kein Nutzertext
+    message_list[-1]["content"] += (
+        hints  # Hinweise (Anhaenge, Inhaltsverzeichnis) sind kein Nutzertext
+    )
     # Versteht das Modell Bilder, sieht es die in dieser Frage angehaengten Bilder selbst (zusaetzlich
     # zum gelesenen Text). Der PII-Filter kann Bilder nicht schwaerzen; die Modellwahl des Admins
     # entscheidet, wer sie bekommt. Erst hier angehaengt, damit Maskierung und Compaction nur Text sehen.
@@ -616,9 +674,9 @@ def chat():
                 if url:
                     urls.append(url)
         if urls:
-            message_list[-1]["content"] = [{"type": "text", "text": message_list[-1]["content"]}] + [
-                {"type": "image_url", "image_url": {"url": url}} for url in urls
-            ]
+            message_list[-1]["content"] = [
+                {"type": "text", "text": message_list[-1]["content"]}
+            ] + [{"type": "image_url", "image_url": {"url": url}} for url in urls]
     input_data = {"messages": message_list}
 
     def generate():
@@ -700,19 +758,26 @@ def chat():
                         if tool_calls:
                             for tc in tool_calls:
                                 if tc["name"] == tool_name and tc["output"] is None:
-                                    tc["output"] = text  # maskiert, wie das Modell es sah (so landet es im Verlauf)
+                                    tc["output"] = (
+                                        text  # maskiert, wie das Modell es sah (so landet es im Verlauf)
+                                    )
                                     shown_input = _tool_input_text(tc.get("input"))
                                     break
-                        result_queue.put(("tool_result", (tool_name, text, shown_input)))
+                        result_queue.put(
+                            ("tool_result", (tool_name, text, shown_input))
+                        )
 
                 if cancel_event.is_set():
                     phase_logger.log_phase(
                         Phase.AGENT_RESPONSE, "Antwort vom Benutzer abgebrochen"
                     )
                 else:
+                    used = ", ".join(sorted({tc["name"] for tc in tool_calls})) or "-"
                     phase_logger.log_phase(
                         Phase.AGENT_RESPONSE,
-                        f"Antwort gestreamt | Tokens: {len(full_response)}",
+                        f"Chat fertig | Modell: {resolved.ref} | Tools: {used} | Antwort: {len(full_response)} Zeichen",
+                        duration=time.time() - chat_started,
+                        level=logging.INFO,
                     )
                     # Signal an Frontend: Thinking abgeschlossen (zum
                     # Zuklappen des offenen Blocks).
@@ -724,7 +789,10 @@ def chat():
 
                 traceback.print_exc()
                 phase_logger.log_phase(
-                    Phase.AGENT_RESPONSE, f"Fehler: {str(e)[:100]}", duration=0.0
+                    Phase.AGENT_RESPONSE,
+                    f"Fehler: {type(e).__name__}",
+                    duration=0.0,
+                    level=logging.ERROR,
                 )
                 result_queue.put(("error", str(e)))
 
@@ -734,7 +802,10 @@ def chat():
             try:
                 loop.run_until_complete(run_agent_async())
             finally:
-                loop.close()
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                finally:
+                    loop.close()
 
         if compaction_note:
             yield f"data: {json.dumps({'compaction': compaction_note})}\n\n"
@@ -747,7 +818,10 @@ def chat():
 
                 if msg_type == "done":
                     # Zurueckgehaltene Reste der Live-Demaskierung ausgeben
-                    for rest, key in ((reasoning_demasker.flush(), "reasoning"), (token_demasker.flush(), "token")):
+                    for rest, key in (
+                        (reasoning_demasker.flush(), "reasoning"),
+                        (token_demasker.flush(), "token"),
+                    ):
                         if rest:
                             yield f"data: {json.dumps({key: rest})}\n\n"
                     # Antwort demaskieren bevor sie gespeichert wird
@@ -781,7 +855,9 @@ def chat():
                         saved_assistant = (
                             f"<think>{reasoning_text}</think>\n" + demasked_response
                         )
-                    saved_assistant += tools_block(tool_calls)  # Werkzeug-Aufrufe (maskiert) fuer den Verlauf
+                    saved_assistant += tools_block(
+                        tool_calls
+                    )  # Werkzeug-Aufrufe (maskiert) fuer den Verlauf
                     if scope.sources:  # Quellen mit Score fuer die Anzeige im Verlauf
                         saved_assistant += (
                             "\n\n<sources>"
@@ -827,9 +903,16 @@ def chat():
                     tool_name, tool_output, tool_input = msg_data
                     if pii_filter and pii_session.pairs():
                         # Der Nutzer sieht echte Werte wie in der Antwort; gespeichert wird die maskierte Fassung
-                        tool_output, tool_input = pii_session.unmask(tool_output), pii_session.unmask(tool_input)
+                        tool_output, tool_input = (
+                            pii_session.unmask(tool_output),
+                            pii_session.unmask(tool_input),
+                        )
                     payload = {
-                        "tool_result": {"name": tool_name, "output": tool_output, "input": tool_input}
+                        "tool_result": {
+                            "name": tool_name,
+                            "output": tool_output,
+                            "input": tool_input,
+                        }
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
 
@@ -864,6 +947,7 @@ def stop_chat():
 def stt_config_route():
     """Ob und wie die Spracheingabe laeuft (``stream`` live, ``upload`` aufnehmen und senden)."""
     from app.stt import stt_config
+
     return jsonify(stt_config.client_config())
 
 
@@ -872,6 +956,7 @@ def stt_config_route():
 def stt():
     """Wandelt eine Aufnahme in Text um (OpenAI-kompatibler Standard ``/audio/transcriptions``)."""
     from app.stt import stt_config
+
     audio_file = request.files.get("audio")
     if audio_file is None or not audio_file.filename:
         return jsonify({"error": "Keine Audiodatei"}), 400
@@ -921,4 +1006,3 @@ def spa_fallback(error):
         return serve_spa()
 
     return error.get_response()
-

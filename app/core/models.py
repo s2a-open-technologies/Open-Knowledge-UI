@@ -53,7 +53,9 @@ class User(Base):
     role = Column(String(20), nullable=False, default="user")
     is_active = Column(Boolean, nullable=False, default=True)
     # Herkunft des Kontos: 'local' (Passwort hier), 'ldap' oder 'oidc' (extern angemeldet)
-    auth_source = Column(String(20), nullable=False, default="local", server_default="local")
+    auth_source = Column(
+        String(20), nullable=False, default="local", server_default="local"
+    )
     external_id = Column(String(255), index=True)  # OIDC-sub bzw. LDAP-DN
     external_groups = Column(Text)  # JSON: beim letzten Login gemeldete Gruppennamen
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -131,7 +133,9 @@ class Knowledge(Base):
     # 'local' (eigene Collection), 'external' (fremder Vektorspeicher, nur lesen) oder 'sql' (SQL-Datenbank, nur lesen)
     kind = Column(String(20), nullable=False, default="local", server_default="local")
     # externe Quelle: JSON mit URL, Key, Collection, Vektornamen, Feldzuordnung
-    source_config = Column(EncryptedText)  # enthaelt Zugangsdaten: verschluesselt (app/crypto.py)
+    source_config = Column(
+        EncryptedText
+    )  # enthaelt Zugangsdaten: verschluesselt (app/crypto.py)
     # Inhaltsverzeichnis (Markdown) dieses Knowledge: gehoert zum Eintrag, nicht zu einer Datei im Ordner
     index_md = Column(Text)
     index_updated_at = Column(DateTime)
@@ -181,7 +185,10 @@ class ModelConfig(Base):
 
     id = Column(Integer, primary_key=True)
     connection_id = Column(
-        Integer, ForeignKey("connections.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     base_model = Column(String(255), nullable=False)
     name = Column(String(120))
@@ -191,7 +198,9 @@ class ModelConfig(Base):
     params = Column(Text)  # JSON-Objekt
     knowledge_ids = Column(Text)  # JSON-Liste oder NULL
     # Nutzer duerfen zusaetzlich eigenes Knowledge waehlen (an: Modell-Knowledge ist die Basis)
-    allow_extra_knowledge = Column(Boolean, nullable=False, default=True, server_default=true())
+    allow_extra_knowledge = Column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
     # Websuche (SearXNG) als Werkzeug; standardmaessig aus
     web_search = Column(Boolean, nullable=False, default=False)
     # Das Modell versteht Bilder: Bild-Anhaenge gehen zusaetzlich zum gelesenen Text direkt an das Modell
@@ -236,7 +245,10 @@ class ResourceGrant(Base):
     __tablename__ = "resource_grants"
     __table_args__ = (
         UniqueConstraint(
-            "resource_type", "resource_id", "principal_type", "principal_id",
+            "resource_type",
+            "resource_id",
+            "principal_type",
+            "principal_id",
             name="uq_resource_grant",
         ),
     )
@@ -338,7 +350,12 @@ class SqlValue(Base):
     __tablename__ = "sql_values"
 
     id = Column(Integer, primary_key=True)
-    knowledge_id = Column(Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), nullable=False, index=True)
+    knowledge_id = Column(
+        Integer,
+        ForeignKey("knowledge.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     table_name = Column(String(255), nullable=False)
     column_name = Column(String(255), nullable=False)
     value = Column(Text, nullable=False)
@@ -350,7 +367,9 @@ class SqlValueIndex(Base):
 
     __tablename__ = "sql_value_index"
 
-    knowledge_id = Column(Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), primary_key=True)
+    knowledge_id = Column(
+        Integer, ForeignKey("knowledge.id", ondelete="CASCADE"), primary_key=True
+    )
     status = Column(String(20), nullable=False, default="idle")
     built_at = Column(DateTime)
     value_count = Column(Integer, nullable=False, default=0)
@@ -371,6 +390,7 @@ class UserSummaryFile(Base):
 
     def __repr__(self):
         return f"<UserSummaryFile(id={self.id}, filename='{self.filename}')>"
+
 
 class AuditLog(Base):
     """Revisionssicheres Protokoll sicherheitsrelevanter Ereignisse (Anmeldung, Verwaltung, Freigaben)."""

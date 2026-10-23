@@ -35,4 +35,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.get_bind().execute(sa.text("DELETE FROM settings WHERE key = :key"), {"key": KEY})
+    op.get_bind().execute(
+        sa.text("DELETE FROM settings WHERE key = :key"), {"key": KEY}
+    )

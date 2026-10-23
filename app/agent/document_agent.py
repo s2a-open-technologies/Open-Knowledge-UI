@@ -23,10 +23,15 @@ The Document Agent
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseLanguageModel
 
-
 # Werkzeuge, die nur mit ausgewaehltem Wissen (oder Chat-Anhaengen) etwas finden koennen
 KNOWLEDGE_TOOLS = frozenset(
-    {"document_search_tool", "read_knowledge_index", "list_files", "preview_data", "run_pandas"}
+    {
+        "document_search_tool",
+        "read_knowledge_index",
+        "list_files",
+        "preview_data",
+        "run_pandas",
+    }
 )
 
 CONVERSATION_ONLY_HINT = (
@@ -113,7 +118,7 @@ class DocumentAgent:
         """Return the cached compiled agent graph."""
         return self._agent
 
-    def stream(self, input_data: dict, config: dict = None):
+    def stream(self, input_data: dict, config: dict | None = None):
         """Stream the agent's response."""
         if config is None:
             config = {}
@@ -121,7 +126,11 @@ class DocumentAgent:
         return self.agent.astream(input_data, config, stream_mode="messages")
 
     def astream_events(
-        self, input_data: dict, config: dict = None, version: str = "v2", **kwargs
+        self,
+        input_data: dict,
+        config: dict | None = None,
+        version: str = "v2",
+        **kwargs,
     ):
         """Stream agent events."""
         if config is None:

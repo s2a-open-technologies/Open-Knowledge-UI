@@ -30,6 +30,8 @@ maintainers = [
 classifiers = [
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Framework :: Flask",
 ]
 dependencies = [
@@ -39,7 +41,6 @@ dependencies = [
     "fastembed>=0.8.0",
     "flask>=3.0.0",
     "flask-sock>=0.7.0",
-    "gradio>=6.10.0",
     "langchain>=1.2.13",
     "langchain-community>=0.4.1",
     "langchain-ollama>=1.0.1",
@@ -57,7 +58,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "tqdm>=4.67.3",
     "imagehash>=4.3.1",
-    "pillow>=11.0.0",
+    "pillow>=13.0.0,<14.0.0",
     "ml-dtypes>=0.5.4",
     "tabulate>=0.10.0",
     "python-docx>=1.1.0",
@@ -73,11 +74,12 @@ dependencies = [
     "ldap3>=2.9.1",
     "pyjwt[crypto]>=2.15.1",
     "cryptography>=42.0.0",
+    "pytest>=9.1.1",
 ]
 
 [project.optional-dependencies]
 # Nur fuer Tests des Tool-Workers (SQL-Rolle); das Worker-Image installiert sie selbst
-worker = ["sqlglot>=25.0", "pymysql>=1.1", "pymssql>=2.3"]
+worker = ["sqlglot>=30.24.0", "pymysql>=1.1", "pymssql>=2.3"]
 
 # torch/torchvision auf den CPU-only-Wheel-Index pinnen (kein CUDA-Download).
 # Docling nutzt torch fuer Layout-/TableFormer-Modelle; sentence-transformers
@@ -93,3 +95,13 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]
 torchvision = [{ index = "pytorch-cpu" }]
+
+[tool.uv]
+# Pillow 13 enthaelt die Sicherheitsfixes fuer 39 CVEs (u. a. JPEG-Overflow,
+# CVE-2026-96639). fastembed 0.9.0 deklariert noch pillow<13 (marker-abhaengig
+# sogar >=12,<13 fuer Python >=3.14), obwohl PIL dort nur in den hier nicht
+# genutzten Bild-/Multimodal-Modulen importiert wird. Der Override ersetzt alle
+# Requirements auf pillow; die Obergrenze <14 entspricht docling und verhindert
+# ein stilles Major-Upgrade. Entfernen, sobald fastembed pillow<14 erlaubt.
+# Die Docker-Pip-Installation liest tool.uv nicht und nutzt uv-overrides.txt.
+override-dependencies = ["pillow>=13.0.0,<14.0.0"]

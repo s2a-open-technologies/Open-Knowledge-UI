@@ -49,7 +49,9 @@ def upgrade() -> None:
             ),
             sa.Column("base_model", sa.String(255), nullable=False),
             sa.Column("name", sa.String(120)),
-            sa.Column("is_clone", sa.Boolean, nullable=False, server_default=sa.false()),
+            sa.Column(
+                "is_clone", sa.Boolean, nullable=False, server_default=sa.false()
+            ),
             sa.Column("visible", sa.Boolean, nullable=False, server_default=sa.true()),
             sa.Column("system_prompt", sa.Text),
             sa.Column(

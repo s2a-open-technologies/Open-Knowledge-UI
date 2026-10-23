@@ -19,8 +19,16 @@ branch_labels = None
 depends_on = None
 
 ROWS = [
-    ("PII_FILTER_TIMEOUT_S", "10", "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)"),
-    ("PII_FILTER_MAX_CHARS", "12000", "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken"),
+    (
+        "PII_FILTER_TIMEOUT_S",
+        "10",
+        "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)",
+    ),
+    (
+        "PII_FILTER_MAX_CHARS",
+        "12000",
+        "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken",
+    ),
 ]
 
 
@@ -33,7 +41,12 @@ def upgrade() -> None:
                 "VALUES (:key, :value, :value, 'pii_filter', :sensitive, :description) "
                 "ON CONFLICT (key) DO NOTHING"
             ),
-            {"key": key, "value": value, "sensitive": False, "description": description},
+            {
+                "key": key,
+                "value": value,
+                "sensitive": False,
+                "description": description,
+            },
         )
 
 

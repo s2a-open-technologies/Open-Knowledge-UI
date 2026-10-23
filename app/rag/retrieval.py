@@ -136,7 +136,16 @@ class MultiCollectionRetriever(BaseRetriever):
     def _embedder(self, spec: models_runtime.ModelSpec):
         return self.dense_embeddings or models_runtime.get_embedder(spec)
 
-    def _run(self, question: str, collections: list[str], cfg: dict, scope, spec, flt=None, language=None):
+    def _run(
+        self,
+        question: str,
+        collections: list[str],
+        cfg: dict,
+        scope,
+        spec,
+        flt=None,
+        language=None,
+    ):
         kwargs = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
         return pipeline.run(
             question,
@@ -144,17 +153,23 @@ class MultiCollectionRetriever(BaseRetriever):
             cfg,
             client=self.client,
             dense=self._embedder(spec),
-            sparse=sparse_lang.resolve(self.sparse_embeddings, language or sparse_lang.default_language()),
+            sparse=sparse_lang.resolve(
+                self.sparse_embeddings, language or sparse_lang.default_language()
+            ),
             helper=scope.helper,
             query_filter=flt,
             **kwargs,
         )
 
-    def _run_external(self, question: str, collection: str, raw: str, cfg: dict, scope, spec):
+    def _run_external(
+        self, question: str, collection: str, raw: str, cfg: dict, scope, spec
+    ):
         """Fragt eine externe Quelle (nur lesend) mit deren Collection, Vektornamen und Feldern ab."""
         src = sources.parse_config(raw)
         flt, blocked = sources.build_filter(src, scope.identity)
-        if blocked:  # Zugriffsfilter ohne passende Identitaet: nichts liefern, nie ungefiltert
+        if (
+            blocked
+        ):  # Zugriffsfilter ohne passende Identitaet: nichts liefern, nie ungefiltert
             return []
         client = sources.connect(src)
         try:
@@ -166,7 +181,9 @@ class MultiCollectionRetriever(BaseRetriever):
                 cfg,
                 client=client,
                 dense=self._embedder(spec),
-                sparse=sparse_lang.resolve(self.sparse_embeddings, sparse_lang.LEGACY_LANGUAGE),  # fremder Index: wie bisher
+                sparse=sparse_lang.resolve(
+                    self.sparse_embeddings, sparse_lang.LEGACY_LANGUAGE
+                ),  # fremder Index: wie bisher
                 helper=scope.helper,
                 layout=layout,
                 query_filter=flt,
@@ -187,7 +204,9 @@ class MultiCollectionRetriever(BaseRetriever):
         global_spec = None if self.dense_embeddings else model_settings.embedding_spec()
         spec_of = dict(scope.specs)
         lang_of = dict(scope.sparse_langs)
-        groups: dict[tuple[str, str, str], tuple[dict, models_runtime.ModelSpec, list[str]]] = {}
+        groups: dict[
+            tuple[str, str, str], tuple[dict, models_runtime.ModelSpec, list[str]]
+        ] = {}
         external = dict(scope.externals)
         for collection in scope.collections:
             if collection in external:
@@ -219,7 +238,9 @@ class MultiCollectionRetriever(BaseRetriever):
                     else models_runtime.uploads_collection(upload_spec)
                 )
                 if self.client.collection_exists(coll):
-                    hits = self._run(query, [coll], default_cfg, scope, upload_spec, flt)
+                    hits = self._run(
+                        query, [coll], default_cfg, scope, upload_spec, flt
+                    )
                     if hits:
                         result_lists.append(hits)
             except Exception as e:
@@ -227,7 +248,9 @@ class MultiCollectionRetriever(BaseRetriever):
 
         for (_cfg_key, _spec_key, language), (cfg, spec, collections) in groups.items():
             try:
-                hits = self._run(query, collections, cfg, scope, spec, language=language)
+                hits = self._run(
+                    query, collections, cfg, scope, spec, language=language
+                )
             except Exception as e:
                 logger.warning(f"Suche in {collections} fehlgeschlagen: {e}")
                 continue
@@ -236,12 +259,20 @@ class MultiCollectionRetriever(BaseRetriever):
 
         for collection, raw in external.items():
             cfg = by_collection.get(collection, default_cfg)
-            spec = models_runtime.ModelSpec.from_dict(spec_of[collection]) if spec_of.get(collection) else global_spec
+            spec = (
+                models_runtime.ModelSpec.from_dict(spec_of[collection])
+                if spec_of.get(collection)
+                else global_spec
+            )
             try:
                 hits = self._run_external(query, collection, raw, cfg, scope, spec)
             except Exception as e:
-                logger.warning(f"Externe Quelle {collection} nicht erreichbar: {type(e).__name__}: {e}")
-                scope.warnings.append(f"Eine externe Quelle war nicht erreichbar ({type(e).__name__}).")
+                logger.warning(
+                    f"Externe Quelle {collection} nicht erreichbar: {type(e).__name__}: {e}"
+                )
+                scope.warnings.append(
+                    f"Eine externe Quelle war nicht erreichbar ({type(e).__name__})."
+                )
                 continue
             if hits:
                 result_lists.append(hits)

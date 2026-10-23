@@ -5,7 +5,9 @@ from app.core import version
 
 
 def test_version_matches_pyproject():
-    expected = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text())["project"]["version"]
+    expected = tomllib.loads(
+        (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    )["project"]["version"]
     assert version.get_version() == expected
 
 

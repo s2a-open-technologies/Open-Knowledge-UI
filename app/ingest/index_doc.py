@@ -45,7 +45,9 @@ INLINE_MAX_CHARS = 4000
 TOOL_MAX_CHARS = 12000
 MAX_HEADINGS = 12
 _HEADING = re.compile(r"^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$")
-_TABLE_FILE = re.compile(r"^(?P<stem>.+)--(?P<fg>[0-9a-f]{8})--tabelle-(?P<n>\d+)\.csv$")
+_TABLE_FILE = re.compile(
+    r"^(?P<stem>.+)--(?P<fg>[0-9a-f]{8})--tabelle-(?P<n>\d+)\.csv$"
+)
 STRUCTURED = {".csv", ".xlsx", ".xls"}
 
 
@@ -88,14 +90,24 @@ def _describe(path: Path, shown_name: str) -> str:
     if rows is not None:
         parts.append(f"{rows} Zeilen")
     if columns:
-        parts.append("Spalten: " + ", ".join(columns[:20]) + (" …" if len(columns) > 20 else ""))
+        parts.append(
+            "Spalten: " + ", ".join(columns[:20]) + (" …" if len(columns) > 20 else "")
+        )
     return f"`{shown_name}`" + (f" ({'; '.join(parts)})" if parts else "")
 
 
 def build_index(knowledge: dict, documents: list, paths) -> str:
     """Baut das Inhaltsverzeichnis. ``documents`` sind ``UserDocument``-Zeilen."""
     data_dir = Path(paths.data_dir)
-    files = sorted(p for p in data_dir.iterdir() if p.is_file() and p.suffix.lower() in STRUCTURED) if data_dir.is_dir() else []
+    files = (
+        sorted(
+            p
+            for p in data_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in STRUCTURED
+        )
+        if data_dir.is_dir()
+        else []
+    )
     tables_by_doc: dict[str, list[Path]] = {}
     plain_files: list[Path] = []
     for f in files:
@@ -105,13 +117,20 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
         else:
             plain_files.append(f)
 
-    lines = [f"# Inhaltsverzeichnis: {knowledge['name']}", "", f"Gilt nur für das Knowledge „{knowledge['name']}“.", ""]
+    lines = [
+        f"# Inhaltsverzeichnis: {knowledge['name']}",
+        "",
+        f"Gilt nur für das Knowledge „{knowledge['name']}“.",
+        "",
+    ]
     if knowledge.get("description"):
         lines += [knowledge["description"], ""]
     n_tables = sum(len(v) for v in tables_by_doc.values())
     lines += [
-        f"Stand: {datetime.now():%d.%m.%Y %H:%M} · {len(documents)} Dokumente · "
-        f"{n_tables + len(plain_files)} Tabellen/Datendateien",
+        (
+            f"Stand: {datetime.now():%d.%m.%Y %H:%M} · {len(documents)} Dokumente · "
+            f"{n_tables + len(plain_files)} Tabellen/Datendateien"
+        ),
         "",
     ]
 
@@ -127,10 +146,16 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
             outline = _outline(Path(doc.markdown_path).read_text(encoding="utf-8"))
         if outline:
             shown = outline[:MAX_HEADINGS]
-            lines.append("- Gliederung: " + " · ".join(shown) + (" · …" if len(outline) > MAX_HEADINGS else ""))
+            lines.append(
+                "- Gliederung: "
+                + " · ".join(shown)
+                + (" · …" if len(outline) > MAX_HEADINGS else "")
+            )
         short = re.sub(r"[^0-9a-f]", "", doc.document_id)[:8]
         for table in sorted(tables_by_doc.get(short, [])):
-            lines.append("- Tabelle: " + _describe(table, f"{paths.name_prefix}{table.name}"))
+            lines.append(
+                "- Tabelle: " + _describe(table, f"{paths.name_prefix}{table.name}")
+            )
         lines.append("")
 
     if plain_files:
@@ -238,7 +263,10 @@ def read_indexes(max_chars: int = TOOL_MAX_CHARS) -> str:
         return "Kein Inhaltsverzeichnis vorhanden."
     joined = "\n\n---\n\n".join(texts)
     if len(joined) > max_chars:
-        joined = joined[:max_chars].rsplit("\n", 1)[0] + "\n\n… (gekürzt – für Details gezielt suchen)"
+        joined = (
+            joined[:max_chars].rsplit("\n", 1)[0]
+            + "\n\n… (gekürzt – für Details gezielt suchen)"
+        )
     return joined
 
 

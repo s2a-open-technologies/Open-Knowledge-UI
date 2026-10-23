@@ -29,11 +29,23 @@ SQL_PROMPT = (
 
 # Der Wert von SQL_PROMPT muss zu app/toolworker/config.py:SQL_PROMPT_DEFAULT passen (Test)
 SETTINGS = [
-    ("SQL_WORKER_URL", "http://tool-worker-sql:8090", "Adresse des SQL-Workers (fragt Datenbanken lesend ab)"),
+    (
+        "SQL_WORKER_URL",
+        "http://tool-worker-sql:8090",
+        "Adresse des SQL-Workers (fragt Datenbanken lesend ab)",
+    ),
     ("SQL_ROW_LIMIT", "50", "Maximale Zeilen je SQL-Abfrage, die das Modell sieht"),
     ("SQL_TIMEOUT_S", "15", "Zeitlimit einer SQL-Abfrage in Sekunden"),
-    ("SQL_MAX_CELL_CHARS", "500", "Maximale Laenge eines Zellwerts in SQL-Ergebnissen in Zeichen"),
-    ("SQL_PROMPT", SQL_PROMPT, "Hinweis an das Modell bei SQL-Quellen (Platzhalter {sources})"),
+    (
+        "SQL_MAX_CELL_CHARS",
+        "500",
+        "Maximale Laenge eines Zellwerts in SQL-Ergebnissen in Zeichen",
+    ),
+    (
+        "SQL_PROMPT",
+        SQL_PROMPT,
+        "Hinweis an das Modell bei SQL-Quellen (Platzhalter {sources})",
+    ),
 ]
 
 
@@ -46,7 +58,12 @@ def upgrade() -> None:
                 "VALUES (:key, :value, :value, 'tools', :sensitive, :description) "
                 "ON CONFLICT (key) DO NOTHING"
             ),
-            {"key": key, "value": value, "sensitive": False, "description": description},
+            {
+                "key": key,
+                "value": value,
+                "sensitive": False,
+                "description": description,
+            },
         )
 
 

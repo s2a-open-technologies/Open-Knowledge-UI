@@ -31,7 +31,10 @@ class FakeDense:
 
     def embed_documents(self, texts):
         self.calls.append(list(texts))
-        return [[float(sum(w[:6] in t.lower() for _ in [0])) for w in VOCAB] + [0.01] for t in texts]
+        return [
+            [float(sum(w[:6] in t.lower() for _ in [0])) for w in VOCAB] + [0.01]
+            for t in texts
+        ]
 
     def embed_query(self, text):
         return self.embed_documents([text])[0]
@@ -39,7 +42,14 @@ class FakeDense:
 
 class FakeSparse:
     def embed_documents(self, texts):
-        return [SimpleNamespace(indices=[i for i, w in enumerate(VOCAB) if w[:6] in t.lower()] or [99], values=[1.0] * (len([i for i, w in enumerate(VOCAB) if w[:6] in t.lower()]) or 1)) for t in texts]
+        return [
+            SimpleNamespace(
+                indices=[i for i, w in enumerate(VOCAB) if w[:6] in t.lower()] or [99],
+                values=[1.0]
+                * (len([i for i, w in enumerate(VOCAB) if w[:6] in t.lower()]) or 1),
+            )
+            for t in texts
+        ]
 
 
 DOC = """# Mietvertrag
@@ -62,10 +72,15 @@ Die Kaution betraegt drei Monatsmieten. {pad}
 
 
 def points(markdown=DOC, **kw):
-    base = dict(
-        filename="v.md", source="data/files/v.md", file_group_id="fg-1",
-        dense=FakeDense(), sparse=FakeSparse(), chunk_size=400, chunk_overlap=50,
-    )
+    base = {
+        "filename": "v.md",
+        "source": "data/files/v.md",
+        "file_group_id": "fg-1",
+        "dense": FakeDense(),
+        "sparse": FakeSparse(),
+        "chunk_size": 400,
+        "chunk_overlap": 50,
+    }
     base.update(kw)
     return indexer.build_points(markdown, **base)
 
@@ -76,7 +91,11 @@ def test_points_carry_headers_order_and_both_vectors():
     p = pts[-1]
     assert p.payload["headers"] == ["Mietvertrag", "2 Kaution", "2.1 Hoehe"]
     assert p.payload["title"] == "2.1 Hoehe"
-    assert (p.payload["filename"], p.payload["file_group_id"], p.payload["type"]) == ("v.md", "fg-1", "document_chunk")
+    assert (p.payload["filename"], p.payload["file_group_id"], p.payload["type"]) == (
+        "v.md",
+        "fg-1",
+        "document_chunk",
+    )
     assert [x.payload["chunk_index"] for x in pts] == list(range(len(pts)))
     assert {x.payload["chunk_total"] for x in pts} == {len(pts)}
     assert all(x.payload["session_id"] == "s-1" for x in pts)
@@ -88,11 +107,20 @@ def test_embedded_text_has_the_section_path_but_original_content_stays_raw():
     pts = points()
     leaf = next(p for p in pts if "### 2.1 Hoehe" in p.payload["original_content"])
     # Ueberschriften, die schon im Text stehen, werden nicht doppelt vorangestellt
-    assert leaf.payload["page_content"].startswith("Mietvertrag\n\n## 2 Kaution\n### 2.1 Hoehe")
+    assert leaf.payload["page_content"].startswith(
+        "Mietvertrag\n\n## 2 Kaution\n### 2.1 Hoehe"
+    )
     assert "Mietvertrag >" not in leaf.payload["original_content"]
     # Fortsetzungs-Chunks (ohne eigene Ueberschrift) bekommen den vollen Pfad
-    tail = [p for p in pts if p.payload["headers"][-1:] == ["1 Miete"] and not p.payload["original_content"].startswith("##")]
-    assert tail and all(p.payload["page_content"].startswith("Mietvertrag > 1 Miete\n\n") for p in tail)
+    tail = [
+        p
+        for p in pts
+        if p.payload["headers"][-1:] == ["1 Miete"]
+        and not p.payload["original_content"].startswith("##")
+    ]
+    assert tail and all(
+        p.payload["page_content"].startswith("Mietvertrag > 1 Miete\n\n") for p in tail
+    )
     assert not any(p.payload["original_content"].startswith(".") for p in pts)
 
 
@@ -189,7 +217,10 @@ def put_file(name="v.md", text=DOC, folder="data/files"):
 
 def scroll_all(qd, collection="open_knowledge_ui"):
     points, _ = qd.scroll(collection, limit=200, with_payload=True, with_vectors=False)
-    return sorted((p for p in points if p.payload.get("type") == "document_chunk"), key=lambda p: p.payload["chunk_index"])
+    return sorted(
+        (p for p in points if p.payload.get("type") == "document_chunk"),
+        key=lambda p: p.payload["chunk_index"],
+    )
 
 
 def test_a_markdown_file_is_stored_split_by_headers_and_archived(db, qd, no_enrichment):
@@ -204,11 +235,19 @@ def test_a_markdown_file_is_stored_split_by_headers_and_archived(db, qd, no_enri
     docs = db.get_all_documents()
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.parser_version == indexer.PARSER_VERSION and doc.knowledge_id == knowledge.get_knowledge(None)["id"]
+    assert (
+        doc.parser_version == indexer.PARSER_VERSION
+        and doc.knowledge_id == knowledge.get_knowledge(None)["id"]
+    )
     md_file = Path(doc.markdown_path)
-    assert md_file.name == f"{doc.document_id}.md" and md_file.parent == Path("data/markdown/1")
+    assert md_file.name == f"{doc.document_id}.md" and md_file.parent == Path(
+        "data/markdown/1"
+    )
     assert md_file.read_text(encoding="utf-8") == DOC  # .md bleibt unveraendert
-    assert not Path("data/files/v.md").exists() and Path("data/processed_files/v.md").exists()
+    assert (
+        not Path("data/files/v.md").exists()
+        and Path("data/processed_files/v.md").exists()
+    )
     assert {c.payload["file_group_id"] for c in chunks} == {doc.document_id}
 
 
@@ -223,20 +262,32 @@ def test_chunk_size_comes_from_the_settings(db, qd, no_enrichment):
 
 def test_context_enrichment_follows_the_setting(db, qd, monkeypatch):
     calls = []
-    monkeypatch.setattr(DocumentIngestion, "_enrich_with_context", lambda self, doc, chunk: calls.append(chunk) or f"Kontext: Z\n\nInhalt: {chunk}")
+    monkeypatch.setattr(
+        DocumentIngestion,
+        "_enrich_with_context",
+        lambda self, doc, chunk: (
+            calls.append(chunk) or f"Kontext: Z\n\nInhalt: {chunk}"
+        ),
+    )
     put_file()
     with make_ingestion(qd) as ing:  # Default: an
         assert ing.enrich_context is True
         ing.ingest_documents()
-    assert calls and all(c.payload["page_content"].startswith("Kontext: Z") for c in scroll_all(qd))
+    assert calls and all(
+        c.payload["page_content"].startswith("Kontext: Z") for c in scroll_all(qd)
+    )
 
 
 def test_attachment_mode_stores_no_markdown_and_no_document_row(db, qd, no_enrichment):
     ensure_collection(qd, "user_uploads", 7)
     path = put_file("anhang.md", folder="data/attachments/s-1/a-1")
     with make_ingestion(
-        qd, collection_name="user_uploads", track_documents=False, enrich_context=False,
-        extra_metadata={"session_id": "s-1"}, files_dir="data/attachments/s-1/a-1",
+        qd,
+        collection_name="user_uploads",
+        track_documents=False,
+        enrich_context=False,
+        extra_metadata={"session_id": "s-1"},
+        files_dir="data/attachments/s-1/a-1",
     ) as ing:
         assert ing._process_file(str(path), ing._shared_sparse) is True
     assert all(c.payload["session_id"] == "s-1" for c in scroll_all(qd, "user_uploads"))
@@ -307,24 +358,34 @@ class FakeVision:
         return "Ein roter Rahmen\n# Kein Titel"
 
 
-def test_docling_produces_markdown_with_headings_tables_and_image_descriptions(docx_file):
-    from app.components import CustomDOCXLoader
+def test_docling_produces_markdown_with_headings_tables_and_image_descriptions(
+    docx_file,
+):
+    from app.loaders import CustomDOCXLoader
 
     vision = FakeVision()
     docs = list(CustomDOCXLoader(str(docx_file), model=vision).lazy_load())
     assert len(docs) == 1
     md = docs[0].page_content
     assert docs[0].metadata["filename"] == "vertrag.docx"
-    assert re.search(r"^#{1,3} 1 Miete$", md, re.M)
+    assert re.search(r"^#{1,3} 1 Miete$", md, re.MULTILINE)
     assert "| Kaltmiete | 950 Euro |" in md.replace("  ", " ")  # Markdown-Tabelle
     assert vision.calls == 1
     # Beschreibung steht an der Stelle des Bildes, nach dem Satz davor
-    assert md.index("Der Grundriss:") < md.index("[BILD-BESCHREIBUNG: Ein roter Rahmen") < md.index("Ende.")
+    assert (
+        md.index("Der Grundriss:")
+        < md.index("[BILD-BESCHREIBUNG: Ein roter Rahmen")
+        < md.index("Ende.")
+    )
     assert "\n# Kein Titel" not in md  # '#' in der Beschreibung ist entschaerft
 
 
-def test_docx_ingestion_end_to_end_keeps_the_section_path(db, qd, no_enrichment, docx_file):
-    set_setting(db, "INGEST_CHUNK_SIZE", "120")  # kleine Abschnitte nicht zusammenfassen
+def test_docx_ingestion_end_to_end_keeps_the_section_path(
+    db, qd, no_enrichment, docx_file
+):
+    set_setting(
+        db, "INGEST_CHUNK_SIZE", "120"
+    )  # kleine Abschnitte nicht zusammenfassen
     put_file_path = Path("data/files") / docx_file.name
     put_file_path.parent.mkdir(parents=True, exist_ok=True)
     put_file_path.write_bytes(docx_file.read_bytes())
@@ -336,7 +397,10 @@ def test_docx_ingestion_end_to_end_keeps_the_section_path(db, qd, no_enrichment,
     chunks = scroll_all(qd)
     assert chunks and chunks[0].payload["filename"] == "vertrag.docx"
     skizze = next(c for c in chunks if "Grundriss" in c.payload["original_content"])
-    assert skizze.payload["headers"][-1] == "2 Skizze" and "BILD-BESCHREIBUNG" in skizze.payload["original_content"]
+    assert (
+        skizze.payload["headers"][-1] == "2 Skizze"
+        and "BILD-BESCHREIBUNG" in skizze.payload["original_content"]
+    )
     doc = db.get_all_documents()[0]
     assert "BILD-BESCHREIBUNG" in Path(doc.markdown_path).read_text(encoding="utf-8")
 
@@ -346,7 +410,13 @@ def test_docx_ingestion_end_to_end_keeps_the_section_path(db, qd, no_enrichment,
 
 def add_user(db, username, role):
     s = db.get_session()
-    u = User(username=username, display_name=username, password_hash=generate_password_hash("pw"), role=role, is_active=True)
+    u = User(
+        username=username,
+        display_name=username,
+        password_hash=generate_password_hash("pw"),
+        role=role,
+        is_active=True,
+    )
     s.add(u)
     s.commit()
     uid = u.id
@@ -372,21 +442,37 @@ def client_for(app, user):
 
 
 def stored_doc(db, kb, text="# Titel\n\nInhalt äöü.\n", file_group="fg-9"):
-    path = indexer.save_markdown(Path("data/markdown") / str(kb["id"]), file_group, text)
-    db.add_document(file_group, "bericht.pdf", knowledge_id=kb["id"], markdown_path=str(path), parser_version=1)
+    path = indexer.save_markdown(
+        Path("data/markdown") / str(kb["id"]), file_group, text
+    )
+    db.add_document(
+        file_group,
+        "bericht.pdf",
+        knowledge_id=kb["id"],
+        markdown_path=str(path),
+        parser_version=1,
+    )
     return db.get_all_documents(knowledge_id=kb["id"])[0], path
 
 
 def test_markdown_can_be_viewed_and_downloaded(app, db):
     kb = knowledge.get_knowledge(None)
     doc, _ = stored_doc(db, kb)
-    editor = client_for(app, add_user(db, "ed", "editor"))  # Standard ist oeffentlich lesbar
+    editor = client_for(
+        app, add_user(db, "ed", "editor")
+    )  # Standard ist oeffentlich lesbar
 
     res = editor.get(f"/api/documents/{doc.id}/markdown")
-    assert res.status_code == 200 and res.json == {"filename": "bericht.pdf", "markdown": "# Titel\n\nInhalt äöü.\n"}
+    assert res.status_code == 200 and res.json == {
+        "filename": "bericht.pdf",
+        "markdown": "# Titel\n\nInhalt äöü.\n",
+    }
 
     dl = editor.get(f"/api/documents/{doc.id}/markdown?download=1")
-    assert dl.mimetype == "text/markdown" and "attachment" in dl.headers["Content-Disposition"]
+    assert (
+        dl.mimetype == "text/markdown"
+        and "attachment" in dl.headers["Content-Disposition"]
+    )
     assert dl.headers["Content-Disposition"].endswith("bericht.md")
     assert dl.get_data(as_text=True) == "# Titel\n\nInhalt äöü.\n"
 
@@ -399,10 +485,20 @@ def test_markdown_respects_knowledge_access_and_role(app, db):
     owner = add_user(db, "own", "editor")
     access.add_grant("knowledge", private["id"], "user", owner["id"], "read")
 
-    assert stranger.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff
-    assert plain.get(f"/api/documents/{doc.id}/markdown").status_code == 404  # kein Zugriff, auch als Benutzer
-    assert client_for(app, owner).get(f"/api/documents/{doc.id}/markdown").status_code == 200
-    assert client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown").status_code == 404  # auch Admins nicht
+    assert (
+        stranger.get(f"/api/documents/{doc.id}/markdown").status_code == 404
+    )  # kein Zugriff
+    assert (
+        plain.get(f"/api/documents/{doc.id}/markdown").status_code == 404
+    )  # kein Zugriff, auch als Benutzer
+    assert (
+        client_for(app, owner).get(f"/api/documents/{doc.id}/markdown").status_code
+        == 200
+    )
+    assert (
+        client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown").status_code
+        == 404
+    )  # auch Admins nicht
 
 
 def test_documents_without_markdown_say_so(app, db):
@@ -411,7 +507,9 @@ def test_documents_without_markdown_say_so(app, db):
     doc = db.get_all_documents()[0]
     res = client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown")
     assert res.status_code == 404 and "Neu-Indexieren" in res.json["error"]
-    assert client_for(app, {"id": 1}).get("/api/documents/999/markdown").status_code == 404
+    assert (
+        client_for(app, {"id": 1}).get("/api/documents/999/markdown").status_code == 404
+    )
 
 
 def test_paths_outside_the_markdown_folder_are_never_served(app, db, tmp_path):
@@ -427,7 +525,9 @@ def test_paths_outside_the_markdown_folder_are_never_served(app, db, tmp_path):
 def test_deleting_a_document_removes_its_markdown_file(app, db, monkeypatch):
     kb = knowledge.get_knowledge(None)
     doc, path = stored_doc(db, kb)
-    access.add_grant("knowledge", kb["id"], "user", 1, "write")  # Admins haben keinen Sonderzugriff
+    access.add_grant(
+        "knowledge", kb["id"], "user", 1, "write"
+    )  # Admins haben keinen Sonderzugriff
     assert path.exists()
     res = client_for(app, {"id": 1}).delete(f"/api/documents/{doc.id}")
     assert res.status_code == 200 and not path.exists()
@@ -437,7 +537,10 @@ def test_document_list_flags_which_documents_have_markdown(app, db):
     kb = knowledge.get_knowledge(None)
     stored_doc(db, kb)
     db.add_document("old", "alt.pdf", knowledge_id=kb["id"])
-    flags = {d["filename"]: d["has_markdown"] for d in client_for(app, {"id": 1}).get("/api/documents").json}
+    flags = {
+        d["filename"]: d["has_markdown"]
+        for d in client_for(app, {"id": 1}).get("/api/documents").json
+    }
     assert flags == {"bericht.pdf": True, "alt.pdf": False}
 
 
@@ -451,7 +554,9 @@ def make_docx_with_tables(tmp_path, big_rows=15):
     d.add_paragraph("Vorspann zur Preisliste.")
     d.add_heading("1 Kleine Tabelle", level=2)
     small = d.add_table(rows=3, cols=2)
-    for r, row in enumerate([("Posten", "Betrag"), ("Miete", "950"), ("Kaution", "2850")]):
+    for r, row in enumerate(
+        [("Posten", "Betrag"), ("Miete", "950"), ("Kaution", "2850")]
+    ):
         for c, v in enumerate(row):
             small.cell(r, c).text = v
     d.add_heading("2 Grosse Tabelle", level=2)
@@ -479,11 +584,16 @@ def ingest_docx(qd, path, **kw):
         ing.ingest_documents()
 
 
-def test_tables_become_csv_files_and_references_in_the_markdown(db, qd, no_enrichment, tmp_path):
+def test_tables_become_csv_files_and_references_in_the_markdown(
+    db, qd, no_enrichment, tmp_path
+):
     ingest_docx(qd, make_docx_with_tables(tmp_path))
 
     csvs = sorted(p.name for p in Path("./data").glob("preise--*--tabelle-*.csv"))
-    assert [c.rsplit("--", 1)[1] for c in csvs] == ["tabelle-1.csv", "tabelle-2.csv"]  # Layout-Tabelle fehlt
+    assert [c.rsplit("--", 1)[1] for c in csvs] == [
+        "tabelle-1.csv",
+        "tabelle-2.csv",
+    ]  # Layout-Tabelle fehlt
 
     import pandas as pd
 
@@ -492,31 +602,59 @@ def test_tables_become_csv_files_and_references_in_the_markdown(db, qd, no_enric
     assert big["Umsatz"].sum() == sum(r * 100 for r in range(1, 16))
 
     md = Path(db.get_all_documents()[0].markdown_path).read_text(encoding="utf-8")
-    assert "| Miete" in md and f"[TABELLE 1: als Datei `{csvs[0]}`" in md  # klein: bleibt stehen
-    assert f"[TABELLE 2: Datei `{csvs[1]}`, 15 Zeilen, Spalten: Monat, Umsatz, Kosten" in md  # gross: Verweis
-    assert "run_pandas" in md and "Monat01" in md and "Monat15" not in md  # nur Vorschau
-    assert "[TABELLE 3" not in md and "Links" in md  # Layout-Tabelle: kein CSV, Text bleibt
+    assert (
+        "| Miete" in md and f"[TABELLE 1: als Datei `{csvs[0]}`" in md
+    )  # klein: bleibt stehen
+    assert (
+        f"[TABELLE 2: Datei `{csvs[1]}`, 15 Zeilen, Spalten: Monat, Umsatz, Kosten"
+        in md
+    )  # gross: Verweis
+    assert (
+        "run_pandas" in md and "Monat01" in md and "Monat15" not in md
+    )  # nur Vorschau
+    assert (
+        "[TABELLE 3" not in md and "Links" in md
+    )  # Layout-Tabelle: kein CSV, Text bleibt
 
 
-def test_extracted_tables_have_no_points_of_their_own_but_are_readable_by_the_pandas_tool(db, qd, no_enrichment, tmp_path, worker):
+def test_extracted_tables_have_no_points_of_their_own_but_are_readable_by_the_pandas_tool(
+    db, qd, no_enrichment, tmp_path, worker
+):
     from app.rag import retrieval
     from app.rag.retrieval import RetrievalScope
     from app.tools.custom_tools import CustomTools
 
     ingest_docx(qd, make_docx_with_tables(tmp_path))
-    refs, _ = qd.scroll("open_knowledge_ui", limit=100, with_payload=True, with_vectors=False)
-    assert not [p for p in refs if p.payload.get("type") == "data_reference"]  # gehoeren zum Dokument
-    assert {p.payload["filename"] for p in refs} == {"tabellen.docx"} or all("--tabelle-" not in p.payload["filename"] for p in refs)
+    refs, _ = qd.scroll(
+        "open_knowledge_ui", limit=100, with_payload=True, with_vectors=False
+    )
+    assert not [
+        p for p in refs if p.payload.get("type") == "data_reference"
+    ]  # gehoeren zum Dokument
+    assert {p.payload["filename"] for p in refs} == {"tabellen.docx"} or all(
+        "--tabelle-" not in p.payload["filename"] for p in refs
+    )
     paths0 = knowledge.knowledge_paths(knowledge.get_knowledge(None))
-    ref_names = {f"{paths0.name_prefix}{p.name}" for p in Path(paths0.data_dir).glob("*--tabelle-*.csv")}
+    ref_names = {
+        f"{paths0.name_prefix}{p.name}"
+        for p in Path(paths0.data_dir).glob("*--tabelle-*.csv")
+    }
     assert len(ref_names) == 2
 
     paths = knowledge.knowledge_paths(knowledge.get_knowledge(None))
-    retrieval.set_scope(RetrievalScope(("open_knowledge_ui",), None, data_dirs=((paths.name_prefix, str(paths.data_dir)),)))
+    retrieval.set_scope(
+        RetrievalScope(
+            ("open_knowledge_ui",),
+            None,
+            data_dirs=((paths.name_prefix, str(paths.data_dir)),),
+        )
+    )
     tools = CustomTools(llm=None, retriever=None, data_dir=str(paths.data_dir))
     name = sorted(ref_names)[1]
     assert name in tools.list_files()
-    assert str(sum(r * 40 for r in range(1, 16))) in tools.run_pandas(name, "result = df['Kosten'].sum()")
+    assert str(sum(r * 40 for r in range(1, 16))) in tools.run_pandas(
+        name, "result = df['Kosten'].sum()"
+    )
 
 
 def test_table_extraction_is_skipped_for_attachments(db, qd, no_enrichment, tmp_path):
@@ -526,30 +664,44 @@ def test_table_extraction_is_skipped_for_attachments(db, qd, no_enrichment, tmp_
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(src.read_bytes())
     with make_ingestion(
-        qd, collection_name="user_uploads", track_documents=False, enrich_context=False,
-        extra_metadata={"session_id": "s-1"}, files_dir="data/attachments/s-1/a-1",
+        qd,
+        collection_name="user_uploads",
+        track_documents=False,
+        enrich_context=False,
+        extra_metadata={"session_id": "s-1"},
+        files_dir="data/attachments/s-1/a-1",
     ) as ing:
         ing.model = FakeVision()
         assert ing._process_file(str(target), ing._shared_sparse)
     assert list(Path("./data").glob("*--tabelle-*.csv")) == []
-    text = " ".join(c.payload["original_content"] for c in scroll_all(qd, "user_uploads"))
+    text = " ".join(
+        c.payload["original_content"] for c in scroll_all(qd, "user_uploads")
+    )
     assert "Monat15" in text  # Anhang: Tabelle bleibt komplett im Text
 
 
-def test_deleting_the_document_removes_its_csvs_and_reference_chunks(app, db, qd, no_enrichment, tmp_path):
+def test_deleting_the_document_removes_its_csvs_and_reference_chunks(
+    app, db, qd, no_enrichment, tmp_path
+):
     ingest_docx(qd, make_docx_with_tables(tmp_path))
     app.extensions["client"] = qd
     other = Path("./data/andere.csv")
     other.write_text("a,b\n1,2\n")
     doc = db.get_all_documents()[0]
-    access.add_grant("knowledge", knowledge.get_knowledge(None)["id"], "user", 1, "write")  # Admins haben keinen Sonderzugriff
+    access.add_grant(
+        "knowledge", knowledge.get_knowledge(None)["id"], "user", 1, "write"
+    )  # Admins haben keinen Sonderzugriff
     assert len(list(Path("./data").glob("*--tabelle-*.csv"))) == 2
 
-    assert client_for(app, {"id": 1}).delete(f"/api/documents/{doc.id}").status_code == 200
+    assert (
+        client_for(app, {"id": 1}).delete(f"/api/documents/{doc.id}").status_code == 200
+    )
 
     assert list(Path("./data").glob("*--tabelle-*.csv")) == []
     assert other.exists()  # fremde CSVs bleiben
-    refs, _ = qd.scroll("open_knowledge_ui", limit=100, with_payload=True, with_vectors=False)
+    refs, _ = qd.scroll(
+        "open_knowledge_ui", limit=100, with_payload=True, with_vectors=False
+    )
     assert not [p for p in refs if "--tabelle-" in p.payload.get("filename", "")]
     assert scroll_all(qd) == []
 
@@ -559,9 +711,14 @@ def test_the_original_can_be_discarded_after_ingestion(db, qd, no_enrichment):
     put_file()
     with make_ingestion(qd) as ing:
         ing.ingest_documents()
-    assert not Path("data/files/v.md").exists() and not Path("data/processed_files/v.md").exists()
+    assert (
+        not Path("data/files/v.md").exists()
+        and not Path("data/processed_files/v.md").exists()
+    )
     doc = db.get_all_documents()[0]
-    assert Path(doc.markdown_path).read_text(encoding="utf-8") == DOC  # das Markdown bleibt
+    assert (
+        Path(doc.markdown_path).read_text(encoding="utf-8") == DOC
+    )  # das Markdown bleibt
     assert scroll_all(qd)
 
 
@@ -571,7 +728,9 @@ def test_table_helpers_name_files_uniquely_and_safely():
     a = tables.table_filename("Mein Vertrag (final).pdf", "ab12cd34-0000", 3)
     assert a == "Mein_Vertrag_final_.pdf--ab12cd34--tabelle-3.csv"
     assert "/" not in tables.table_filename("../../etc/passwd", "ab12cd34-0000", 1)
-    assert tables.table_filename("x", "ab12cd34-0000", 1) != tables.table_filename("x", "ff00ff00-0000", 1)
+    assert tables.table_filename("x", "ab12cd34-0000", 1) != tables.table_filename(
+        "x", "ff00ff00-0000", 1
+    )
     assert tables.table_pattern("ab12cd34-0000") == "*--ab12cd34--tabelle-*.csv"
 
 
@@ -581,7 +740,9 @@ def test_reference_chunk_of_a_plain_data_file_describes_columns_and_content(tmp_
     from app.vector.ingestion import describe_data_file
 
     path = tmp_path / "umsatz.csv"
-    pd.DataFrame({"Monat": ["Jan", "Feb"], "Umsatz": [100.0, 250.5]}).to_csv(path, index=False)
+    pd.DataFrame({"Monat": ["Jan", "Feb"], "Umsatz": [100.0, 250.5]}).to_csv(
+        path, index=False
+    )
     text = describe_data_file(str(path))
     assert "`Umsatz`: 100 bis 250.5" in text and "`Monat`: z. B. Jan, Feb" in text
 
@@ -591,13 +752,25 @@ def test_the_reference_in_the_document_carries_the_column_hints_of_its_table():
 
     from app.ingest import tables
 
-    df = pd.DataFrame({"Monat": [f"Monat{i:02d}" for i in range(1, 16)], "Umsatz": [i * 100.0 for i in range(1, 16)]})
-    info = {"name": "knowledge_1/x--ab12cd34--tabelle-2.csv", "rows": 15, "columns": list(df.columns), "frame": df}
+    df = pd.DataFrame(
+        {
+            "Monat": [f"Monat{i:02d}" for i in range(1, 16)],
+            "Umsatz": [i * 100.0 for i in range(1, 16)],
+        }
+    )
+    info = {
+        "name": "knowledge_1/x--ab12cd34--tabelle-2.csv",
+        "rows": 15,
+        "columns": list(df.columns),
+        "frame": df,
+    }
     text = tables.render_reference(info, 2, "")
     assert "`Umsatz`: 100 bis 1500" in text and "Monat01" in text
 
 
-def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(db, qd, no_enrichment, tmp_path):
+def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(
+    db, qd, no_enrichment, tmp_path
+):
     from app.vector import ingestion
 
     folder = tmp_path / "ref"
@@ -608,10 +781,25 @@ def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(db, qd
     orig = ingestion.delete_data_reference
     ingestion.delete_data_reference = lambda col, name: deleted.append(name)
     try:
-        embeddings = type("E", (), {"embed_documents": lambda self, t: [[0.0] * 7 for _ in t]})()
-        sparse = type("S", (), {"embed_documents": lambda self, t: [type("V", (), {"indices": [1], "values": [1.0]})() for _ in t]})()
+        embeddings = type(
+            "E", (), {"embed_documents": lambda self, t: [[0.0] * 7 for _ in t]}
+        )()
+        sparse = type(
+            "S",
+            (),
+            {
+                "embed_documents": lambda self, t: [
+                    type("V", (), {"indices": [1], "values": [1.0]})() for _ in t
+                ]
+            },
+        )()
         ensure_collection(qd, "reftest", 7)
-        assert ingestion.index_data_references(embeddings, sparse, "reftest", str(folder), name_prefix="k_1/") == 1
+        assert (
+            ingestion.index_data_references(
+                embeddings, sparse, "reftest", str(folder), name_prefix="k_1/"
+            )
+            == 1
+        )
     finally:
         ingestion.delete_data_reference = orig
     assert deleted == ["k_1/vertrag--ab12cd34--tabelle-1.csv"]
@@ -622,6 +810,7 @@ def test_extracted_tables_get_no_reference_point_and_old_ones_are_removed(db, qd
 def test_failing_enrichment_does_not_lose_the_document(db, qd, no_enrichment):
     put_file("a.md", DOC)
     with make_ingestion(qd, enrich_context=True) as ing:
+
         def boom(*a, **k):
             raise ConnectionError("Modell nicht erreichbar")
 
@@ -633,10 +822,14 @@ def test_failing_enrichment_does_not_lose_the_document(db, qd, no_enrichment):
     assert points and all(p.payload["page_content"] for p in points)
 
 
-def test_enrichment_changes_the_embedded_text_but_not_the_original(db, qd, no_enrichment):
+def test_enrichment_changes_the_embedded_text_but_not_the_original(
+    db, qd, no_enrichment
+):
     put_file("a.md", DOC)
     with make_ingestion(qd, enrich_context=True) as ing:
-        ing._enrich_with_context = lambda doc, chunk: f"Kontext: Vertrag\n\nInhalt: {chunk}"
+        ing._enrich_with_context = lambda doc, chunk: (
+            f"Kontext: Vertrag\n\nInhalt: {chunk}"
+        )
         ing.ingest_documents()
     point = scroll_all(qd)[0].payload
     assert point["page_content"].startswith("Kontext: Vertrag")
@@ -664,7 +857,9 @@ def test_failed_file_is_reported_and_leaves_no_orphan_tables(db, qd, no_enrichme
     assert ing.processed == 1
     assert [e["file"] for e in ing.errors] == ["kaputt.md"]
     assert "Embedding-Modell" in ing.errors[0]["error"]
-    assert Path("data/files/kaputt.md").exists()  # bleibt zum erneuten Einlesen im Eingang
+    assert Path(
+        "data/files/kaputt.md"
+    ).exists()  # bleibt zum erneuten Einlesen im Eingang
     assert {p.payload["filename"] for p in scroll_all(qd)} == {"gut.md"}
 
 
@@ -673,7 +868,9 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
 
     ed = add_user(db, "ed", "editor")
     Path("data").mkdir(exist_ok=True)
-    Path("data/umsatz.csv").write_text("Monat,Umsatz\nJan,100\nFeb,250\n", encoding="utf-8")
+    Path("data/umsatz.csv").write_text(
+        "Monat,Umsatz\nJan,100\nFeb,250\n", encoding="utf-8"
+    )
     Path("data/geheim.txt").write_text("nein", encoding="utf-8")
     flask_app = Flask(__name__)
     flask_app.secret_key = "t"
@@ -690,10 +887,17 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
     assert raw.status_code == 200 and b"Jan,100" in raw.data
     assert "attachment" in raw.headers["Content-Disposition"]
 
-    assert c.get("/api/data-files/geheim.txt").status_code == 404  # keine strukturierte Datei
+    assert (
+        c.get("/api/data-files/geheim.txt").status_code == 404
+    )  # keine strukturierte Datei
     assert c.get("/api/data-files/..%2Fapp.db").status_code == 404
     # Rolle "Benutzer" darf lesen, was ihr gehoert oder freigegeben/oeffentlich ist (hier: oeffentlicher Standard)
-    assert client_for(flask_app, add_user(db, "bob", "user")).get("/api/data-files/umsatz.csv").status_code == 200
+    assert (
+        client_for(flask_app, add_user(db, "bob", "user"))
+        .get("/api/data-files/umsatz.csv")
+        .status_code
+        == 200
+    )
 
 
 def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
@@ -705,7 +909,10 @@ def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
     access.add_grant("knowledge", kb["id"], "user", ed["id"], "write")
     flask_app = Flask(__name__)
     flask_app.secret_key = "t"
-    flask_app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
+    flask_app.extensions["ingestion_status"] = {
+        "is_ingesting": False,
+        "knowledge_id": None,
+    }
     flask_app.register_blueprint(api_bp)
     import io
 
@@ -719,14 +926,19 @@ def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
         ing.ingest_documents()
     payload = scroll_all(qd)[0].payload
     assert payload["file_type"] == "md" and payload["knowledge_id"] == kb["id"]
-    assert payload["uploaded_by"] == ed["id"] and payload["uploaded_at"].endswith("+00:00")
-    assert payload["parser_version"] == indexer.PARSER_VERSION and "splitter_version" in payload
+    assert payload["uploaded_by"] == ed["id"] and payload["uploaded_at"].endswith(
+        "+00:00"
+    )
+    assert (
+        payload["parser_version"] == indexer.PARSER_VERSION
+        and "splitter_version" in payload
+    )
     assert "page_start" not in payload  # Markdown hat keine Seiten
     assert not list(Path("data/files").glob("*.uploader"))
 
 
 def test_page_marks_replace_docling_page_breaks_only_when_consistent():
-    from app.components.preprocess_base import PAGE_BREAK, apply_page_marks
+    from app.loaders.preprocess_base import PAGE_BREAK, apply_page_marks
 
     md = f"Seite eins\n\n{PAGE_BREAK}\n\nSeite zwei\n\n{PAGE_BREAK}\n\nSeite drei"
     out = apply_page_marks(md, [1, 2, 3])

@@ -18,22 +18,21 @@
 
 """
 Modell-Registry: Modelle der Connections auflisten, Referenzen aufloesen und
-pro Modell den Agent bauen (gecacht).
+pro Anfrage den Agent bauen.
 
-Der Agent ist an LLM, System-Prompt und Tools gebunden. Verschiedene Modelle
-(bzw. Klone mit eigenem Prompt) brauchen deshalb jeweils einen eigenen Agent.
-Der Cache-Schluessel enthaelt eine Signatur der gesamten Konfiguration; wird
-eine Connection oder Modell-Konfiguration geaendert, entsteht automatisch ein
-neuer Agent.
+Der Agent ist an LLM, System-Prompt und Tools gebunden. Er wird bewusst pro
+Anfrage neu gebaut und nicht gecacht: jede Chat-Anfrage laeuft in einer eigenen
+Event-Loop, die danach geschlossen wird. Ein gecachtes LLM haelt einen async
+HTTP-Pool, dessen Keep-Alive-Verbindungen an die tote Loop gebunden waeren
+("Event loop is closed" bei der Folge-Anfrage). Aenderungen an Connection oder
+Modell-Konfiguration greifen dadurch sofort.
 """
 
 import hashlib
 import ipaddress
 import json
 import socket
-import threading
 import time
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from logging import getLogger
 from urllib.parse import urlparse
@@ -47,11 +46,8 @@ from app.llm.factory import build_chat_llm
 logger = getLogger(__name__)
 
 MODELS_TTL_SECONDS = 60
-AGENT_CACHE_SIZE = 16
 
 _models_cache: dict[tuple[int, str, str], tuple[float, list[str]]] = {}
-_agents: "OrderedDict[tuple[str, str], DocumentAgent]" = OrderedDict()
-_lock = threading.Lock()
 
 
 class ModelUnavailableError(Exception):
@@ -131,7 +127,11 @@ def fetch_remote_models(connection: dict, force: bool = False) -> list[str]:
     Raises:
         RemoteModelsError: bei Netzwerk-, HTTP- oder Formatfehlern.
     """
-    cache_key = (connection["id"], connection["base_url"], connection.get("api_key", ""))
+    cache_key = (
+        connection["id"],
+        connection["base_url"],
+        connection.get("api_key", ""),
+    )
     cached = _models_cache.get(cache_key)
     if cached and not force and time.time() - cached[0] < MODELS_TTL_SECONDS:
         return cached[1]
@@ -150,17 +150,27 @@ def fetch_remote_models(connection: dict, force: bool = False) -> list[str]:
         raise RemoteModelsError(f"Verbindung fehlgeschlagen: {e}") from None
 
     if 300 <= resp.status_code < 400:
-        raise RemoteModelsError(f"Weiterleitung von {url} wird nicht verfolgt (HTTP {resp.status_code})")
+        raise RemoteModelsError(
+            f"Weiterleitung von {url} wird nicht verfolgt (HTTP {resp.status_code})"
+        )
     if resp.status_code in (401, 403):
-        raise RemoteModelsError(f"Zugriff verweigert (HTTP {resp.status_code}): API-Key prüfen")
+        raise RemoteModelsError(
+            f"Zugriff verweigert (HTTP {resp.status_code}): API-Key prüfen"
+        )
     if resp.status_code != 200:
         raise RemoteModelsError(f"HTTP {resp.status_code} von {url}")
     try:
         ids = sorted(
-            {m["id"] for m in resp.json().get("data", []) if isinstance(m, dict) and m.get("id")}
+            {
+                m["id"]
+                for m in resp.json().get("data", [])
+                if isinstance(m, dict) and m.get("id")
+            }
         )
     except (ValueError, AttributeError):
-        raise RemoteModelsError(f"Unerwartete Antwort von {url} (kein OpenAI-Format)") from None
+        raise RemoteModelsError(
+            f"Unerwartete Antwort von {url} (kein OpenAI-Format)"
+        ) from None
 
     _models_cache[cache_key] = (time.time(), ids)
     return ids
@@ -181,8 +191,14 @@ def test_connection(connection: dict) -> dict:
 def _is_customized(cfg: dict | None) -> bool:
     return bool(
         cfg
-        and (cfg["system_prompt"] or cfg["params"] or cfg["knowledge_ids"]
-             or cfg.get("web_search") or cfg.get("vision") or (cfg["name"] and not cfg["is_clone"]))
+        and (
+            cfg["system_prompt"]
+            or cfg["params"]
+            or cfg["knowledge_ids"]
+            or cfg.get("web_search")
+            or cfg.get("vision")
+            or (cfg["name"] and not cfg["is_clone"])
+        )
     )
 
 
@@ -195,7 +211,9 @@ def list_models(force: bool = False) -> dict:
         ``available=False``), und der Fehler steht in ``errors``.
     """
     configs = store.list_model_configs()
-    base_cfg = {(c["connection_id"], c["base_model"]): c for c in configs if not c["is_clone"]}
+    base_cfg = {
+        (c["connection_id"], c["base_model"]): c for c in configs if not c["is_clone"]
+    }
     clones = [c for c in configs if c["is_clone"]]
 
     models: list[dict] = []
@@ -211,7 +229,11 @@ def list_models(force: bool = False) -> dict:
         except RemoteModelsError as e:
             remote, reachable = [], False
             errors.append(
-                {"connection_id": conn["id"], "connection": conn["name"], "error": str(e)}
+                {
+                    "connection_id": conn["id"],
+                    "connection": conn["name"],
+                    "error": str(e),
+                }
             )
 
         for model_id in remote:
@@ -326,7 +348,9 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
     if not conn["enabled"]:
         raise ModelUnavailableError(f"Connection „{conn['name']}“ ist deaktiviert.")
 
-    _reject_link_local(conn["base_url"])  # auch vor dem Chat-Aufruf, nicht nur beim Abruf der Liste
+    _reject_link_local(
+        conn["base_url"]
+    )  # auch vor dem Chat-Aufruf, nicht nur beim Abruf der Liste
 
     return ResolvedModel(
         ref=ref,
@@ -337,63 +361,66 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
         model_id=model_id,
         params=cfg["params"] if cfg else {},
         system_prompt=cfg["system_prompt"] if cfg else "",
-        knowledge_ids=tuple(cfg["knowledge_ids"]) if cfg and cfg["knowledge_ids"] else None,
+        knowledge_ids=tuple(cfg["knowledge_ids"])
+        if cfg and cfg["knowledge_ids"]
+        else None,
         web_search=bool(cfg and cfg.get("web_search")),
         vision=bool(cfg and cfg.get("vision")),
-        allow_extra_knowledge=bool(cfg.get("allow_extra_knowledge", True)) if cfg else True,
+        allow_extra_knowledge=bool(cfg.get("allow_extra_knowledge", True))
+        if cfg
+        else True,
     )
 
 
 def _compaction_summary() -> dict:
     from app.chat import compaction
+
     cfg = compaction.load_settings()
-    return {k: cfg[k] for k in ("enabled", "headroom_percent", "keep_percent", "output_reserve_percent")}
+    return {
+        k: cfg[k]
+        for k in (
+            "enabled",
+            "headroom_percent",
+            "keep_percent",
+            "output_reserve_percent",
+        )
+    }
 
 
 def get_agent(resolved: ResolvedModel, tools: list) -> DocumentAgent:
-    """Agent fuer das aufgeloeste Modell (LRU-gecacht)."""
-    # Die Werkzeugliste gehoert in den Schluessel (Websuche kann pro Anfrage ein-/ausfallen).
-    # Compaction: Budget und Prompt gehoeren in den Schluessel (Aenderungen muessen greifen).
+    """Frischer Agent fuer das aufgeloeste Modell (pro Anfrage, siehe Modul-Docstring)."""
     from app.chat import compaction
+
     cfg = compaction.load_settings()
-    budget = compaction.compute_budget(compaction.effective_params(resolved.params), cfg)
+    budget = compaction.compute_budget(
+        compaction.effective_params(resolved.params), cfg
+    )
     system_prompt = DocumentAgent.compose_prompt(resolved.system_prompt)
-    guard = (budget, cfg["prompt"]) if budget else None
-    key = (resolved.ref, resolved.signature(), tuple(sorted(getattr(t, "name", "?") for t in tools)), guard, system_prompt)
-    with _lock:
-        agent = _agents.get(key)
-        if agent is not None:
-            _agents.move_to_end(key)
-            return agent
 
-        llm = build_chat_llm(
-            resolved.base_url,
-            resolved.api_key,
-            resolved.model_id,
-            resolved.params,
-            streaming=True,
-        )
-        middleware = None
-        if budget:
-            from app.agent.context_guard import build_middleware
+    llm = build_chat_llm(
+        resolved.base_url,
+        resolved.api_key,
+        resolved.model_id,
+        resolved.params,
+        streaming=True,
+    )
+    middleware = None
+    if budget:
+        from app.agent.context_guard import build_middleware
 
-            overhead = compaction.estimate_tokens(system_prompt) + compaction.tools_tokens(tools)
-            middleware = build_middleware(
-                compaction.summary_llm(resolved, budget), budget, cfg["prompt"], overhead
-            )
-        agent = DocumentAgent(
-            llm=llm,
-            tools=tools,
-            system_prompt=system_prompt,
-            middleware=middleware,
+        overhead = compaction.estimate_tokens(system_prompt) + compaction.tools_tokens(
+            tools
         )
-        _agents[key] = agent
-        while len(_agents) > AGENT_CACHE_SIZE:
-            _agents.popitem(last=False)
-        return agent
+        middleware = build_middleware(
+            compaction.summary_llm(resolved, budget), budget, cfg["prompt"], overhead
+        )
+    return DocumentAgent(
+        llm=llm,
+        tools=tools,
+        system_prompt=system_prompt,
+        middleware=middleware,
+    )
 
 
 def clear_caches() -> None:
-    with _lock:
-        _agents.clear()
     _models_cache.clear()

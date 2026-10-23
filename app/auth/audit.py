@@ -124,7 +124,9 @@ def record(
         log.exception("Audit-Eintrag fehlgeschlagen (Aktion %r)", action)
 
 
-def list_events(limit: int = 100, offset: int = 0, action: str | None = None) -> list[dict]:
+def list_events(
+    limit: int = 100, offset: int = 0, action: str | None = None
+) -> list[dict]:
     """Neueste Ereignisse fuer die Admin-Protokoll-Ansicht."""
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
@@ -137,7 +139,9 @@ def list_events(limit: int = 100, offset: int = 0, action: str | None = None) ->
         return [
             {
                 "id": row.id,
-                "created_at": row.created_at.isoformat(timespec="seconds") if row.created_at else None,
+                "created_at": row.created_at.isoformat(timespec="seconds")
+                if row.created_at
+                else None,
                 "actor_user_id": row.actor_user_id,
                 "actor_name": row.actor_name,
                 "ip": row.ip,

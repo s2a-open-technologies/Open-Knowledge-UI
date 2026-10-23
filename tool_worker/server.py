@@ -2,8 +2,8 @@
 
 import hmac
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from flask import Flask, jsonify, request
 
@@ -49,7 +49,9 @@ def create_app(
         path = request.path
         if path.startswith("/v1/"):
             sql_path = path.startswith("/v1/sql/")
-            if (role == "pandas") == sql_path:  # pandas-Rolle: nur /v1/pandas; sql-Rolle: nur /v1/sql/*
+            if (
+                role == "pandas"
+            ) == sql_path:  # pandas-Rolle: nur /v1/pandas; sql-Rolle: nur /v1/sql/*
                 return jsonify(error="Nicht gefunden"), 404
             sent = request.headers.get("Authorization", "")
             given = sent[7:].encode() if sent.startswith("Bearer ") else b""
@@ -57,7 +59,12 @@ def create_app(
                 return jsonify(error="Nicht autorisiert"), 401
 
     def resolve(file: str) -> Path | None:
-        if not file or "\x00" in file or len(file) > MAX_FILE_CHARS or file.startswith("/"):
+        if (
+            not file
+            or "\x00" in file
+            or len(file) > MAX_FILE_CHARS
+            or file.startswith("/")
+        ):
             return None
         base = root()
         target = (base / file).resolve()
@@ -72,7 +79,11 @@ def create_app(
     @app.post("/v1/pandas")
     def pandas_run():
         data = request.get_json(silent=True)
-        if not isinstance(data, dict) or not isinstance(data.get("file"), str) or not isinstance(data.get("code"), str):
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("file"), str)
+            or not isinstance(data.get("code"), str)
+        ):
             return jsonify(error="Ungültige Anfrage"), 400
         if len(data["code"]) > MAX_CODE_CHARS:
             return jsonify(error="Code zu lang"), 413
@@ -96,7 +107,7 @@ def create_app(
                 memory_mb=int(cap("memory_mb", 1024, max_memory_mb)),
                 max_output_chars=int(cap("max_output_chars", 20_000, max_output_chars)),
             )
-        except Exception:  # noqa: BLE001 - nie Interna an den Aufrufer
+        except Exception:
             log.exception("pandas-Lauf fehlgeschlagen")
             return jsonify(error="Interner Fehler"), 500
         return jsonify(out)
@@ -125,10 +136,18 @@ def create_app(
 
     def sql_filters(data):
         tables = data.get("allowed_tables")
-        blocked = data.get("blocked_columns") if isinstance(data.get("blocked_columns"), dict) else {}
+        blocked = (
+            data.get("blocked_columns")
+            if isinstance(data.get("blocked_columns"), dict)
+            else {}
+        )
         return (
             {str(t) for t in tables} if isinstance(tables, list) else None,
-            {str(t): {str(c) for c in (cols or [])} for t, cols in blocked.items() if isinstance(cols, list)},
+            {
+                str(t): {str(c) for c in (cols or [])}
+                for t, cols in blocked.items()
+                if isinstance(cols, list)
+            },
         )
 
     def sql_run(action):
@@ -138,7 +157,9 @@ def create_app(
         data = sql_request()
         if data is None or (action == "query" and not isinstance(data.get("sql"), str)):
             return jsonify(error="Ungültige Anfrage"), 400
-        if action == "distinct" and not all(isinstance(data.get(k), str) and data[k] for k in ("table", "column")):
+        if action == "distinct" and not all(
+            isinstance(data.get(k), str) and data[k] for k in ("table", "column")
+        ):
             return jsonify(error="Ungültige Anfrage"), 400
         caps = sql_caps(data)
         allowed, blocked = sql_filters(data)
@@ -146,12 +167,21 @@ def create_app(
         try:
             if action == "query":
                 result = sqlengine.run_query(
-                    conn, data["sql"], sqlite_dir=sqlite_dir, allowed_tables=allowed, blocked_columns=blocked, **caps
+                    conn,
+                    data["sql"],
+                    sqlite_dir=sqlite_dir,
+                    allowed_tables=allowed,
+                    blocked_columns=blocked,
+                    **caps,
                 )
             elif action == "schema":
                 result = {
                     "tables": sqlengine.read_schema(
-                        conn, sqlite_dir=sqlite_dir, allowed_tables=allowed, blocked_columns=blocked, timeout_s=caps["timeout_s"]
+                        conn,
+                        sqlite_dir=sqlite_dir,
+                        allowed_tables=allowed,
+                        blocked_columns=blocked,
+                        timeout_s=caps["timeout_s"],
                     )
                 }
             elif action == "distinct":
@@ -160,21 +190,33 @@ def create_app(
                 except (TypeError, ValueError):
                     wanted = 5000
                 result = sqlengine.distinct_values(
-                    conn, sqlite_dir=sqlite_dir, table=data["table"], column=data["column"], allowed_tables=allowed,
-                    blocked_columns=blocked, max_distinct=min(max(wanted, 1), max_distinct), timeout_s=caps["timeout_s"],
+                    conn,
+                    sqlite_dir=sqlite_dir,
+                    table=data["table"],
+                    column=data["column"],
+                    allowed_tables=allowed,
+                    blocked_columns=blocked,
+                    max_distinct=min(max(wanted, 1), max_distinct),
+                    timeout_s=caps["timeout_s"],
                     max_cell_chars=caps["max_cell_chars"],
                 )
             elif action == "profile":
                 result = {
                     "columns": sqlengine.profile_columns(
-                        conn, sqlite_dir=sqlite_dir, allowed_tables=allowed, blocked_columns=blocked, timeout_s=caps["timeout_s"]
+                        conn,
+                        sqlite_dir=sqlite_dir,
+                        allowed_tables=allowed,
+                        blocked_columns=blocked,
+                        timeout_s=caps["timeout_s"],
                     )
                 }
             else:
-                result = sqlengine.check_connection(conn, sqlite_dir=sqlite_dir, timeout_s=min(caps["timeout_s"], 15))
+                result = sqlengine.check_connection(
+                    conn, sqlite_dir=sqlite_dir, timeout_s=min(caps["timeout_s"], 15)
+                )
         except (SqlRejected, sqlengine.SqlError) as e:
             return jsonify(ok=False, error=str(e))
-        except Exception:  # noqa: BLE001 - nie Interna oder Zugangsdaten an den Aufrufer
+        except Exception:
             log.exception("SQL-Lauf fehlgeschlagen")
             return jsonify(error="Interner Fehler"), 500
         return jsonify(ok=True, **result)

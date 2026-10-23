@@ -16,32 +16,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""
-PDF Loader wrapper
-"""
+from .custom_docx_loader import CustomDOCXLoader
+from .custom_pdf_loader import CustomPDFLoader
+from .preprocess_docx import PreprocessDOCX
+from .preprocess_pdf import PreprocessPDF
 
-# Standard library
-from collections.abc import Iterator
-
-from langchain_community.document_loaders.base import BaseLoader
-
-# Third party
-from langchain_core.documents import Document
-
-# Custom imports
-from . import PreprocessPDF
-from .markdown_document import markdown_document
-
-
-class CustomPDFLoader(BaseLoader):
-    """Wrapper Class for custom loader"""
-
-    def __init__(self, file_path: str, model=None, table_sink=None):
-        self.file_path = file_path
-        self.table_sink = table_sink
-        self.processor = PreprocessPDF(model=model)
-
-    def lazy_load(self) -> Iterator[Document]:
-        """Liefert ein Document mit dem gesamten Markdown der Datei."""
-        markdown = self.processor.process_document(self.file_path, self.table_sink)
-        yield markdown_document(markdown, self.file_path)
+__all__ = [
+    "CustomDOCXLoader",
+    "CustomPDFLoader",
+    "PreprocessDOCX",
+    "PreprocessPDF",
+]

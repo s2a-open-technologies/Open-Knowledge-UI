@@ -127,10 +127,17 @@ def _get_data_dir() -> str:
 
 def _abort_if_reindexing(knowledge_id: int) -> None:
     from app.vector import reindex
+
     if reindex.is_locked(knowledge_id):
         abort(
             make_response(
-                jsonify({"success": False, "error": "Das Knowledge wird gerade neu indexiert"}), 409
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Das Knowledge wird gerade neu indexiert",
+                    }
+                ),
+                409,
             )
         )
 
@@ -150,16 +157,23 @@ def _current_knowledge() -> dict:
     knowledge = get_knowledge(kid)
     # Lesende Aufrufe brauchen Lese-, aendernde Schreibrechte auf dieses Knowledge.
     level = "read" if request.method in ("GET", "HEAD") else "write"
-    if knowledge is None or not can_access_knowledge(current_user(), knowledge["id"], level):
+    if knowledge is None or not can_access_knowledge(
+        current_user(), knowledge["id"], level
+    ):
         abort(
             make_response(
                 jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
             )
         )
-    if is_remote(knowledge) and (level == "write" or request.path.startswith("/api/vectordb")):
+    if is_remote(knowledge) and (
+        level == "write" or request.path.startswith("/api/vectordb")
+    ):
         abort(
             make_response(
-                jsonify({"success": False, "error": "Diese Quelle ist schreibgeschützt"}), 409
+                jsonify(
+                    {"success": False, "error": "Diese Quelle ist schreibgeschützt"}
+                ),
+                409,
             )
         )
     if level == "write":
@@ -189,6 +203,7 @@ def _get_collection_and_embeddings():
     """Liefert (dense_embeddings, sparse, collection) oder None, wenn die
     Embedding-Ressourcen noch nicht geladen sind."""
     from app import resources_ready
+
     if not resources_ready():
         return None
     from app.rag import model_settings
@@ -197,7 +212,11 @@ def _get_collection_and_embeddings():
     if not sparse:
         return None
     # Modell des aktuellen Knowledge (nicht blind das globale)
-    return model_settings.embedder_for(_current_knowledge()), sparse, "open_knowledge_ui"
+    return (
+        model_settings.embedder_for(_current_knowledge()),
+        sparse,
+        "open_knowledge_ui",
+    )
 
 
 def _index_data_references_best_effort() -> None:
@@ -275,23 +294,29 @@ def auth_login():
 def auth_providers():
     """Welche externen Anmeldungen der Login-Bildschirm anbieten soll (ohne Anmeldung abrufbar)."""
     from app.auth import auth_external
+
     cfg = auth_external.load_config()
     return jsonify(
         {
             "ldap": bool(cfg["ldap"]["enabled"]),
-            "oidc": {"enabled": bool(cfg["oidc"]["enabled"]), "name": cfg["oidc"]["name"] or "SSO"},
+            "oidc": {
+                "enabled": bool(cfg["oidc"]["enabled"]),
+                "name": cfg["oidc"]["name"] or "SSO",
+            },
         }
     )
 
 
 def _public_base_url() -> str:
     from app.auth import auth_external
+
     return auth_external.load_config()["base_url"] or request.host_url.rstrip("/")
 
 
 @api_bp.route("/auth/oidc/login", methods=["GET"])
 def auth_oidc_login():
     from app.auth import auth_external, auth_oidc
+
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
         return redirect("/?login_error=oidc_off")
@@ -305,13 +330,18 @@ def auth_oidc_login():
 @api_bp.route("/auth/oidc/callback", methods=["GET"])
 def auth_oidc_callback():
     from app.auth import auth_external, auth_oidc
+
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
         return redirect("/?login_error=oidc_off")
     try:
         found = auth_oidc.finish_login(cfg, _public_base_url(), session, request.args)
         user = auth_external.login_external_user(
-            "oidc", found["external_id"], found["username"], found["display_name"], found["groups"]
+            "oidc",
+            found["external_id"],
+            found["username"],
+            found["display_name"],
+            found["groups"],
         )
     except (auth_oidc.OidcError, auth_external.ExternalLoginError) as e:
         logger.warning(f"OIDC-Anmeldung abgelehnt: {e}")
@@ -365,7 +395,9 @@ def _knowledge_with_counts(knowledge: dict) -> dict:
         "stale": model_settings.is_stale(knowledge),
     }
     if is_sql(knowledge):
-        entry["source_config"] = sqlcfg.parse_config(knowledge.get("source_config")).public()
+        entry["source_config"] = sqlcfg.parse_config(
+            knowledge.get("source_config")
+        ).public()
         return entry
     if is_external(knowledge):
         entry["source_config"] = _public_source(knowledge)
@@ -412,9 +444,13 @@ def knowledge_create():
         return _create_sql(name, data)
 
     try:  # Modell laden und Dimension per Probe ermitteln (beim ersten Mal ggf. Download)
-        dimension = models_runtime.get_embedder(model_settings.embedding_spec()).dimension
+        dimension = models_runtime.get_embedder(
+            model_settings.embedding_spec()
+        ).dimension
     except models_runtime.ModelLoadError as e:
-        return jsonify({"success": False, "error": f"Embedding-Modell nicht verfügbar: {e}"}), 503
+        return jsonify(
+            {"success": False, "error": f"Embedding-Modell nicht verfügbar: {e}"}
+        ), 503
 
     knowledge = create_knowledge(name, data.get("description", ""), dimension)
     # Der Ersteller darf sein Knowledge verwalten (Admins ohnehin alles).
@@ -434,7 +470,12 @@ def _index_payload(knowledge: dict) -> dict:
     """Inhaltsverzeichnis (``index.md``) des Knowledge fuer die Anzeige. Fehlt die Datei (Bestand aus einer
     aelteren Version, abgeschaltet gewesen), wird sie bei eingeschalteter Funktion nachtraeglich erzeugt."""
     if is_remote(knowledge):
-        return {"available": False, "enabled": True, "markdown": None, "updated_at": None}
+        return {
+            "available": False,
+            "enabled": True,
+            "markdown": None,
+            "updated_at": None,
+        }
     session = get_db_service().get_session()
     try:
         enabled = SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
@@ -442,9 +483,19 @@ def _index_payload(knowledge: dict) -> dict:
         session.close()
     text = ensure_index(knowledge) if enabled else None
     if not text:
-        return {"available": True, "enabled": enabled, "markdown": None, "updated_at": None}
+        return {
+            "available": True,
+            "enabled": enabled,
+            "markdown": None,
+            "updated_at": None,
+        }
     _, updated = get_index(knowledge["id"])
-    return {"available": True, "enabled": True, "markdown": text, "updated_at": updated.isoformat() if updated else None}
+    return {
+        "available": True,
+        "enabled": True,
+        "markdown": text,
+        "updated_at": updated.isoformat() if updated else None,
+    }
 
 
 @api_bp.route("/knowledge/<int:knowledge_id>/index", methods=["GET"])
@@ -465,7 +516,9 @@ def knowledge_index_refresh(knowledge_id):
     if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
     if is_remote(knowledge):
-        return jsonify({"success": False, "error": "Diese Quelle hat kein Inhaltsverzeichnis"}), 409
+        return jsonify(
+            {"success": False, "error": "Diese Quelle hat kein Inhaltsverzeichnis"}
+        ), 409
     refresh_index(knowledge_id)
     return jsonify(_index_payload(knowledge))
 
@@ -497,7 +550,9 @@ def _parse_external_body(data: dict, stored: dict | None = None):
     try:
         spec = models_runtime.ModelSpec.from_dict(data.get("embedding"))
     except (ValueError, TypeError):
-        raise ValueError("Das Embedding-Modell der Quelle muss angegeben werden") from None
+        raise ValueError(
+            "Das Embedding-Modell der Quelle muss angegeben werden"
+        ) from None
     try:
         dimension = models_runtime.get_embedder(spec).dimension
     except models_runtime.ModelLoadError as e:
@@ -505,7 +560,9 @@ def _parse_external_body(data: dict, stored: dict | None = None):
     try:
         sources.validate_access(cfg)
         embedder = models_runtime.get_embedder(spec)
-        facts = sources.validate_source(cfg, dimension, embed=lambda text: embedder.embed_documents([text])[0])
+        facts = sources.validate_source(
+            cfg, dimension, embed=lambda text: embedder.embed_documents([text])[0]
+        )
     except sources.SourceError as e:
         raise ValueError(str(e)) from None
     return cfg, spec, dimension, facts
@@ -513,7 +570,9 @@ def _parse_external_body(data: dict, stored: dict | None = None):
 
 def _create_external(name: str, data: dict):
     if not role_at_least(current_user()["role"], "admin"):
-        return jsonify({"success": False, "error": "Externe Quellen legen nur Admins an"}), 403
+        return jsonify(
+            {"success": False, "error": "Externe Quellen legen nur Admins an"}
+        ), 403
     try:
         cfg, spec, dimension, _facts = _parse_external_body(data)
     except ValueError as e:
@@ -531,7 +590,11 @@ def _sql_probe(cfg: "sqlcfg.SqlConfig") -> dict:
     from app.toolworker import config as worker_config
 
     try:
-        out = worker.get_client("sql").sql("test", {"connection": cfg.connection()}, worker_config.load_sql().timeout_s + 15)
+        out = worker.get_client("sql").sql(
+            "test",
+            {"connection": cfg.connection()},
+            worker_config.load_sql().timeout_s + 15,
+        )
     except worker.ToolWorkerUnavailable as e:
         raise RuntimeError(str(e)) from None
     if not out.get("ok"):
@@ -544,12 +607,16 @@ def _sql_source_from(data: dict, stored: dict | None = None) -> "sqlcfg.SqlConfi
     cfg = sqlcfg.parse_config(raw)
     old = sqlcfg.parse_config(stored.get("source_config")) if stored else None
     cfg = sqlcfg.merge_password(cfg, old)
-    if old is not None and "value_columns" not in raw:  # der Dialog kennt das Wertverzeichnis nicht
+    if (
+        old is not None and "value_columns" not in raw
+    ):  # der Dialog kennt das Wertverzeichnis nicht
         cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": old.value_columns})
     # Gesperrte oder nicht mehr freigegebene Spalten fliegen aus der Auswahl des Wertverzeichnisses
     from app.sqlsource import valueindex
 
-    cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)})
+    cfg = sqlcfg.SqlConfig(
+        **{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)}
+    )
     sqlcfg.validate(cfg)
     return cfg
 
@@ -562,7 +629,9 @@ def _sql_error(e: Exception):
 
 def _create_sql(name: str, data: dict):
     if not role_at_least(current_user()["role"], "admin"):
-        return jsonify({"success": False, "error": "SQL-Quellen legen nur Admins an"}), 403
+        return jsonify(
+            {"success": False, "error": "SQL-Quellen legen nur Admins an"}
+        ), 403
     try:
         cfg = _sql_source_from(data)
         _sql_probe(cfg)
@@ -578,7 +647,11 @@ def _create_sql(name: str, data: dict):
 def knowledge_sql_test():
     """Verbindungsprobe: Version, Tabellen mit Spalten, Warnung bei Schreibrechten (nichts wird gespeichert)."""
     data = request.get_json() or {}
-    stored = get_knowledge(int(data["knowledge_id"])) if str(data.get("knowledge_id") or "").isdigit() else None
+    stored = (
+        get_knowledge(int(data["knowledge_id"]))
+        if str(data.get("knowledge_id") or "").isdigit()
+        else None
+    )
     try:
         cfg = _sql_source_from(data, stored if is_sql(stored) else None)
         facts = _sql_probe(cfg)
@@ -593,7 +666,11 @@ def knowledge_sql_test():
 def _sql_knowledge_or_404(knowledge_id: int):
     k = get_knowledge(knowledge_id)
     if not is_sql(k):
-        abort(make_response(jsonify({"success": False, "error": "SQL-Quelle nicht gefunden"}), 404))
+        abort(
+            make_response(
+                jsonify({"success": False, "error": "SQL-Quelle nicht gefunden"}), 404
+            )
+        )
     return k
 
 
@@ -625,7 +702,9 @@ def sql_values_suggest(knowledge_id):
 
     k = _sql_knowledge_or_404(knowledge_id)
     try:
-        return jsonify({"success": True, "columns": valueindex.profile(k["source_config"])})
+        return jsonify(
+            {"success": True, "columns": valueindex.profile(k["source_config"])}
+        )
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 502
 
@@ -639,13 +718,25 @@ def sql_values_save(knowledge_id):
     raw = (request.get_json() or {}).get("columns") or {}
     chosen = sqlcfg.parse_config({"value_columns": raw}).value_columns
     allowed = {t.lower() for t in cfg.tables}
-    blocked = {t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()}
+    blocked = {
+        t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()
+    }
     for table, columns in chosen.items():
         if allowed and table.lower() not in allowed:
-            return jsonify({"success": False, "error": f"Die Tabelle {table} ist nicht freigegeben"}), 400
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"Die Tabelle {table} ist nicht freigegeben",
+                }
+            ), 400
         for column in columns:
             if column.lower() in blocked.get(table.lower(), set()):
-                return jsonify({"success": False, "error": f"Die Spalte {table}.{column} ist gesperrt"}), 400
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": f"Die Spalte {table}.{column} ist gesperrt",
+                    }
+                ), 400
     updated = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": chosen})
     try:
         sqlcfg.validate(updated)
@@ -662,7 +753,9 @@ def sql_values_build(knowledge_id):
 
     k = _sql_knowledge_or_404(knowledge_id)
     if not sqlcfg.parse_config(k["source_config"]).value_columns:
-        return jsonify({"success": False, "error": "Erst Spalten auswählen und speichern"}), 400
+        return jsonify(
+            {"success": False, "error": "Erst Spalten auswählen und speichern"}
+        ), 400
     if not valueindex.start_build(knowledge_id, k["source_config"]):
         return jsonify({"success": False, "error": "Der Aufbau läuft bereits"}), 409
     return jsonify({"success": True, **valueindex.status(knowledge_id)}), 202
@@ -678,7 +771,18 @@ def sql_values_search(knowledge_id):
     term = str((request.get_json() or {}).get("term") or "")
     hits = valueindex.search(knowledge_id, term)
     return jsonify(
-        {"results": [{"table": e["table"], "column": e["column"], "value": e["value"], "count": e["count"], "score": round(s, 2)} for e, s in hits]}
+        {
+            "results": [
+                {
+                    "table": e["table"],
+                    "column": e["column"],
+                    "value": e["value"],
+                    "count": e["count"],
+                    "score": round(s, 2),
+                }
+                for e, s in hits
+            ]
+        }
     )
 
 
@@ -731,17 +835,28 @@ def knowledge_external_filter_test():
         sources.validate_access(cfg)
         flt, blocked = sources.build_filter(cfg, identity)
         if blocked:
-            return jsonify({"success": True, "blocked": True, "count": 0, "samples": []})
+            return jsonify(
+                {"success": True, "blocked": True, "count": 0, "samples": []}
+            )
         client = sources.connect(cfg)
         try:
-            count = int(client.count(cfg.collection, count_filter=flt, exact=True).count)
-            points, _ = client.scroll(cfg.collection, scroll_filter=flt, limit=3, with_payload=True)
+            count = int(
+                client.count(cfg.collection, count_filter=flt, exact=True).count
+            )
+            points, _ = client.scroll(
+                cfg.collection, scroll_filter=flt, limit=3, with_payload=True
+            )
         finally:
             client.close()
     except sources.SourceError as e:
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
-        return jsonify({"success": False, "error": f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300]}), 502
+        return jsonify(
+            {
+                "success": False,
+                "error": f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300],
+            }
+        ), 502
     texts = cfg.fields["text"]
     return jsonify(
         {
@@ -763,11 +878,15 @@ def knowledge_update(knowledge_id):
     current = get_knowledge(knowledge_id)
     if is_external(current) and ("source" in data or "embedding" in data):
         if not role_at_least(current_user()["role"], "admin"):
-            return jsonify({"success": False, "error": "Nur Admins ändern die Quelle"}), 403
+            return jsonify(
+                {"success": False, "error": "Nur Admins ändern die Quelle"}
+            ), 403
         try:
             body = {
-                "source": data.get("source") or sources.parse_config(current["source_config"]).to_dict(),
-                "embedding": data.get("embedding") or json.loads(current["embedding_spec"]),
+                "source": data.get("source")
+                or sources.parse_config(current["source_config"]).to_dict(),
+                "embedding": data.get("embedding")
+                or json.loads(current["embedding_spec"]),
             }
             cfg, spec, dimension, _f = _parse_external_body(body, stored=current)
         except ValueError as e:
@@ -775,7 +894,9 @@ def knowledge_update(knowledge_id):
         update_external_source(knowledge_id, spec, dimension, cfg.to_dict())
     if is_sql(current) and "source" in data:
         if not role_at_least(current_user()["role"], "admin"):
-            return jsonify({"success": False, "error": "Nur Admins ändern die Quelle"}), 403
+            return jsonify(
+                {"success": False, "error": "Nur Admins ändern die Quelle"}
+            ), 403
         try:
             cfg = _sql_source_from(data, current)
             _sql_probe(cfg)
@@ -784,7 +905,9 @@ def knowledge_update(knowledge_id):
         update_sql_source(knowledge_id, cfg.to_dict())
         from app.sqlsource import valueindex
 
-        valueindex.prune(knowledge_id, cfg.to_dict())  # bereits gespeicherte Werte gesperrter Spalten entfernen
+        valueindex.prune(
+            knowledge_id, cfg.to_dict()
+        )  # bereits gespeicherte Werte gesperrter Spalten entfernen
     knowledge = update_knowledge(
         knowledge_id, data.get("name"), data.get("description")
     )
@@ -839,7 +962,9 @@ def knowledge_reindex(knowledge_id):
     if not can_access_knowledge(current_user(), knowledge_id, "write"):
         return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
     if is_remote(get_knowledge(knowledge_id)):
-        return jsonify({"success": False, "error": "Diese Quelle ist schreibgeschützt"}), 409
+        return jsonify(
+            {"success": False, "error": "Diese Quelle ist schreibgeschützt"}
+        ), 409
     return _start_reindex([knowledge_id])
 
 
@@ -862,7 +987,9 @@ def _start_reindex(ids: list[int]):
     client = current_app.extensions.get("client")
     sparse = current_app.extensions.get("sparse_embeddings")
     if not client or not sparse:
-        return jsonify({"success": False, "error": "RAG-System wird noch initialisiert"}), 503
+        return jsonify(
+            {"success": False, "error": "RAG-System wird noch initialisiert"}
+        ), 503
     if current_app.extensions["ingestion_status"]["is_ingesting"]:
         return jsonify({"success": False, "error": "Ingestion läuft gerade"}), 409
     try:
@@ -894,7 +1021,10 @@ def upload_chat_attachment():
 
         if not enabled():
             return jsonify(
-                {"success": False, "error": "Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle)."}
+                {
+                    "success": False,
+                    "error": "Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle).",
+                }
             ), 415
 
     sparse = current_app.extensions.get("sparse_embeddings")
@@ -914,7 +1044,9 @@ def upload_chat_attachment():
     if not session_id:
         session_id = db.create_session(user_id=user_id).id
 
-    attachment = start_attachment_ingestion(file, session_id, sparse, current_user()["id"])
+    attachment = start_attachment_ingestion(
+        file, session_id, sparse, current_user()["id"]
+    )
     return jsonify({"success": True, "session_id": session_id, **attachment}), 202
 
 
@@ -1017,7 +1149,9 @@ def delete_document(doc_id):
     # Collection des Bereichs, dem das Dokument gehoert (nicht des Requests).
     doc_knowledge = get_knowledge(user_doc.knowledge_id) or _current_knowledge()
     if reindex.is_locked(doc_knowledge["id"]):
-        return jsonify({"success": False, "error": "Das Knowledge wird gerade neu indexiert"}), 409
+        return jsonify(
+            {"success": False, "error": "Das Knowledge wird gerade neu indexiert"}
+        ), 409
     user = current_user()
     # Schreibrecht, oder: wer das Dokument hochgeladen hat, darf es auch loeschen (und sieht das Knowledge)
     uploader = user_doc.uploaded_by is not None and user_doc.uploaded_by == user["id"]
@@ -1072,7 +1206,9 @@ def my_uploads_markdown(kind, item_id):
         return Response(
             text,
             mimetype="text/markdown; charset=utf-8",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}.md"},
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}.md"
+            },
         )
     return jsonify({"filename": f"{name}.md", "markdown": text})
 
@@ -1243,7 +1379,11 @@ def _data_file_path(filename: str) -> Path | None:
 
     folder = knowledge_paths(_current_knowledge()).data_dir.resolve()
     path = (folder / os.path.basename(filename)).resolve()
-    if path.parent != folder or path.suffix.lower() not in STRUCTURED_EXTS or not path.is_file():
+    if (
+        path.parent != folder
+        or path.suffix.lower() not in STRUCTURED_EXTS
+        or not path.is_file()
+    ):
         return None
     return path
 
@@ -1270,8 +1410,11 @@ def data_file_view(filename):
         {
             "filename": path.name,
             "columns": [str(c) for c in df.columns],
-            "rows": [["" if v != v else str(v) for v in row] for row in head.itertuples(index=False)],
-            "total_rows": int(len(df)),
+            "rows": [
+                ["" if v != v else str(v) for v in row]
+                for row in head.itertuples(index=False)
+            ],
+            "total_rows": len(df),
             "truncated": len(df) > DATA_PREVIEW_ROWS,
         }
     )
@@ -1569,7 +1712,9 @@ def vectordb_clear_all():
         from app.vector.collections import ensure_collection
 
         client.delete_collection(_kb_col())
-        ensure_collection(client, _kb_col(), _current_knowledge()["embedding_dimension"])
+        ensure_collection(
+            client, _kb_col(), _current_knowledge()["embedding_dimension"]
+        )
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1599,7 +1744,12 @@ def change_password():
     set_password(user["id"], new_password)
     from app.auth import audit
 
-    audit.record(audit.PASSWORD_CHANGE, actor_user_id=user["id"], object_type="user", object_id=user["id"])
+    audit.record(
+        audit.PASSWORD_CHANGE,
+        actor_user_id=user["id"],
+        object_type="user",
+        object_id=user["id"],
+    )
     return jsonify({"success": True})
 
 
@@ -1621,7 +1771,12 @@ def export_my_data():
     )
     from app.auth import audit
 
-    audit.record(audit.DATA_EXPORT, actor_user_id=user["id"], object_type="user", object_id=user["id"])
+    audit.record(
+        audit.DATA_EXPORT,
+        actor_user_id=user["id"],
+        object_type="user",
+        object_id=user["id"],
+    )
     return response
 
 
@@ -1635,7 +1790,9 @@ def export_my_data():
 def summaries():
     user = current_user()
     if role_at_least(user["role"], "admin"):
-        summaries_store.adopt_legacy(user["id"])  # Altbestand einmalig dem Admin zuordnen
+        summaries_store.adopt_legacy(
+            user["id"]
+        )  # Altbestand einmalig dem Admin zuordnen
     summaries_dir = summaries_store.user_dir(user["id"])
     result = []
 
@@ -1705,7 +1862,9 @@ def delete_summary(filename):
     try:
         if file_path.exists():
             file_path.unlink()
-        get_db_service().delete_summary_by_filename(filename, user_id=current_user()["id"])
+        get_db_service().delete_summary_by_filename(
+            filename, user_id=current_user()["id"]
+        )
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

@@ -56,7 +56,9 @@ def upgrade() -> None:
             {"t": True},
         )
         default_id = conn.execute(
-            sa.text("SELECT id FROM knowledge WHERE collection_name = 'open_knowledge_ui'")
+            sa.text(
+                "SELECT id FROM knowledge WHERE collection_name = 'open_knowledge_ui'"
+            )
         ).scalar()
 
     doc_cols = {c["name"] for c in insp.get_columns("user_documents")}
@@ -71,7 +73,9 @@ def upgrade() -> None:
                 ["id"],
             )
     conn.execute(
-        sa.text("UPDATE user_documents SET knowledge_id = :kid WHERE knowledge_id IS NULL"),
+        sa.text(
+            "UPDATE user_documents SET knowledge_id = :kid WHERE knowledge_id IS NULL"
+        ),
         {"kid": default_id},
     )
 

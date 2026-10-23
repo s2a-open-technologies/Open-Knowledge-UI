@@ -34,7 +34,9 @@ class ReasoningChatOpenAI(ChatOpenAI):
     es aus ``additional_kwargs["reasoning_content"]``.
     """
 
-    def _convert_chunk_to_generation_chunk(self, chunk, default_chunk_class, base_generation_info):
+    def _convert_chunk_to_generation_chunk(
+        self, chunk, default_chunk_class, base_generation_info
+    ):
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk, default_chunk_class, base_generation_info
         )
@@ -46,6 +48,7 @@ class ReasoningChatOpenAI(ChatOpenAI):
         if reasoning:
             generation_chunk.message.additional_kwargs["reasoning_content"] = reasoning
         return generation_chunk
+
 
 _FALLBACK = {
     "temperature": "0.1",
@@ -92,7 +95,9 @@ def global_chat_defaults() -> dict:
         "temperature": float(raw["temperature"] or 0.1),
         "top_p": float(raw["top_p"] or 0.2),
         "top_k": int(raw["top_k"] or 40),
-        "max_tokens": int(raw["max_tokens"]) if str(raw["max_tokens"]).strip() else None,
+        "max_tokens": int(raw["max_tokens"])
+        if str(raw["max_tokens"]).strip()
+        else None,
         "num_ctx": int(raw["num_ctx"] or 4096),
         "thinking": raw["thinking"] or "none",
     }

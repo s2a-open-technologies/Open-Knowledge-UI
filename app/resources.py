@@ -27,10 +27,9 @@ Event-Handling und Fehler-Logging.
 
 import logging
 
-from app.rag.sparse import SparseRouter
-
 from app.llm.local_llm import VisionLLM
 from app.rag.retrieval import MultiCollectionRetriever
+from app.rag.sparse import SparseRouter
 from app.sqlsource.tools import SqlTools
 from app.tools.custom_tools import CustomTools
 

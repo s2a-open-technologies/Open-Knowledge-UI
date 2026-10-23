@@ -30,7 +30,16 @@ def call(client, body, token=TOKEN):
 
 
 def body(file="umsatz.csv", code="result = df['betrag'].sum()", **limits):
-    return {"file": file, "code": code, "limits": {"timeout_s": 20, "memory_mb": 1024, "max_output_chars": 2000, **limits}}
+    return {
+        "file": file,
+        "code": code,
+        "limits": {
+            "timeout_s": 20,
+            "memory_mb": 1024,
+            "max_output_chars": 2000,
+            **limits,
+        },
+    }
 
 
 def test_empty_token_refuses_to_start(data):
@@ -49,16 +58,31 @@ def test_wrong_or_missing_token_is_401(client, token):
 
 def test_runs_code_on_an_allowed_file(client):
     r = call(client, body())
-    assert r.status_code == 200 and r.get_json()["ok"] is True and "350" in r.get_json()["output"]
+    assert (
+        r.status_code == 200
+        and r.get_json()["ok"] is True
+        and "350" in r.get_json()["output"]
+    )
 
 
 def test_subfolder_files_are_reachable_by_relative_path(client):
-    assert call(client, body("knowledge_2/x.csv", "result = df['a'].sum()")).status_code == 200
+    assert (
+        call(client, body("knowledge_2/x.csv", "result = df['a'].sum()")).status_code
+        == 200
+    )
 
 
 @pytest.mark.parametrize(
     "file",
-    ["../ausserhalb.csv", "/etc/passwd", "knowledge_2/../../ausserhalb.csv", "nicht_da.csv", "notiz.txt", "", "a\x00b.csv"],
+    [
+        "../ausserhalb.csv",
+        "/etc/passwd",
+        "knowledge_2/../../ausserhalb.csv",
+        "nicht_da.csv",
+        "notiz.txt",
+        "",
+        "a\x00b.csv",
+    ],
 )
 def test_paths_outside_or_unsupported_are_refused(client, file):
     assert call(client, body(file)).status_code in (400, 404)
@@ -78,7 +102,10 @@ def test_oversized_code_is_413(client):
     assert call(client, body(code="x=1\n" * 10000)).status_code == 413
 
 
-@pytest.mark.parametrize("bad", [{}, {"file": 1, "code": "x"}, {"file": "a.csv"}, {"file": "a.csv", "code": 3}])
+@pytest.mark.parametrize(
+    "bad",
+    [{}, {"file": 1, "code": "x"}, {"file": "a.csv"}, {"file": "a.csv", "code": 3}],
+)
 def test_invalid_bodies_are_400(client, bad):
     assert call(client, bad).status_code == 400
 
@@ -90,7 +117,14 @@ def test_limits_are_capped_by_the_worker(data):
         seen.update(kw)
         return {"ok": True, "output": "x"}
 
-    c = create_app(TOKEN, str(data), runner=fake, max_timeout_s=30, max_memory_mb=2048, max_output_chars=5000).test_client()
+    c = create_app(
+        TOKEN,
+        str(data),
+        runner=fake,
+        max_timeout_s=30,
+        max_memory_mb=2048,
+        max_output_chars=5000,
+    ).test_client()
     call(c, body(timeout_s=9999, memory_mb=99999, max_output_chars=10**9))
     assert seen == {"timeout_s": 30, "memory_mb": 2048, "max_output_chars": 5000}
 
@@ -106,12 +140,15 @@ def test_errors_do_not_leak_internals(data):
 
 # --- Rolle sql -----------------------------------------------------------------
 
+
 @pytest.fixture
 def sqldir(tmp_path):
     d = tmp_path / "sqlite"
     d.mkdir()
     con = sqlite3.connect(d / "shop.db")
-    con.executescript("create table items (id integer primary key, name text, salary integer); insert into items (name, salary) values ('Stuhl', 5), ('Tisch', 7);")
+    con.executescript(
+        "create table items (id integer primary key, name text, salary integer); insert into items (name, salary) values ('Stuhl', 5), ('Tisch', 7);"
+    )
     con.commit()
     con.close()
     return d
@@ -119,7 +156,9 @@ def sqldir(tmp_path):
 
 @pytest.fixture
 def sqlc(data, sqldir):
-    return create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir)).test_client()
+    return create_app(
+        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir)
+    ).test_client()
 
 
 def sql_call(client, action, body, token=TOKEN):
@@ -128,14 +167,21 @@ def sql_call(client, action, body, token=TOKEN):
 
 
 def sql_body(**over):
-    body = {"connection": {"dialect": "sqlite", "database": "shop.db"}, "sql": "select name from items order by id",
-            "allowed_tables": None, "blocked_columns": {}, "limits": {"row_limit": 10, "timeout_s": 5, "max_cell_chars": 100}}
+    body = {
+        "connection": {"dialect": "sqlite", "database": "shop.db"},
+        "sql": "select name from items order by id",
+        "allowed_tables": None,
+        "blocked_columns": {},
+        "limits": {"row_limit": 10, "timeout_s": 5, "max_cell_chars": 100},
+    }
     body.update(over)
     return body
 
 
 def test_roles_only_serve_their_own_endpoints(client, sqlc):
-    assert sql_call(client, "query", sql_body()).status_code == 404  # pandas-Rolle kennt kein SQL
+    assert (
+        sql_call(client, "query", sql_body()).status_code == 404
+    )  # pandas-Rolle kennt kein SQL
     assert call(sqlc, body()).status_code == 404  # sql-Rolle kennt kein pandas
     assert sqlc.get("/health").get_json()["role"] == "sql"
 
@@ -147,7 +193,12 @@ def test_sql_endpoints_need_the_token(sqlc):
 
 def test_sql_query_returns_rows(sqlc):
     j = sql_call(sqlc, "query", sql_body()).get_json()
-    assert j == {"ok": True, "columns": ["name"], "rows": [["Stuhl"], ["Tisch"]], "truncated": False}
+    assert j == {
+        "ok": True,
+        "columns": ["name"],
+        "rows": [["Stuhl"], ["Tisch"]],
+        "truncated": False,
+    }
 
 
 def test_sql_rejections_and_db_errors_are_ok_false_with_text(sqlc):
@@ -158,20 +209,42 @@ def test_sql_rejections_and_db_errors_are_ok_false_with_text(sqlc):
 
 
 def test_blocked_columns_reach_the_engine(sqlc):
-    j = sql_call(sqlc, "query", sql_body(sql="select salary from items", blocked_columns={"items": ["salary"]})).get_json()
+    j = sql_call(
+        sqlc,
+        "query",
+        sql_body(sql="select salary from items", blocked_columns={"items": ["salary"]}),
+    ).get_json()
     assert j["ok"] is False and "gesperrt" in j["error"]
 
 
 def test_sql_schema_and_test(sqlc):
-    s = sql_call(sqlc, "schema", {"connection": sql_body()["connection"], "allowed_tables": None, "blocked_columns": {"items": ["salary"]}}).get_json()
+    s = sql_call(
+        sqlc,
+        "schema",
+        {
+            "connection": sql_body()["connection"],
+            "allowed_tables": None,
+            "blocked_columns": {"items": ["salary"]},
+        },
+    ).get_json()
     assert [c["name"] for c in s["tables"][0]["columns"]] == ["id", "name"]
     t = sql_call(sqlc, "test", {"connection": sql_body()["connection"]}).get_json()
-    assert t["ok"] is True and t["write_privilege"] is False and t["tables"][0]["name"] == "items"
+    assert (
+        t["ok"] is True
+        and t["write_privilege"] is False
+        and t["tables"][0]["name"] == "items"
+    )
 
 
 def test_sql_limits_are_capped_by_the_worker(data, sqldir):
-    c = create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_rows=1).test_client()
-    j = sql_call(c, "query", sql_body(limits={"row_limit": 9999, "timeout_s": 5, "max_cell_chars": 100})).get_json()
+    c = create_app(
+        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_rows=1
+    ).test_client()
+    j = sql_call(
+        c,
+        "query",
+        sql_body(limits={"row_limit": 9999, "timeout_s": 5, "max_cell_chars": 100}),
+    ).get_json()
     assert len(j["rows"]) == 1 and j["truncated"] is True
 
 
@@ -181,7 +254,16 @@ def test_sql_invalid_bodies_are_400(sqlc, bad):
 
 
 def test_sql_errors_never_contain_the_password(sqlc):
-    body = sql_body(connection={"dialect": "postgresql", "host": "127.0.0.1", "port": 1, "database": "d", "user": "u", "password": "geheim123"})
+    body = sql_body(
+        connection={
+            "dialect": "postgresql",
+            "host": "127.0.0.1",
+            "port": 1,
+            "database": "d",
+            "user": "u",
+            "password": "geheim123",
+        }
+    )
     text = sql_call(sqlc, "query", body).get_data(as_text=True)
     assert "geheim123" not in text and "127.0.0.1" not in text
 
@@ -190,16 +272,30 @@ def test_sql_errors_never_contain_the_password(sqlc):
 @pytest.fixture
 def sqlc_goods(data, sqldir):
     con = sqlite3.connect(sqldir / "goods.db")
-    con.executescript("create table items (id integer primary key, name text, salary integer);")
-    con.executemany("insert into items (name, salary) values (?, ?)", [("Stuhl", 1), ("Stuhl", 2), ("Tisch", 3)])
+    con.executescript(
+        "create table items (id integer primary key, name text, salary integer);"
+    )
+    con.executemany(
+        "insert into items (name, salary) values (?, ?)",
+        [("Stuhl", 1), ("Stuhl", 2), ("Tisch", 3)],
+    )
     con.commit()
     con.close()
-    return create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_distinct=2).test_client()
+    return create_app(
+        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_distinct=2
+    ).test_client()
 
 
 def goods_body(**over):
-    body = {"connection": {"dialect": "sqlite", "database": "goods.db"}, "table": "items", "column": "name",
-            "allowed_tables": None, "blocked_columns": {}, "max_distinct": 100, "limits": {"timeout_s": 5, "max_cell_chars": 100}}
+    body = {
+        "connection": {"dialect": "sqlite", "database": "goods.db"},
+        "table": "items",
+        "column": "name",
+        "allowed_tables": None,
+        "blocked_columns": {},
+        "max_distinct": 100,
+        "limits": {"timeout_s": 5, "max_cell_chars": 100},
+    }
     body.update(over)
     return body
 
@@ -207,16 +303,39 @@ def goods_body(**over):
 def test_distinct_endpoint_returns_values_and_caps_max_distinct(sqlc_goods):
     j = sql_call(sqlc_goods, "distinct", goods_body()).get_json()
     assert j["ok"] and j["values"][0] == ["Stuhl", 2] and j["too_many"] is False
-    capped = sql_call(sqlc_goods, "distinct", goods_body(column="id", max_distinct=99999)).get_json()
-    assert capped["too_many"] is True  # Obergrenze des Workers (2) gilt, nicht die der Anfrage
+    capped = sql_call(
+        sqlc_goods, "distinct", goods_body(column="id", max_distinct=99999)
+    ).get_json()
+    assert (
+        capped["too_many"] is True
+    )  # Obergrenze des Workers (2) gilt, nicht die der Anfrage
 
 
 def test_distinct_endpoint_validates_and_enforces_filters(sqlc_goods):
-    assert sql_call(sqlc_goods, "distinct", {"connection": goods_body()["connection"]}).status_code == 400
-    j = sql_call(sqlc_goods, "distinct", goods_body(column="salary", blocked_columns={"items": ["salary"]})).get_json()
+    assert (
+        sql_call(
+            sqlc_goods, "distinct", {"connection": goods_body()["connection"]}
+        ).status_code
+        == 400
+    )
+    j = sql_call(
+        sqlc_goods,
+        "distinct",
+        goods_body(column="salary", blocked_columns={"items": ["salary"]}),
+    ).get_json()
     assert j["ok"] is False and "gesperrt" in j["error"]
 
 
 def test_profile_endpoint_lists_text_columns(sqlc_goods):
-    j = sql_call(sqlc_goods, "profile", {"connection": goods_body()["connection"], "allowed_tables": None, "blocked_columns": {}}).get_json()
-    assert j["ok"] and [(c["table"], c["column"]) for c in j["columns"]] == [("items", "name")]
+    j = sql_call(
+        sqlc_goods,
+        "profile",
+        {
+            "connection": goods_body()["connection"],
+            "allowed_tables": None,
+            "blocked_columns": {},
+        },
+    ).get_json()
+    assert j["ok"] and [(c["table"], c["column"]) for c in j["columns"]] == [
+        ("items", "name")
+    ]

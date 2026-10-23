@@ -21,23 +21,24 @@ Custom tools for the agent
 """
 
 # Standard library
+import logging
 import os
-from pathlib import Path
-from logging import getLogger
 import time
-from charset_normalizer import from_bytes
+from logging import getLogger
+from pathlib import Path
 
 # Third party
 import pandas as pd
+from charset_normalizer import from_bytes
+from langchain_core.tools.structured import StructuredTool
 from pydantic import BaseModel, Field
 
-from langchain_core.tools.structured import StructuredTool
-from app.rag.format import format_hits, record_sources
 from app.ingest.index_doc import read_indexes
+from app.rag.format import format_hits, record_sources
 from app.rag.retrieval import get_scope_or_none
-from app.utils.phase_logger import phase_logger, Phase
 from app.toolworker import config as worker_config
 from app.toolworker.client import ToolWorkerUnavailable, get_client
+from app.utils.phase_logger import Phase, phase_logger
 
 logger = getLogger(__name__)
 
@@ -58,8 +59,6 @@ class ReadIndexInput(BaseModel):
 
 class ListFilesInput(BaseModel):
     """Input model for list_files tool."""
-
-    pass
 
 
 class PreviewDataInput(BaseModel):
@@ -92,8 +91,6 @@ class RunPandasInput(BaseModel):
 
 class ListSummariesInput(BaseModel):
     """Input model for list_summaries tool."""
-
-    pass
 
 
 class ReadSummaryInput(BaseModel):
@@ -538,7 +535,7 @@ class CustomTools:
 
     def run_pandas(self, filename: str, code: str) -> str:
         """Führt Pandas-Code auf einer Datei aus. Die Ausführung läuft im Tool-Worker (eigener Container)."""
-        phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: run_pandas | Datei: {filename}")
+        phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: run_pandas")
         start_time = time.time()
 
         path = self._allowed_files().get(filename)
@@ -559,10 +556,17 @@ class CustomTools:
             )
         except ToolWorkerUnavailable as e:
             phase_logger.log_phase(
-                Phase.TOOL_EXECUTION, "Tool: run_pandas | Worker nicht verfügbar", duration=time.time() - start_time
+                Phase.TOOL_EXECUTION,
+                "Tool: run_pandas | Worker nicht verfügbar",
+                duration=time.time() - start_time,
+                level=logging.WARNING,
             )
             return f"FEHLER: Codeausführung nicht verfügbar ({e}) Die Auswertung kann gerade nicht durchgeführt werden."
-        phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: run_pandas | fertig", duration=time.time() - start_time)
+        phase_logger.log_phase(
+            Phase.TOOL_EXECUTION,
+            "Tool: run_pandas | fertig",
+            duration=time.time() - start_time,
+        )
         return out
 
     def _validate_summary_filename(self, filename: str) -> str:
@@ -637,14 +641,15 @@ class CustomTools:
         """
         try:
             from app.core.database_service import get_db_service
-
             from app.rag.retrieval import get_scope_or_none
 
             scope = get_scope_or_none()
             owner = scope.user_id if scope else None
             db = get_db_service()
             existing = {
-                s.filename for s in db.get_all_summaries() if getattr(s, "user_id", None) == owner
+                s.filename
+                for s in db.get_all_summaries()
+                if getattr(s, "user_id", None) == owner
             }
             if filename not in existing:
                 db.create_summary_file(filename=filename, user_id=owner)
@@ -726,9 +731,7 @@ class CustomTools:
         # Dokumentsuche: Treffer mit Quellenangabe, mit Logging
         def document_search(query: str) -> str:
             start_time = time.time()
-            phase_logger.log_phase(
-                Phase.RETRIEVAL, f"Vector-Search gestartet | Query: {query[:50]}..."
-            )
+            phase_logger.log_phase(Phase.RETRIEVAL, "Vector-Search gestartet")
             docs = self.retriever.invoke(query)
             phase_logger.log_phase(
                 Phase.RETRIEVAL,
@@ -751,7 +754,7 @@ class CustomTools:
             description=(
                 "Liefert das Inhaltsverzeichnis der durchsuchbaren Wissensbereiche: welche Dokumente "
                 "es gibt, ihre Gliederung und welche Tabellen/Datendateien (mit Spalten) für run_pandas "
-                "bereitstehen. Nutze es bei ausdrücklichen Übersichtsfragen (\"welche Dokumente gibt es?\") und wenn "
+                'bereitstehen. Nutze es bei ausdrücklichen Übersichtsfragen ("welche Dokumente gibt es?") und wenn '
                 "unklar ist, wo etwas steht, bevor du blind suchst. Gib das Ergebnis nicht vollständig wieder, "
                 "wenn nur nach einer bestimmten Sache gefragt wurde."
             ),

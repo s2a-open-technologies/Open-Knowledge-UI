@@ -13,12 +13,11 @@ Start:  uv run --with fastapi --with uvicorn uvicorn sanitizer_adapter:app --por
 """
 
 import re
-from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-API_KEY: Optional[str] = None  # z. B. "geheim"; None = keine Anmeldung
+API_KEY: str | None = None  # z. B. "geheim"; None = keine Anmeldung
 
 PATTERNS = {
     "EMAIL": re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"),
@@ -31,7 +30,7 @@ app = FastAPI(title="Sanitizer")
 
 class Request(BaseModel):
     text: str
-    language: Optional[str] = None
+    language: str | None = None
 
 
 def detect(text: str) -> list[tuple[int, int, str]]:
@@ -48,7 +47,7 @@ def detect(text: str) -> list[tuple[int, int, str]]:
 
 
 @app.post("/sanitize")
-def sanitize(body: Request, authorization: Optional[str] = Header(default=None)):
+def sanitize(body: Request, authorization: str | None = Header(default=None)):
     if API_KEY and authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="API-Key fehlt oder ist falsch")
     mapping: dict[str, str] = {}

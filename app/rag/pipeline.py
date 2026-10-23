@@ -66,7 +66,11 @@ class Hit:
 
     @property
     def text(self) -> str:
-        return self.payload.get("page_content") or self.payload.get("original_content") or ""
+        return (
+            self.payload.get("page_content")
+            or self.payload.get("original_content")
+            or ""
+        )
 
     @property
     def filename(self) -> str:
@@ -112,7 +116,10 @@ class Trace:
             entry["ms"] = round((time.perf_counter() - start) * 1000)
 
     def to_dict(self) -> dict:
-        return {"stages": self.stages, "total_ms": sum(s.get("ms", 0) for s in self.stages)}
+        return {
+            "stages": self.stages,
+            "total_ms": sum(s.get("ms", 0) for s in self.stages),
+        }
 
 
 def brief(hits: list[Hit], limit: int = 12) -> list[dict]:
@@ -155,7 +162,12 @@ def _query_collection(
     limit = search["candidates"]
     mode = search["mode"]
     vectors = [dense_name] if with_vectors else False
-    common = {"limit": limit, "with_payload": True, "with_vectors": vectors, "query_filter": flt}
+    common = {
+        "limit": limit,
+        "with_payload": True,
+        "with_vectors": vectors,
+        "query_filter": flt,
+    }
 
     def dense_query():
         return {
@@ -166,7 +178,9 @@ def _query_collection(
 
     def sparse_query():
         return {
-            "query": qm.SparseVector(indices=list(svec.indices), values=list(svec.values)),
+            "query": qm.SparseVector(
+                indices=list(svec.indices), values=list(svec.values)
+            ),
             "using": sparse_name,
         }
 
@@ -187,7 +201,9 @@ def _query_collection(
     else:
         query = qm.FusionQuery(fusion=qm.Fusion.RRF)
     try:
-        return client.query_points(collection, prefetch=prefetch, query=query, **common).points
+        return client.query_points(
+            collection, prefetch=prefetch, query=query, **common
+        ).points
     except Exception as e:
         if isinstance(query, qm.RrfQuery):
             # Aelterer Qdrant-Server ohne gewichtetes RRF: ungewichtet weiter.
@@ -242,14 +258,18 @@ def _mmr(hits: list[Hit], k: int, lambda_mult: float) -> list[Hit]:
         for i in range(len(hits)):
             if i in selected:
                 continue
-            val = lambda_mult * relevance[i] - (1 - lambda_mult) * max(sim[i][j] for j in selected)
+            val = lambda_mult * relevance[i] - (1 - lambda_mult) * max(
+                sim[i][j] for j in selected
+            )
             if val > best_val:
                 best, best_val = i, val
         selected.append(best)
     return [hits[i] for i in selected]
 
 
-def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict, extra_filter=None) -> list[Hit]:
+def _expand_neighbors(
+    client, hits: list[Hit], n: int, entry: dict, extra_filter=None
+) -> list[Hit]:
     """Ersetzt jeden Treffer durch eine Passage mit ``n`` Chunks davor und danach."""
     groups: dict[tuple[str, str], list[Hit]] = {}
     passthrough: list[Hit] = []
@@ -265,21 +285,28 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict, extra_filter
     for (collection, fg), group in groups.items():
         texts = {h.chunk_index: h.text for h in group}
         page_spans = {
-            h.chunk_index: (h.payload.get("page_start"), h.payload.get("page_end")) for h in group
+            h.chunk_index: (h.payload.get("page_start"), h.payload.get("page_end"))
+            for h in group
         }
         wanted: set[int] = set()
         for h in group:
             total = h.payload.get("chunk_total")
             top = (total - 1) if isinstance(total, int) else h.chunk_index + n
-            wanted.update(range(max(0, h.chunk_index - n), min(top, h.chunk_index + n) + 1))
+            wanted.update(
+                range(max(0, h.chunk_index - n), min(top, h.chunk_index + n) + 1)
+            )
         missing = sorted(wanted - texts.keys())
         if missing:
             points, _ = client.scroll(
                 collection,
                 scroll_filter=qm.Filter(
                     must=[
-                        qm.FieldCondition(key="file_group_id", match=qm.MatchValue(value=fg)),
-                        qm.FieldCondition(key="chunk_index", match=qm.MatchAny(any=missing)),
+                        qm.FieldCondition(
+                            key="file_group_id", match=qm.MatchValue(value=fg)
+                        ),
+                        qm.FieldCondition(
+                            key="chunk_index", match=qm.MatchAny(any=missing)
+                        ),
                         *([extra_filter] if extra_filter is not None else []),
                     ]
                 ),
@@ -307,12 +334,22 @@ def _expand_neighbors(client, hits: list[Hit], n: int, entry: dict, extra_filter
                     payload = dict(top_hit.payload)
                     payload["page_content"] = "\n\n".join(texts[i] for i in run)
                     payload["_chunks"] = [run[0], run[-1]]
-                    spans = [page_spans[i] for i in run if page_spans.get(i, (None,))[0] is not None]
+                    spans = [
+                        page_spans[i]
+                        for i in run
+                        if page_spans.get(i, (None,))[0] is not None
+                    ]
                     if spans:  # Seitenspanne der ganzen Passage
                         payload["page_start"] = min(sp[0] for sp in spans)
                         payload["page_end"] = max(sp[1] for sp in spans)
                     passages.append(
-                        Hit(collection, top_hit.id, payload, top_hit.score, top_hit.vector)
+                        Hit(
+                            collection,
+                            top_hit.id,
+                            payload,
+                            top_hit.score,
+                            top_hit.vector,
+                        )
                     )
                 run = []
             if idx is not None:
@@ -361,7 +398,12 @@ def run(
     if not collections or not question.strip():
         return []
 
-    search, rr, mmr, qe = cfg["search"], cfg["rerank"], cfg["mmr"], cfg["query_enhancement"]
+    search, rr, mmr, qe = (
+        cfg["search"],
+        cfg["rerank"],
+        cfg["mmr"],
+        cfg["query_enhancement"],
+    )
     final_k = cfg["final_k"]
     notes: list[str] = []
     if not sparse_name and search["mode"] != "dense":
@@ -381,7 +423,9 @@ def run(
                 try:
                     generated = queries.generate(question, qe, helper)
                     st["generated"] = generated
-                    qs = ([question] if qe["include_original"] else []) + generated or [question]
+                    qs = ([question] if qe["include_original"] else []) + generated or [
+                        question
+                    ]
                 except Exception as e:
                     logger.warning(f"Query-Enhancement fehlgeschlagen: {e}")
                     st["error"] = f"{type(e).__name__}: {e}"[:300]
@@ -390,7 +434,9 @@ def run(
     # 2. Suche je Frage und Collection
     need_vectors = mmr["enabled"]  # Dense-Vektoren der Kandidaten nur fuer MMR
     rank_lists: list[list[Hit]] = []
-    with trace.stage("search", mode=search["mode"], fusion=search["fusion"], queries=len(qs)) as st:
+    with trace.stage(
+        "search", mode=search["mode"], fusion=search["fusion"], queries=len(qs)
+    ) as st:
         st["per_collection"] = {}
         if notes:
             st["notes"] = notes
@@ -417,7 +463,9 @@ def run(
                     )
                 except Exception as e:
                     logger.warning(f"Suche in '{collection}' fehlgeschlagen: {e}")
-                    st.setdefault("errors", []).append(f"{collection}: {type(e).__name__}: {e}"[:200])
+                    st.setdefault("errors", []).append(
+                        f"{collection}: {type(e).__name__}: {e}"[:200]
+                    )
                     continue
                 hits = [
                     Hit(

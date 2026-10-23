@@ -46,7 +46,10 @@ def app(db, qd):
 
 def upload_and_ingest(app, qd, user, name, text):
     from app.auth import access
-    access.add_grant("knowledge", knowledge.get_knowledge(None)["id"], "user", user["id"], "write")
+
+    access.add_grant(
+        "knowledge", knowledge.get_knowledge(None)["id"], "user", user["id"], "write"
+    )
     c = client_for(app, user)
     r = c.post(
         "/api/documents/upload",
@@ -59,7 +62,9 @@ def upload_and_ingest(app, qd, user, name, text):
     return c
 
 
-def test_knowledge_uploads_are_not_listed_in_my_uploads_but_the_uploader_can_delete_them_in_the_knowledge(app, db, qd, no_enrichment):
+def test_knowledge_uploads_are_not_listed_in_my_uploads_but_the_uploader_can_delete_them_in_the_knowledge(
+    app, db, qd, no_enrichment
+):
     ed, other = add_user(db, "ed", "editor"), add_user(db, "other", "editor")
     c = upload_and_ingest(app, qd, ed, "vertrag.md", DOC)
     assert scroll_all(qd)
@@ -72,7 +77,9 @@ def test_knowledge_uploads_are_not_listed_in_my_uploads_but_the_uploader_can_del
     assert c.get(f"/api/my-uploads/knowledge/{doc.id}/markdown").status_code == 404
     assert c.delete(f"/api/my-uploads/knowledge/{doc.id}").status_code == 404
     assert scroll_all(qd)  # nichts wurde geloescht
-    assert "Mietvertrag" in c.get(f"/api/documents/{doc.id}/markdown").json["markdown"]  # Ansicht im Knowledge
+    assert (
+        "Mietvertrag" in c.get(f"/api/documents/{doc.id}/markdown").json["markdown"]
+    )  # Ansicht im Knowledge
 
     assert c.delete(f"/api/documents/{doc.id}").status_code == 200
     assert scroll_all(qd) == [] and not md_file.exists()
@@ -80,7 +87,9 @@ def test_knowledge_uploads_are_not_listed_in_my_uploads_but_the_uploader_can_del
     assert client_for(app, other).get("/api/my-uploads").json == []
 
 
-def test_uploader_may_delete_own_document_without_write_access_to_the_knowledge_but_others_may_not(app, db, qd, no_enrichment):
+def test_uploader_may_delete_own_document_without_write_access_to_the_knowledge_but_others_may_not(
+    app, db, qd, no_enrichment
+):
     ed = add_user(db, "ed", "editor")
     c = upload_and_ingest(app, qd, ed, "vertrag.md", DOC)
     doc = get_db_service().get_all_documents(knowledge.get_knowledge(None)["id"])[0]
@@ -92,13 +101,18 @@ def test_uploader_may_delete_own_document_without_write_access_to_the_knowledge_
     s.query(User).filter_by(id=ed["id"]).update({"role": "user"})
     s.commit()
     s.close()
-    assert client_for(app, stranger).delete(f"/api/documents/{doc.id}").status_code in (403, 404)  # nicht der Eigentuemer
+    assert client_for(app, stranger).delete(f"/api/documents/{doc.id}").status_code in (
+        403,
+        404,
+    )  # nicht der Eigentuemer
     assert scroll_all(qd)
     assert c.delete(f"/api/documents/{doc.id}").status_code == 200
     assert scroll_all(qd) == []
 
 
-def test_knowledge_delete_route_removes_markdown_vectors_and_tables(app, db, qd, no_enrichment):
+def test_knowledge_delete_route_removes_markdown_vectors_and_tables(
+    app, db, qd, no_enrichment
+):
     ed = add_user(db, "ed", "editor")
     c = upload_and_ingest(app, qd, ed, "vertrag.md", DOC)
     doc = get_db_service().get_all_documents(knowledge.get_knowledge(None)["id"])[0]
@@ -108,7 +122,9 @@ def test_knowledge_delete_route_removes_markdown_vectors_and_tables(app, db, qd,
     assert not list(Path("data/files").glob("*.uploader"))  # Begleitdatei aufgeraeumt
 
 
-def test_chat_attachment_is_listed_viewable_and_individually_deletable(app, db, qd, monkeypatch):
+def test_chat_attachment_is_listed_viewable_and_individually_deletable(
+    app, db, qd, monkeypatch
+):
     alice, bob = add_user(db, "alice", "user"), add_user(db, "bob", "user")
     sid = db.create_session("Mein Chat", user_id=alice["id"]).id
 
@@ -116,25 +132,33 @@ def test_chat_attachment_is_listed_viewable_and_individually_deletable(app, db, 
         att = db.create_attachment(sid, name, alice["id"])
         folder = attachments.session_dir(sid) / att.id
         folder.mkdir(parents=True)
-        (folder / name).write_text("# Anhang\n\nDie Kaution betraegt drei Monatsmieten.", encoding="utf-8")
+        (folder / name).write_text(
+            "# Anhang\n\nDie Kaution betraegt drei Monatsmieten.", encoding="utf-8"
+        )
         attachments._ingest(att.id, sid, str(folder / name), folder, FakeSparse())
         return att
 
     a, b = add("a.md"), add("b.md")
     c = client_for(app, alice)
     items = c.get("/api/my-uploads").json
-    assert {i["id"] for i in items} == {a.id, b.id} and all(i["kind"] == "chat" for i in items)
+    assert {i["id"] for i in items} == {a.id, b.id} and all(
+        i["kind"] == "chat" for i in items
+    )
     assert items[0]["source"] == "Mein Chat" and items[0]["has_markdown"]
     assert "Kaution" in c.get(f"/api/my-uploads/chat/{a.id}/markdown").json["markdown"]
 
     assert client_for(app, bob).get("/api/my-uploads").json == []
-    assert client_for(app, bob).delete(f"/api/my-uploads/chat/{a.id}").status_code == 404
+    assert (
+        client_for(app, bob).delete(f"/api/my-uploads/chat/{a.id}").status_code == 404
+    )
 
     assert c.delete(f"/api/my-uploads/chat/{a.id}").status_code == 200
     remaining = [i["id"] for i in c.get("/api/my-uploads").json]
     assert remaining == [b.id]  # der andere Anhang desselben Chats bleibt
     points = [
-        p for col in qd.get_collections().collections for p in qd.scroll(col.name, limit=100, with_payload=True)[0]
+        p
+        for col in qd.get_collections().collections
+        for p in qd.scroll(col.name, limit=100, with_payload=True)[0]
         if col.name.startswith("user_uploads")
     ]
     assert points and all(p.payload["attachment_id"] == b.id for p in points)

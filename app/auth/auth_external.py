@@ -160,7 +160,11 @@ def save_config(data: dict) -> dict:
                     "LDAP: Adresse fehlt" if source == "ldap" else "OIDC: Issuer fehlt"
                 )
             if target:
-                scheme_ok = target.startswith(("ldap://", "ldaps://")) if source == "ldap" else target.startswith(("http://", "https://"))
+                scheme_ok = (
+                    target.startswith(("ldap://", "ldaps://"))
+                    if source == "ldap"
+                    else target.startswith(("http://", "https://"))
+                )
                 if not scheme_ok:
                     raise AuthConfigError(
                         "LDAP: Adresse muss mit ldap:// oder ldaps:// beginnen"
@@ -168,15 +172,31 @@ def save_config(data: dict) -> dict:
                         else "OIDC: Issuer muss mit http:// oder https:// beginnen"
                     )
                 try:
-                    _reject_link_local(target.replace("ldaps://", "https://").replace("ldap://", "http://"))
+                    _reject_link_local(
+                        target.replace("ldaps://", "https://").replace(
+                            "ldap://", "http://"
+                        )
+                    )
                 except RemoteModelsError as e:
                     raise AuthConfigError(str(e)) from None
-            if source == "oidc" and block["enabled"] and not (block["client_id"] and block["client_secret"]):
-                raise AuthConfigError("OIDC: Client-ID und Client-Secret werden gebraucht")
+            if (
+                source == "oidc"
+                and block["enabled"]
+                and not (block["client_id"] and block["client_secret"])
+            ):
+                raise AuthConfigError(
+                    "OIDC: Client-ID und Client-Secret werden gebraucht"
+                )
             if source == "ldap" and block["enabled"] and not block["base_dn"]:
                 raise AuthConfigError("LDAP: Basis-DN fehlt")
-            if source == "ldap" and block["enabled"] and "{username}" not in block["user_filter"]:
-                raise AuthConfigError("LDAP: Der Benutzerfilter braucht den Platzhalter {username}")
+            if (
+                source == "ldap"
+                and block["enabled"]
+                and "{username}" not in block["user_filter"]
+            ):
+                raise AuthConfigError(
+                    "LDAP: Der Benutzerfilter braucht den Platzhalter {username}"
+                )
             updates[key] = json.dumps(block)
     if "default_role" in data:
         if data["default_role"] not in ROLES:
@@ -187,7 +207,9 @@ def save_config(data: dict) -> dict:
     if "base_url" in data:
         url = str(data["base_url"] or "").strip().rstrip("/")
         if url and not url.startswith(("http://", "https://")):
-            raise AuthConfigError("Die App-Adresse muss mit http:// oder https:// beginnen")
+            raise AuthConfigError(
+                "Die App-Adresse muss mit http:// oder https:// beginnen"
+            )
         updates["APP_BASE_URL"] = url
     session = get_db_service().get_session()
     try:
@@ -256,14 +278,21 @@ def login_external_user(
     cfg = load_config()
     db = get_db_service().get_session()
     try:
-        user = db.query(User).filter_by(auth_source=source, external_id=external_id).first()
+        user = (
+            db.query(User)
+            .filter_by(auth_source=source, external_id=external_id)
+            .first()
+        )
         if user is None and source == "ldap":
             # LDAP: der DN kann sich beim Umbenennen aendern, das Verzeichnis hat den Namen bestaetigt.
             # OIDC verknuepft nie ueber den Namen (preferred_username ist aenderbar und nicht eindeutig):
             # nur ueber die unveraenderliche sub, sonst waere Kontoübernahme moeglich.
             user = (
                 db.query(User)
-                .filter(func.lower(User.username) == username.lower(), User.auth_source == source)
+                .filter(
+                    func.lower(User.username) == username.lower(),
+                    User.auth_source == source,
+                )
                 .first()
             )
         if user is None:
@@ -271,11 +300,15 @@ def login_external_user(
                 raise ExternalLoginError("Automatisches Anlegen ist abgeschaltet")
             name = _unique_username(db, username)
             if name is None:
-                raise ExternalLoginError(f"Der Name „{username}“ ist bereits an ein anderes Konto vergeben")
+                raise ExternalLoginError(
+                    f"Der Name „{username}“ ist bereits an ein anderes Konto vergeben"
+                )
             user = User(
                 username=name,
                 display_name=display_name or name,
-                password_hash=generate_password_hash(secrets.token_urlsafe(32)),  # unbrauchbar
+                password_hash=generate_password_hash(
+                    secrets.token_urlsafe(32)
+                ),  # unbrauchbar
                 role=cfg["default_role"],
                 is_active=True,
                 auth_source=source,
@@ -287,11 +320,15 @@ def login_external_user(
         user.external_id = external_id
         if display_name:
             user.display_name = display_name
-        user.external_groups = json.dumps(sorted({g.strip() for g in groups if g and g.strip()}))
+        user.external_groups = json.dumps(
+            sorted({g.strip() for g in groups if g and g.strip()})
+        )
         sync_groups(db, user.id, groups)
         from app.auth import audit
 
-        audit.record(audit.LOGIN_EXTERNAL_OK, actor_user_id=user.id, actor_name=user.username)
+        audit.record(
+            audit.LOGIN_EXTERNAL_OK, actor_user_id=user.id, actor_name=user.username
+        )
         db.commit()
         result = _user_dict(user)
         result["external_groups"] = json.loads(user.external_groups)

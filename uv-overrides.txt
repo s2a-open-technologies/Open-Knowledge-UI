@@ -1,0 +1,3 @@
+# Muss mit [tool.uv] override-dependencies in pyproject.toml uebereinstimmen.
+# Das Dockerfile nutzt `uv pip install`; dieses Interface liest tool.uv nicht.
+pillow>=13.0.0,<14.0.0

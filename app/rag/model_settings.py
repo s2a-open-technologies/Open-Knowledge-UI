@@ -64,15 +64,27 @@ def ensure_model_settings(db, fresh: bool) -> None:
     fastembed): dieselben Modelle ueber fastembed, damit nichts neu indexiert werden muss.
     """
     settings = SettingsService(db)
-    existing = {s.key for s in db.query(Setting).filter(Setting.key.in_(["EMBEDDING_SPEC", "RERANKER_SPEC"]))}
+    existing = {
+        s.key
+        for s in db.query(Setting).filter(
+            Setting.key.in_(["EMBEDDING_SPEC", "RERANKER_SPEC"])
+        )
+    }
     if "EMBEDDING_SPEC" not in existing:
         if fresh:
             spec = mr.DEFAULT_EMBEDDING
         else:
-            spec = {"source": "fastembed", "model": settings.get("EMBEDDING_MODEL") or LEGACY_FASTEMBED}
+            spec = {
+                "source": "fastembed",
+                "model": settings.get("EMBEDDING_MODEL") or LEGACY_FASTEMBED,
+            }
         settings.set("EMBEDDING_SPEC", json.dumps(spec))
     if "RERANKER_SPEC" not in existing:
-        spec = mr.DEFAULT_RERANKER if fresh else {"source": "fastembed", "model": mr.DEFAULT_RERANKER["model"]}
+        spec = (
+            mr.DEFAULT_RERANKER
+            if fresh
+            else {"source": "fastembed", "model": mr.DEFAULT_RERANKER["model"]}
+        )
         settings.set("RERANKER_SPEC", json.dumps(spec))
 
 
@@ -93,7 +105,9 @@ def reranker_spec() -> mr.ModelSpec:
     return _spec("RERANKER_SPEC", mr.DEFAULT_RERANKER)
 
 
-def save_specs(embedding: mr.ModelSpec | None = None, reranker: mr.ModelSpec | None = None) -> None:
+def save_specs(
+    embedding: mr.ModelSpec | None = None, reranker: mr.ModelSpec | None = None
+) -> None:
     if embedding:
         _store("EMBEDDING_SPEC", json.dumps(embedding.to_dict()))
     if reranker:
@@ -104,7 +118,9 @@ def ingest_params() -> tuple[int, int]:
     db = get_db_service().get_session()
     try:
         s = SettingsService(db)
-        return s.get_int("INGEST_CHUNK_SIZE", 1000), s.get_int("INGEST_CHUNK_OVERLAP", 150)
+        return s.get_int("INGEST_CHUNK_SIZE", 1000), s.get_int(
+            "INGEST_CHUNK_OVERLAP", 150
+        )
     finally:
         db.close()
 
@@ -114,7 +130,9 @@ def current_signature(spec: mr.ModelSpec | dict | None = None) -> str:
     from app.ingest.splitter import SPLITTER_VERSION
 
     size, overlap = ingest_params()
-    return mr.index_signature(spec or embedding_spec(), size, overlap, SPLITTER_VERSION, PARSER_VERSION)
+    return mr.index_signature(
+        spec or embedding_spec(), size, overlap, SPLITTER_VERSION, PARSER_VERSION
+    )
 
 
 def knowledge_spec(knowledge: dict) -> mr.ModelSpec:
@@ -203,7 +221,9 @@ def prepare(client) -> None:
             logger.warning(f"Collection von '{kb['name']}' noch nicht angelegt: {e}")
     try:
         spec = embedding_spec()
-        ensure_collection(client, mr.uploads_collection(spec), mr.get_embedder(spec).dimension)
+        ensure_collection(
+            client, mr.uploads_collection(spec), mr.get_embedder(spec).dimension
+        )
     except mr.ModelLoadError as e:
         logger.warning(f"Embedding-Modell nicht verfuegbar: {e}")
     try:

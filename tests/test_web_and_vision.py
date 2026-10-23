@@ -16,7 +16,9 @@ ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
 @pytest.fixture
 def app(db, monkeypatch):
-    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1", "m2"])
+    monkeypatch.setattr(
+        registry, "fetch_remote_models", lambda c, force=False: ["m1", "m2"]
+    )
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
@@ -35,7 +37,9 @@ def test_web_search_needs_searxng_and_an_active_pii_filter(db):
     assert web_access.web_search_available() is False
     set_settings(db, SEARCH_SEARXNG_URL="http://sx:8080")
     assert web_access.web_search_available() is False  # PII fehlt
-    set_settings(db, PII_FILTER_URL="http://pii:9500/api/v1/sanitize", PII_FILTER_ENABLED="false")
+    set_settings(
+        db, PII_FILTER_URL="http://pii:9500/api/v1/sanitize", PII_FILTER_ENABLED="false"
+    )
     assert web_access.web_search_available() is False  # PII abgeschaltet
     set_settings(db, PII_FILTER_ENABLED="true")
     assert web_access.web_search_available() is True
@@ -55,7 +59,9 @@ def test_web_search_per_model_is_off_by_default_and_blocked_without_pii(app, db)
     assert registry.resolve_model(ref).web_search is False
     assert admin.get("/api/models").json["web_search_available"] is False
 
-    set_settings(db, SEARCH_SEARXNG_URL="http://sx:8080", PII_FILTER_URL="http://pii:9500/x")
+    set_settings(
+        db, SEARCH_SEARXNG_URL="http://sx:8080", PII_FILTER_URL="http://pii:9500/x"
+    )
     assert admin.get("/api/models").json["web_search_available"] is True
     ok = admin.put("/api/models/config", json={"ref": ref, "web_search": True})
     assert ok.status_code == 200 and ok.json["web_search"] is True
@@ -69,7 +75,9 @@ def test_web_search_per_model_is_off_by_default_and_blocked_without_pii(app, db)
 
 
 def test_clone_inherits_web_search(app, db):
-    set_settings(db, SEARCH_SEARXNG_URL="http://sx:8080", PII_FILTER_URL="http://pii:9500/x")
+    set_settings(
+        db, SEARCH_SEARXNG_URL="http://sx:8080", PII_FILTER_URL="http://pii:9500/x"
+    )
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     ref = store.make_base_ref(conn["id"], "m1")
     store.save_model_config(ref, {"web_search": True})
@@ -77,7 +85,9 @@ def test_clone_inherits_web_search(app, db):
     assert clone["web_search"] is True
 
 
-def test_infrastructure_settings_come_from_the_environment_not_the_database(db, monkeypatch):
+def test_infrastructure_settings_come_from_the_environment_not_the_database(
+    db, monkeypatch
+):
     s = db.get_session()
     svc = SettingsService(s)
     svc.set("QDRANT_HOST", "alt-aus-der-db")
@@ -95,23 +105,69 @@ def test_tools_api_is_admin_only_and_validates(app, db):
     assert client_for(app, ed).get("/api/admin/tools").status_code == 403
     assert client_for(app, ed).put("/api/admin/tools", json={}).status_code == 403
     admin = client_for(app, ADMIN)
-    assert admin.put("/api/admin/tools", json={"search": {"url": "ftp://x"}}).status_code == 400
-    assert admin.put("/api/admin/tools", json={"pii": {"url": "http://169.254.169.254/x"}}).status_code == 400
-    assert admin.put("/api/admin/tools", json={"stt": {"base_url": "http://169.254.169.254/v1"}}).status_code == 400
+    assert (
+        admin.put("/api/admin/tools", json={"search": {"url": "ftp://x"}}).status_code
+        == 400
+    )
+    assert (
+        admin.put(
+            "/api/admin/tools", json={"pii": {"url": "http://169.254.169.254/x"}}
+        ).status_code
+        == 400
+    )
+    assert (
+        admin.put(
+            "/api/admin/tools", json={"stt": {"base_url": "http://169.254.169.254/v1"}}
+        ).status_code
+        == 400
+    )
     assert admin.post("/api/admin/tools/test", json={"kind": "nope"}).status_code == 400
 
 
-def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(app, db, monkeypatch):
+def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(
+    app, db, monkeypatch
+):
     import app.web.user_routes as ur
 
     seen = []
-    monkeypatch.setattr(ur, "_test_stt", lambda s: seen.append((s.get("STT_BASEURL"), s.get("STT_API_KEY"))) or {"success": True})
+    monkeypatch.setattr(
+        ur,
+        "_test_stt",
+        lambda s: (
+            seen.append((s.get("STT_BASEURL"), s.get("STT_API_KEY")))
+            or {"success": True}
+        ),
+    )
     admin = client_for(app, ADMIN)
-    admin.put("/api/admin/tools", json={"stt": {"base_url": "http://stt:5001/v1", "api_key": "geheim"}})
-    assert admin.post("/api/admin/tools/test", json={"kind": "stt", "values": {"base_url": "http://stt:5001/v1", "api_key": ""}}).status_code == 200
-    assert admin.post("/api/admin/tools/test", json={"kind": "stt", "values": {"base_url": "http://anderer:5001/v1", "api_key": ""}}).status_code == 200
+    admin.put(
+        "/api/admin/tools",
+        json={"stt": {"base_url": "http://stt:5001/v1", "api_key": "geheim"}},
+    )
+    assert (
+        admin.post(
+            "/api/admin/tools/test",
+            json={
+                "kind": "stt",
+                "values": {"base_url": "http://stt:5001/v1", "api_key": ""},
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        admin.post(
+            "/api/admin/tools/test",
+            json={
+                "kind": "stt",
+                "values": {"base_url": "http://anderer:5001/v1", "api_key": ""},
+            },
+        ).status_code
+        == 200
+    )
     assert seen[0] == ("http://stt:5001/v1", "geheim")
-    assert seen[1] == ("http://anderer:5001/v1", "")  # gespeicherter Key geht nie an eine fremde Adresse
+    assert seen[1] == (
+        "http://anderer:5001/v1",
+        "",
+    )  # gespeicherter Key geht nie an eine fremde Adresse
 
 
 def put_tasks(admin, **tasks):
@@ -126,15 +182,22 @@ def test_vision_model_comes_from_connections(app, db, monkeypatch):
     store.set_default_model(default_ref)
 
     llm = VisionLLM()
-    llm.llm  # loest auf
     assert llm.vision_model == "m1"  # ohne Auswahl: Standardmodell
 
-    assert put_tasks(admin, vision={"model_ref": vision_ref}).json["tasks"]["vision"]["model_ref"] == vision_ref
-    llm.llm
+    assert (
+        put_tasks(admin, vision={"model_ref": vision_ref}).json["tasks"]["vision"][
+            "model_ref"
+        ]
+        == vision_ref
+    )
+
     assert llm.vision_model == "m2"
 
     assert put_tasks(admin, vision={"model_ref": "base:99:x"}).status_code == 400
-    assert put_tasks(admin, vision={"model_ref": ""}).json["tasks"]["vision"]["model_ref"] == ""
+    assert (
+        put_tasks(admin, vision={"model_ref": ""}).json["tasks"]["vision"]["model_ref"]
+        == ""
+    )
 
 
 def test_vision_and_context_use_separate_models_and_parameters(app, db, monkeypatch):
@@ -145,17 +208,32 @@ def test_vision_and_context_use_separate_models_and_parameters(app, db, monkeypa
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     r = put_tasks(
         admin,
-        vision={"model_ref": store.make_base_ref(conn["id"], "m2"), "temperature": 0.7, "max_tokens": 900},
-        context={"model_ref": store.make_base_ref(conn["id"], "m1"), "temperature": "", "max_tokens": ""},
+        vision={
+            "model_ref": store.make_base_ref(conn["id"], "m2"),
+            "temperature": 0.7,
+            "max_tokens": 900,
+        },
+        context={
+            "model_ref": store.make_base_ref(conn["id"], "m1"),
+            "temperature": "",
+            "max_tokens": "",
+        },
     )
     assert r.status_code == 200
     built = []
     real = local_llm.build_chat_llm
-    monkeypatch.setattr(local_llm, "build_chat_llm", lambda *a, **k: built.append((a[2], a[3])) or real(*a, **k))
+    monkeypatch.setattr(
+        local_llm,
+        "build_chat_llm",
+        lambda *a, **k: built.append((a[2], a[3])) or real(*a, **k),
+    )
     vision, context = local_llm.TaskLLM("vision"), local_llm.TaskLLM("context")
-    vision.llm
-    context.llm
-    assert built[0][0] == "m2" and built[0][1]["temperature"] == 0.7 and built[0][1]["max_tokens"] == 900
+    
+    assert (
+        built[0][0] == "m2"
+        and built[0][1]["temperature"] == 0.7
+        and built[0][1]["max_tokens"] == 900
+    )
     assert built[1][0] == "m1" and "max_tokens" not in built[1][1]
     assert vision.vision_model == "m2" and context.vision_model == "m1"
 
@@ -166,16 +244,32 @@ def test_prompts_live_in_the_database_with_seed_fallback_and_reset(app, db):
 
     admin = client_for(app, ADMIN)
     overview = admin.get("/api/admin/embedding").json["tasks"]
-    assert overview["vision"]["prompt"] == prompts.VISION_PROMPT == overview["vision"]["default_prompt"]
+    assert (
+        overview["vision"]["prompt"]
+        == prompts.VISION_PROMPT
+        == overview["vision"]["default_prompt"]
+    )
     assert overview["context"]["excerpt_chars"] == 2000
 
-    r = put_tasks(admin, vision={"prompt": "Beschreibe knapp."}, context={"prompt": "Ort: {abschnitt}", "excerpt_chars": 500})
+    r = put_tasks(
+        admin,
+        vision={"prompt": "Beschreibe knapp."},
+        context={"prompt": "Ort: {abschnitt}", "excerpt_chars": 500},
+    )
     assert r.status_code == 200
-    assert "Beschreibe knapp." in TaskLLM("vision").generate_image_message("AAAA").content[0]["text"]
+    assert (
+        "Beschreibe knapp."
+        in TaskLLM("vision").generate_image_message("AAAA").content[0]["text"]
+    )
     assert tasks.load_task("context")["excerpt_chars"] == 500
-    assert tasks.render_context_prompt("Ort: {abschnitt} {x}", "D", "Teil {y}") == "Ort: Teil {y} {x}"
+    assert (
+        tasks.render_context_prompt("Ort: {abschnitt} {x}", "D", "Teil {y}")
+        == "Ort: Teil {y} {x}"
+    )
     # Zuruecksetzen: der Standard steht in der Datenbank (default_value) und kommt mit der Antwort
-    back = put_tasks(admin, vision={"prompt": r.json["tasks"]["vision"]["default_prompt"]}).json["tasks"]["vision"]
+    back = put_tasks(
+        admin, vision={"prompt": r.json["tasks"]["vision"]["default_prompt"]}
+    ).json["tasks"]["vision"]
     assert back["prompt"] == prompts.VISION_PROMPT
 
 
@@ -188,7 +282,12 @@ def test_prompt_and_parameter_validation(app, db):
     assert put_tasks(admin, vision={"max_tokens": 0}).status_code == 400
     assert put_tasks(admin, context={"excerpt_chars": 10}).status_code == 400
     assert put_tasks(admin, unbekannt={}).status_code == 400
-    assert client_for(app, add_user_editor(db)).put("/api/admin/embedding", json={"tasks": {}}).status_code == 403
+    assert (
+        client_for(app, add_user_editor(db))
+        .put("/api/admin/embedding", json={"tasks": {}})
+        .status_code
+        == 403
+    )
 
 
 def add_user_editor(db):
@@ -207,7 +306,7 @@ def test_empty_prompt_in_the_database_falls_back_to_the_seed(app, db):
 
 
 def test_vision_can_be_switched_off(app, db):
-    from app.components.preprocess_base import _vision_enabled
+    from app.loaders.preprocess_base import _vision_enabled
 
     admin = client_for(app, ADMIN)
     assert _vision_enabled() is True
@@ -221,7 +320,9 @@ def test_hidden_models_stay_selectable_for_vision(app, db):
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     ref = store.make_base_ref(conn["id"], "m2")
     admin.put("/api/models/config", json={"ref": ref, "visible": False})
-    assert ref not in [m["ref"] for m in admin.get("/api/models?visible=1").json["models"]]
+    assert ref not in [
+        m["ref"] for m in admin.get("/api/models?visible=1").json["models"]
+    ]
     assert ref in [m["ref"] for m in admin.get("/api/models").json["models"]]
     assert put_tasks(admin, vision={"model_ref": ref}).status_code == 200
 
@@ -229,6 +330,13 @@ def test_hidden_models_stay_selectable_for_vision(app, db):
 def test_models_response_names_the_default_parameters_for_the_config_dialog(app, db):
     r = client_for(app, ADMIN).get("/api/models")
     defaults = r.json["param_defaults"]
-    assert defaults["temperature"] == 0.1 and defaults["top_k"] == 40 and defaults["thinking"] == "none"
+    assert (
+        defaults["temperature"] == 0.1
+        and defaults["top_k"] == 40
+        and defaults["thinking"] == "none"
+    )
     set_settings(db, CHAT_TEMPERATURE="0.5")
-    assert client_for(app, ADMIN).get("/api/models").json["param_defaults"]["temperature"] == 0.5
+    assert (
+        client_for(app, ADMIN).get("/api/models").json["param_defaults"]["temperature"]
+        == 0.5
+    )

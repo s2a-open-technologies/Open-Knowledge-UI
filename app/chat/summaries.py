@@ -63,5 +63,7 @@ def adopt_legacy(user_id: int) -> int:
             shutil.move(str(file), str(target))
             moved += 1
     if moved:
-        logger.info(f"{moved} bestehende Analysen in den Ordner von Nutzer {user_id} verschoben")
+        logger.info(
+            f"{moved} bestehende Analysen in den Ordner von Nutzer {user_id} verschoben"
+        )
     return moved

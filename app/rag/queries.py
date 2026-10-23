@@ -24,15 +24,17 @@ from collections.abc import Callable
 # helper(prompt, config) -> Antworttext des Helfer-LLMs
 Helper = Callable[[str, dict], str]
 
-_THINK = re.compile(r"<think>.*?</think>", re.S)
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _BULLET = re.compile(r"^\s*(?:[-*•]+|\d+[.)])\s*")
 MAX_QUESTION_CHARS = 300
 
 
 def build_prompt(question: str, config: dict) -> str:
     """Setzt {frage} und {anzahl} ein (kein str.format: Prompts duerfen Klammern enthalten)."""
-    return config["prompt"].replace("{frage}", question).replace(
-        "{anzahl}", str(config["n_queries"])
+    return (
+        config["prompt"]
+        .replace("{frage}", question)
+        .replace("{anzahl}", str(config["n_queries"]))
     )
 
 

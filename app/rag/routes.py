@@ -85,7 +85,9 @@ def profiles_delete(profile_id):
 @require_role("user")
 def profile_defaults():
     """Startwerte fuer ein neues Profil (das Standardprofil) und der Standard-Prompt."""
-    return jsonify({"config": profiles.default_config(), "prompt": profiles.DEFAULT_QUERY_PROMPT})
+    return jsonify(
+        {"config": profiles.default_config(), "prompt": profiles.DEFAULT_QUERY_PROMPT}
+    )
 
 
 # =============================================================================
@@ -131,7 +133,9 @@ def retrieval_test():
     readable = accessible_knowledge_ids(user, "read")
     wanted = data.get("knowledge_ids") or sorted(readable)
     targets = [
-        k for k in list_knowledge() if k["id"] in readable and k["id"] in set(wanted) and k.get("kind") != "sql"
+        k
+        for k in list_knowledge()
+        if k["id"] in readable and k["id"] in set(wanted) and k.get("kind") != "sql"
     ]
     if not targets:
         return _error("Kein lesbares Knowledge ausgewählt", 400)
@@ -170,7 +174,9 @@ def retrieval_test():
         try:
             dense = model_settings.embedder_for(k)
         except models_runtime.ModelLoadError as e:
-            return _error(f"Embedding-Modell von „{k['name']}“ nicht verfügbar: {e}", 503)
+            return _error(
+                f"Embedding-Modell von „{k['name']}“ nicht verfügbar: {e}", 503
+            )
         run_client, collection, layout = client, k["collection_name"], None
         if k.get("kind") == "external":
             from app.vector import sources
@@ -189,7 +195,10 @@ def retrieval_test():
                 client=run_client,
                 dense=dense,
                 sparse=sparse_lang.resolve(
-                    sparse, sparse_lang.LEGACY_LANGUAGE if k.get("kind") == "external" else sparse_lang.knowledge_language(k)
+                    sparse,
+                    sparse_lang.LEGACY_LANGUAGE
+                    if k.get("kind") == "external"
+                    else sparse_lang.knowledge_language(k),
                 ),
                 helper=helper,
                 trace=trace,
@@ -216,4 +225,9 @@ def retrieval_test():
                 "trace": trace.to_dict(),
             }
         )
-    return jsonify({"results": results, "helper_model": chat_model.display_name if chat_model else None})
+    return jsonify(
+        {
+            "results": results,
+            "helper_model": chat_model.display_name if chat_model else None,
+        }
+    )

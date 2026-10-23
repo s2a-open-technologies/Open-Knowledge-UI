@@ -38,9 +38,7 @@ def _resolve_providers():
     if env.strip():
         return [p.strip() for p in env.split(",") if p.strip()]
     available = ort.get_available_providers()
-    filtered = [
-        p for p in available if p != "TensorrtExecutionProvider"
-    ]
+    filtered = [p for p in available if p != "TensorrtExecutionProvider"]
     return filtered or None
 
 

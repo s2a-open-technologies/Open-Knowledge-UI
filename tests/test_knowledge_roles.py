@@ -1,4 +1,3 @@
-# ruff: noqa: F811  (Fixtures aus anderen Testmodulen werden importiert und als Argument genutzt)
 import pytest
 from flask import Flask
 from qdrant_client import QdrantClient
@@ -52,7 +51,9 @@ def test_a_plain_user_creates_manages_and_deletes_their_own_knowledge(app, db):
     assert created.status_code == 201, created.json
     kid = created.json["id"]
     assert created.json["can_write"] is True
-    assert c.patch(f"/api/knowledge/{kid}", json={"name": "Umbenannt"}).status_code == 200
+    assert (
+        c.patch(f"/api/knowledge/{kid}", json={"name": "Umbenannt"}).status_code == 200
+    )
     assert kid in [k["id"] for k in c.get("/api/knowledge").json]
     assert c.get(f"/api/documents?knowledge_id={kid}").status_code == 200
     assert c.delete(f"/api/knowledge/{kid}").status_code == 200
@@ -62,20 +63,38 @@ def test_a_plain_user_cannot_touch_knowledge_of_others(app, db):
     bob = add_user(db, "bob", "user")
     other = knowledge.create_knowledge("Fremd")
     c = client_for(app, bob)
-    assert c.patch(f"/api/knowledge/{other['id']}", json={"name": "x"}).status_code == 404
+    assert (
+        c.patch(f"/api/knowledge/{other['id']}", json={"name": "x"}).status_code == 404
+    )
     assert c.delete(f"/api/knowledge/{other['id']}").status_code == 404
-    assert c.post(f"/api/documents/ingest?knowledge_id={other['id']}").status_code == 404
+    assert (
+        c.post(f"/api/documents/ingest?knowledge_id={other['id']}").status_code == 404
+    )
     access.add_grant("knowledge", other["id"], "user", bob["id"], "read")  # nur lesen
-    assert c.patch(f"/api/knowledge/{other['id']}", json={"name": "x"}).status_code == 404
+    assert (
+        c.patch(f"/api/knowledge/{other['id']}", json={"name": "x"}).status_code == 404
+    )
 
 
 def test_external_and_sql_sources_stay_admin_only(app, db):
     bob = add_user(db, "bob", "user")
     c = client_for(app, bob)
-    assert c.post("/api/knowledge", json={"name": "E", "kind": "external", "source": {}}).status_code == 403
-    assert c.post("/api/knowledge", json={"name": "S", "kind": "sql", "source": {}}).status_code == 403
+    assert (
+        c.post(
+            "/api/knowledge", json={"name": "E", "kind": "external", "source": {}}
+        ).status_code
+        == 403
+    )
+    assert (
+        c.post(
+            "/api/knowledge", json={"name": "S", "kind": "sql", "source": {}}
+        ).status_code
+        == 403
+    )
     assert c.post("/api/knowledge/sql/test", json={"source": {}}).status_code == 403
-    assert c.post("/api/knowledge/external/test", json={"source": {}}).status_code == 403
+    assert (
+        c.post("/api/knowledge/external/test", json={"source": {}}).status_code == 403
+    )
 
 
 def test_sharing_stays_with_editors_and_admins(app, db):
@@ -91,8 +110,18 @@ def test_profiles_can_be_chosen_for_own_knowledge_only(app, db):
     c = client_for(app, bob)
     kid = c.post("/api/knowledge", json={"name": "Meins"}).json["id"]
     other = knowledge.create_knowledge("Fremd")
-    assert c.put(f"/api/knowledge/{kid}/retrieval-profile", json={"profile_id": None}).status_code == 200
-    assert c.put(f"/api/knowledge/{other['id']}/retrieval-profile", json={"profile_id": None}).status_code == 404
+    assert (
+        c.put(
+            f"/api/knowledge/{kid}/retrieval-profile", json={"profile_id": None}
+        ).status_code
+        == 200
+    )
+    assert (
+        c.put(
+            f"/api/knowledge/{other['id']}/retrieval-profile", json={"profile_id": None}
+        ).status_code
+        == 404
+    )
 
 
 # --- Rolle "Editor": Knowledge der eigenen Gruppen -------------------------------------------
@@ -100,12 +129,22 @@ def test_an_editor_may_edit_all_knowledge_shared_with_their_groups(app, db):
     ed = add_user(db, "ed", "editor")
     gid = make_group(db, "Vertrieb", ed)
     shared = knowledge.create_knowledge("Vertrieb-Wissen")
-    access.add_grant("knowledge", shared["id"], "group", gid, "read")  # nur Lese-Freigabe an die Gruppe
+    access.add_grant(
+        "knowledge", shared["id"], "group", gid, "read"
+    )  # nur Lese-Freigabe an die Gruppe
     assert access.can_access_knowledge(ed, shared["id"], "write") is True
     assert shared["id"] in access.accessible_knowledge_ids(ed, "write")
     c = client_for(app, ed)
-    assert c.patch(f"/api/knowledge/{shared['id']}", json={"name": "Neu"}).status_code == 200
-    assert next(k for k in c.get("/api/knowledge").json if k["id"] == shared["id"])["can_write"] is True
+    assert (
+        c.patch(f"/api/knowledge/{shared['id']}", json={"name": "Neu"}).status_code
+        == 200
+    )
+    assert (
+        next(k for k in c.get("/api/knowledge").json if k["id"] == shared["id"])[
+            "can_write"
+        ]
+        is True
+    )
 
 
 def test_the_group_rule_does_not_reach_other_groups_or_other_roles(app, db):
@@ -120,22 +159,34 @@ def test_the_group_rule_does_not_reach_other_groups_or_other_roles(app, db):
     access.add_grant("knowledge", k_other["id"], "group", other_team, "read")
     access.set_access("knowledge", k_public["id"], True, [])
     assert not access.can_access_knowledge(ed, k_other["id"], "write")
-    assert not access.can_access_knowledge(ed, k_public["id"], "write")  # oeffentlich = nur lesen
+    assert not access.can_access_knowledge(
+        ed, k_public["id"], "write"
+    )  # oeffentlich = nur lesen
     assert access.can_access_knowledge(bob, k_mine["id"], "read")
-    assert not access.can_access_knowledge(bob, k_mine["id"], "write")  # Rolle "Benutzer": bleibt beim Freigabe-Level
+    assert not access.can_access_knowledge(
+        bob, k_mine["id"], "write"
+    )  # Rolle "Benutzer": bleibt beim Freigabe-Level
 
 
 # --- Inhaltsverzeichnis (index.md) im Knowledge ------------------------------------------------------
-def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_access(app, db):
+def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_access(
+    app, db
+):
     from app.ingest.index_doc import get_index
 
     bob = add_user(db, "bob", "user")
     reader = add_user(db, "leser", "user")
     c = client_for(app, bob)
-    kid = c.post("/api/knowledge", json={"name": "Vertraege", "description": "Mietvertraege"}).json["id"]
+    kid = c.post(
+        "/api/knowledge", json={"name": "Vertraege", "description": "Mietvertraege"}
+    ).json["id"]
 
     got = c.get(f"/api/knowledge/{kid}/index").json
-    assert got["enabled"] is True and "# Inhaltsverzeichnis: Vertraege" in got["markdown"] and got["updated_at"]
+    assert (
+        got["enabled"] is True
+        and "# Inhaltsverzeichnis: Vertraege" in got["markdown"]
+        and got["updated_at"]
+    )
     assert get_index(kid)[0] == got["markdown"]  # haengt am Knowledge
 
     # Lesen genuegt fuer die Ansicht, Neu erzeugen braucht Schreibrecht, Fremde sehen nichts
@@ -148,7 +199,10 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
     from app.ingest import index_doc
 
     index_doc._store(kid, "alt")
-    assert "Inhaltsverzeichnis" in c.post(f"/api/knowledge/{kid}/index/refresh").json["markdown"]
+    assert (
+        "Inhaltsverzeichnis"
+        in c.post(f"/api/knowledge/{kid}/index/refresh").json["markdown"]
+    )
 
 
 def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
@@ -162,7 +216,11 @@ def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
     s.close()
     got = c.get(f"/api/knowledge/{kid}/index").json
     assert got["enabled"] is False and got["markdown"] is None
-    sql = knowledge.create_sql_knowledge("DB", "", {"dialect": "sqlite", "database": "x.db"})
-    access.add_grant("knowledge", sql["id"], "user", 1, "write")  # Admins sehen Knowledge nur mit Freigabe
+    sql = knowledge.create_sql_knowledge(
+        "DB", "", {"dialect": "sqlite", "database": "x.db"}
+    )
+    access.add_grant(
+        "knowledge", sql["id"], "user", 1, "write"
+    )  # Admins sehen Knowledge nur mit Freigabe
     assert c.get(f"/api/knowledge/{sql['id']}/index").json["available"] is False
     assert c.post(f"/api/knowledge/{sql['id']}/index/refresh").status_code == 409

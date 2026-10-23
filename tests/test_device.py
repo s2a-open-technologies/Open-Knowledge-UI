@@ -7,7 +7,9 @@ from app.utils import device
 def fake_torch(cuda=False, mps=False):
     return types.SimpleNamespace(
         cuda=types.SimpleNamespace(is_available=lambda: cuda),
-        backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: mps)),
+        backends=types.SimpleNamespace(
+            mps=types.SimpleNamespace(is_available=lambda: mps)
+        ),
     )
 
 
@@ -33,11 +35,19 @@ def test_env_overrides(monkeypatch):
 
 
 def test_coreml_only_on_mac_when_available(monkeypatch):
-    ort = types.SimpleNamespace(get_available_providers=lambda: ["CoreMLExecutionProvider", "CPUExecutionProvider"])
+    ort = types.SimpleNamespace(
+        get_available_providers=lambda: [
+            "CoreMLExecutionProvider",
+            "CPUExecutionProvider",
+        ]
+    )
     monkeypatch.setitem(sys.modules, "onnxruntime", ort)
     monkeypatch.delenv("RAG_DEVICE", raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
-    assert device.onnx_providers() == ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    assert device.onnx_providers() == [
+        "CoreMLExecutionProvider",
+        "CPUExecutionProvider",
+    ]
     monkeypatch.setattr(sys, "platform", "linux")
     assert device.onnx_providers() is None
     monkeypatch.setattr(sys, "platform", "darwin")

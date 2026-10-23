@@ -113,7 +113,9 @@ def ensure_default_knowledge(db_session) -> None:
     # Nach dem Neu-Indexieren kann die Collection anders heissen als "open_knowledge_ui".
     existing = (
         db_session.query(Knowledge).filter_by(is_default=True).first()
-        or db_session.query(Knowledge).filter_by(collection_name=DEFAULT_COLLECTION).first()
+        or db_session.query(Knowledge)
+        .filter_by(collection_name=DEFAULT_COLLECTION)
+        .first()
     )
     if existing:
         if not existing.is_default:
@@ -195,7 +197,9 @@ def create_external_knowledge(
         db.close()
 
 
-def update_external_source(knowledge_id: int, spec, dimension: int, source_config: dict) -> dict | None:
+def update_external_source(
+    knowledge_id: int, spec, dimension: int, source_config: dict
+) -> dict | None:
     db = get_db_service().get_session()
     try:
         k = db.query(Knowledge).filter_by(id=knowledge_id, kind="external").first()
@@ -218,7 +222,9 @@ def is_external(knowledge: dict | None) -> bool:
     return bool(knowledge) and knowledge.get("kind") == "external"
 
 
-def create_knowledge(name: str, description: str = "", dimension: int | None = None) -> dict:
+def create_knowledge(
+    name: str, description: str = "", dimension: int | None = None
+) -> dict:
     """Legt einen Bereich an und uebernimmt die globale Embedding-Konfiguration.
 
     ``dimension``: Vektorgroesse des Modells (vom Aufrufer per Probe ermittelt).
@@ -306,7 +312,9 @@ def delete_knowledge(knowledge_id: int) -> dict | None:
     return snapshot
 
 
-def swap_collection(knowledge_id: int, collection_name: str, spec, dimension: int) -> str | None:
+def swap_collection(
+    knowledge_id: int, collection_name: str, spec, dimension: int
+) -> str | None:
     """Stellt ein Knowledge in EINER Transaktion auf die neue Collection um (Neu-Indexieren).
 
     Liefert den Namen der bisherigen Collection (zum Loeschen) oder ``None``, wenn das Knowledge

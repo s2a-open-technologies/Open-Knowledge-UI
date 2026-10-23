@@ -21,14 +21,14 @@ Document ingestion
 """
 
 # Standard library
-import os
 import glob
-import uuid
+import logging
+import os
 import shutil
 import time
-from pathlib import Path
+import uuid
 from logging import getLogger
-from tqdm import tqdm
+from pathlib import Path
 
 # Third party imports
 from langchain_community.document_loaders import (
@@ -36,9 +36,11 @@ from langchain_community.document_loaders import (
 )
 from langchain_qdrant import FastEmbedSparse
 from qdrant_client import models as qdrant_models
+from tqdm import tqdm
 
-# Custom imports
-from app.components import CustomPDFLoader, CustomDOCXLoader
+from app.core.database_service import get_db_service
+from app.core.settings_service import SettingsService
+from app.ingest.index_doc import refresh_index
 from app.ingest.indexer import (
     PARSER_VERSION,
     build_points,
@@ -46,15 +48,20 @@ from app.ingest.indexer import (
     save_markdown,
     upsert_points,
 )
-from app.ingest.index_doc import refresh_index
-from app.ingest.tables import column_hints_text, delete_tables, is_extracted_table, make_sink
+from app.ingest.tables import (
+    column_hints_text,
+    delete_tables,
+    is_extracted_table,
+    make_sink,
+)
 from app.llm.local_llm import TaskLLM
+
+# Custom imports
+from app.loaders import CustomDOCXLoader, CustomPDFLoader
 from app.rag import model_settings, models_runtime
-from app.utils.phase_logger import phase_logger, Phase
 from app.utils.file_manager import IMAGE_EXTS, read_uploader
+from app.utils.phase_logger import Phase, phase_logger
 from app.utils.qdrant_client import get_qdrant_client
-from app.core.database_service import get_db_service
-from app.core.settings_service import SettingsService
 
 logger = getLogger(__name__)
 
@@ -331,8 +338,12 @@ class DocumentIngestion:
         self.paths = knowledge_paths(knowledge)
         self.files_dir = Path(files_dir) if files_dir else self.paths.files_dir
         self.extra_metadata = extra_metadata or {}
-        self.chunk_size, self.chunk_overlap, setting_enrich, self.keep_original = _ingest_settings()
-        self.enrich_context = setting_enrich if enrich_context is None else enrich_context
+        self.chunk_size, self.chunk_overlap, setting_enrich, self.keep_original = (
+            _ingest_settings()
+        )
+        self.enrich_context = (
+            setting_enrich if enrich_context is None else enrich_context
+        )
         self.track_documents = track_documents
         self.attachment_markdown_dir = attachment_markdown_dir
         self.last_markdown_path: str | None = None
@@ -486,15 +497,29 @@ class DocumentIngestion:
         """BM25-Encoder in der Sprache dieses Index: die des Knowledge, bei Anhaengen die Standardsprache."""
         from app.rag import sparse as sparse_lang
 
-        language = sparse_lang.knowledge_language(self.knowledge) if self.track_documents else sparse_lang.default_language()
+        language = (
+            sparse_lang.knowledge_language(self.knowledge)
+            if self.track_documents
+            else sparse_lang.default_language()
+        )
         return sparse_lang.resolve(sparse, language)
 
-    def _load_markdown(self, file_path: str, extension: str, table_sink=None) -> str | None:
+    def _load_markdown(
+        self, file_path: str, extension: str, table_sink=None
+    ) -> str | None:
         """Liest die Datei als Markdown (Docling fuer PDF/Office, Text fuer .md)."""
         if extension == ".pdf":
-            docs = list(CustomPDFLoader(file_path, model=self.model, table_sink=table_sink).lazy_load())
+            docs = list(
+                CustomPDFLoader(
+                    file_path, model=self.model, table_sink=table_sink
+                ).lazy_load()
+            )
         elif extension in (".docx", ".doc", ".odt"):
-            docs = list(CustomDOCXLoader(file_path, model=self.model, table_sink=table_sink).lazy_load())
+            docs = list(
+                CustomDOCXLoader(
+                    file_path, model=self.model, table_sink=table_sink
+                ).lazy_load()
+            )
         elif extension == ".md":
             docs = TextLoader(file_path, autodetect_encoding=True).load()
         elif extension in IMAGE_EXTS:
@@ -520,7 +545,11 @@ class DocumentIngestion:
         Gleicher Weg wie beim Einlesen: splitten, ggf. anreichern, Dense + BM25, Upsert.
         Liefert die Anzahl Chunks (0 = kein Inhalt).
         """
-        sparse = self._sparse_for_index(sparse_model or self._shared_sparse or FastEmbedSparse(model_name="Qdrant/bm25"))
+        sparse = self._sparse_for_index(
+            sparse_model
+            or self._shared_sparse
+            or FastEmbedSparse(model_name="Qdrant/bm25")
+        )
         points = build_points(
             markdown,
             filename=filename,
@@ -558,11 +587,15 @@ class DocumentIngestion:
         except Exception as e:
             logger.exception(f"Fehler bei {filename}")
             delete_tables(self.paths, self.collection_name, file_group_id)
-            self.errors.append({"file": filename, "error": f"{type(e).__name__}: {e}"[:300]})
+            self.errors.append(
+                {"file": filename, "error": f"{type(e).__name__}: {e}"[:300]}
+            )
             return False
         if not ok:
             if not any(err["file"] == filename for err in self.errors):
-                self.errors.append({"file": filename, "error": "Kein lesbarer Inhalt gefunden"})
+                self.errors.append(
+                    {"file": filename, "error": "Kein lesbarer Inhalt gefunden"}
+                )
             return False
         if self._enrich_failures:
             self.warnings.append(
@@ -572,7 +605,9 @@ class DocumentIngestion:
         self.processed += 1
         return True
 
-    def _process_file_inner(self, file_path: str, sparse_model, file_group_id: str) -> bool:
+    def _process_file_inner(
+        self, file_path: str, sparse_model, file_group_id: str
+    ) -> bool:
         """
         Verarbeitet eine einzelne Datei komplett (sequentiell):
         parsen -> Markdown speichern -> splitten -> embedden -> Qdrant.
@@ -608,7 +643,9 @@ class DocumentIngestion:
         except Exception as e:
             logger.error(f"Fehler beim Laden von {filename}: {e}")
             delete_tables(self.paths, self.collection_name, file_group_id)
-            if extension in IMAGE_EXTS:  # die Meldung ist fuer den Nutzer gedacht (z. B. Bildmodell nicht erreichbar)
+            if (
+                extension in IMAGE_EXTS
+            ):  # die Meldung ist fuer den Nutzer gedacht (z. B. Bildmodell nicht erreichbar)
                 self.errors.append({"file": filename, "error": str(e)[:300]})
             return False
         if not markdown or not markdown.strip():
@@ -624,10 +661,16 @@ class DocumentIngestion:
             )
         elif self.attachment_markdown_dir:
             self.last_markdown_path = str(
-                save_markdown(self.attachment_markdown_dir, Path(filename).stem, markdown)
+                save_markdown(
+                    self.attachment_markdown_dir, Path(filename).stem, markdown
+                )
             )
 
-        uploader = read_uploader(file_path) if self.track_documents else self.extra_metadata.get("uploaded_by")
+        uploader = (
+            read_uploader(file_path)
+            if self.track_documents
+            else self.extra_metadata.get("uploaded_by")
+        )
 
         # 3. Splitten, ggf. anreichern, Vektoren berechnen
         phase_logger.log_phase(
@@ -698,12 +741,14 @@ class DocumentIngestion:
     def ingest_documents(self):
         """Sequentielle Ingestion pro Datei"""
         phase_logger.log_phase(
-            Phase.DOCUMENT_PROCESSING, "Dokument-Ingestion gestartet"
+            Phase.DOCUMENT_PROCESSING,
+            "Dokument-Ingestion gestartet",
+            level=logging.INFO,
         )
 
         # Dateien sammeln
         all_files = []
-        for extension in self.loaders.keys():
+        for extension in self.loaders:
             pattern = os.path.join(str(self.files_dir), f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)
@@ -733,7 +778,9 @@ class DocumentIngestion:
                         pbar.write(f"✗ {filename} fehlgeschlagen (keine Chunks)")
                 except Exception as e:
                     error_count += 1
-                    self.errors.append({"file": filename, "error": f"{type(e).__name__}: {e}"[:300]})
+                    self.errors.append(
+                        {"file": filename, "error": f"{type(e).__name__}: {e}"[:300]}
+                    )
                     logger.error(f"Fehler bei {filename}: {e}")
                     pbar.write(f"✗ {filename} fehlgeschlagen: {str(e)[:50]}")
                     continue
@@ -766,4 +813,5 @@ class DocumentIngestion:
         phase_logger.log_phase(
             Phase.DOCUMENT_PROCESSING,
             "Dokument-Ingestion abgeschlossen",
+            level=logging.INFO,
         )

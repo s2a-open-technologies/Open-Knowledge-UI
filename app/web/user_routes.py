@@ -62,6 +62,7 @@ def _admins_only():
         return jsonify({"error": "Keine Berechtigung"}), 403
     return None
 
+
 COLLECTION_NAME = "open_knowledge_ui"
 
 
@@ -635,6 +636,7 @@ def _test_stt(settings: SettingsService) -> dict:
     """Spracheingabe testen: echte Transkription einer Sekunde Stille (beweist Adresse, Modell
     und Key) und, ob zusaetzlich Live-Streaming (``/audio/stream``) angeboten wird."""
     from app.stt import stt_config
+
     cfg = stt_config.SttConfig(
         base_url=(settings.get("STT_BASEURL") or "").strip().rstrip("/"),
         model=(settings.get("STT_MODEL") or "").strip(),
@@ -654,8 +656,12 @@ def _test_stt(settings: SettingsService) -> dict:
     if not upload_ok and not stream_ok:
         return {"success": False, "error": upload_error or "Der Dienst antwortet nicht"}
     parts = []
-    parts.append("Aufnehmen & senden: ok" if upload_ok else f"Aufnehmen & senden: {upload_error}")
-    parts.append("Live-Streaming: verfügbar" if stream_ok else "Live-Streaming: nicht angeboten")
+    parts.append(
+        "Aufnehmen & senden: ok" if upload_ok else f"Aufnehmen & senden: {upload_error}"
+    )
+    parts.append(
+        "Live-Streaming: verfügbar" if stream_ok else "Live-Streaming: nicht angeboten"
+    )
     mode = "stream" if stream_ok else "upload"
     return {
         "success": upload_ok or stream_ok,
@@ -735,8 +741,12 @@ def _test_search(settings: SettingsService) -> dict:
     return {"success": False, "error": last_error or "SearXNG nicht erreichbar"}
 
 
-PII_LONG_CHARS = 8000  # Laenge des zweiten Testtexts (ein langer Verlauf, ein grosses Ergebnis)
-PII_TEST_TEXT = "Bitte schreibe Max Mustermann (max.mustermann@example.com) eine kurze Antwort."
+PII_LONG_CHARS = (
+    8000  # Laenge des zweiten Testtexts (ein langer Verlauf, ein grosses Ergebnis)
+)
+PII_TEST_TEXT = (
+    "Bitte schreibe Max Mustermann (max.mustermann@example.com) eine kurze Antwort."
+)
 
 
 def _test_pii_filter(settings: SettingsService) -> dict:
@@ -761,7 +771,9 @@ def _test_pii_filter(settings: SettingsService) -> dict:
 
     started = time.monotonic()
     try:
-        resp = requests.post(url, json={"text": PII_TEST_TEXT}, headers=headers, timeout=10)
+        resp = requests.post(
+            url, json={"text": PII_TEST_TEXT}, headers=headers, timeout=10
+        )
         short_ms = int((time.monotonic() - started) * 1000)
     except requests.exceptions.Timeout:
         return {"success": False, "error": f"Timeout (10s) bei {url}"}
@@ -775,20 +787,32 @@ def _test_pii_filter(settings: SettingsService) -> dict:
             "details": resp.text[:300],
         }
     if resp.status_code != 200:
-        return {"success": False, "error": f"HTTP {resp.status_code} von {url}", "details": resp.text[:300]}
+        return {
+            "success": False,
+            "error": f"HTTP {resp.status_code} von {url}",
+            "details": resp.text[:300],
+        }
     try:
         data = resp.json()
     except ValueError:
-        return {"success": False, "error": "Die Antwort ist kein JSON (siehe Anforderungen an den Dienst)"}
+        return {
+            "success": False,
+            "error": "Die Antwort ist kein JSON (siehe Anforderungen an den Dienst)",
+        }
     if not isinstance(data, dict):
-        return {"success": False, "error": "Die Antwort muss ein JSON-Objekt mit „filtered“ sein"}
+        return {
+            "success": False,
+            "error": "Die Antwort muss ein JSON-Objekt mit „filtered“ sein",
+        }
 
     _original, filtered, mapping = parse_response(data, PII_TEST_TEXT)
     pairs = mapping_pairs(mapping)
     facts = []
     problems = []
     if filtered == PII_TEST_TEXT:
-        problems.append("Der Beispieltext kam unverändert zurück: der Dienst hat nichts erkannt oder das Feld „filtered“ fehlt")
+        problems.append(
+            "Der Beispieltext kam unverändert zurück: der Dienst hat nichts erkannt oder das Feld „filtered“ fehlt"
+        )
     else:
         facts.append("Text wird maskiert")
     if pairs:
@@ -796,21 +820,31 @@ def _test_pii_filter(settings: SettingsService) -> dict:
         if PIIFilterClient("-").demask(filtered, mapping) == PII_TEST_TEXT:
             facts.append("Demaskierung stimmt")
         else:
-            problems.append("Die Demaskierung ergibt nicht den Originaltext (Platzhalter nicht eindeutig oder Mapping unvollständig)")
+            problems.append(
+                "Die Demaskierung ergibt nicht den Originaltext (Platzhalter nicht eindeutig oder Mapping unvollständig)"
+            )
     elif filtered != PII_TEST_TEXT:
-        problems.append("Kein Mapping in der Antwort: Antworten des Modells können nicht demaskiert werden (die Websuche funktioniert trotzdem)")
+        problems.append(
+            "Kein Mapping in der Antwort: Antworten des Modells können nicht demaskiert werden (die Websuche funktioniert trotzdem)"
+        )
     # Ein kurzer Satz sagt wenig: ein langer Text zeigt, ob der Dienst auch bei grossen Verlaeufen und Ergebnissen
     # rechtzeitig antwortet (dort entstanden die Zeitueberschreitungen, obwohl der Kurztest bestand).
     facts.append(f"kurzer Text {short_ms} ms")
     timeout_s = settings.get_float("PII_FILTER_TIMEOUT_S", 10.0)
     try:
-        long_text = (PII_TEST_TEXT + " ") * (PII_LONG_CHARS // (len(PII_TEST_TEXT) + 1) + 1)
+        long_text = (PII_TEST_TEXT + " ") * (
+            PII_LONG_CHARS // (len(PII_TEST_TEXT) + 1) + 1
+        )
         started = time.monotonic()
-        long_resp = requests.post(url, json={"text": long_text[:PII_LONG_CHARS]}, headers=headers, timeout=120)
+        long_resp = requests.post(
+            url, json={"text": long_text[:PII_LONG_CHARS]}, headers=headers, timeout=120
+        )
         long_ms = int((time.monotonic() - started) * 1000)
         allowed = timeout_for(PII_LONG_CHARS, timeout_s)
         if long_resp.status_code != 200:
-            problems.append(f"Langer Text ({PII_LONG_CHARS} Zeichen): HTTP {long_resp.status_code}")
+            problems.append(
+                f"Langer Text ({PII_LONG_CHARS} Zeichen): HTTP {long_resp.status_code}"
+            )
         elif long_ms / 1000 > allowed:
             problems.append(
                 f"Langer Text ({PII_LONG_CHARS} Zeichen) brauchte {long_ms} ms, erlaubt sind {allowed:g} s: "
@@ -819,11 +853,18 @@ def _test_pii_filter(settings: SettingsService) -> dict:
         else:
             facts.append(f"langer Text ({PII_LONG_CHARS} Zeichen) {long_ms} ms")
     except requests.exceptions.RequestException as e:
-        problems.append(f"Langer Text ({PII_LONG_CHARS} Zeichen) scheiterte: {type(e).__name__}")
+        problems.append(
+            f"Langer Text ({PII_LONG_CHARS} Zeichen) scheiterte: {type(e).__name__}"
+        )
     result = {"details": " · ".join(facts + problems)}
     if filtered == PII_TEST_TEXT:
         return {"success": False, "error": problems[0], **result}
-    return {"success": True, "message": "PII-Filter erreichbar" + (" mit Hinweisen" if problems else " und vertragsgemäß"), **result}
+    return {
+        "success": True,
+        "message": "PII-Filter erreichbar"
+        + (" mit Hinweisen" if problems else " und vertragsgemäß"),
+        **result,
+    }
 
 
 # =============================================================================
@@ -856,10 +897,7 @@ def save_my_summary(filename):
 
     file_path = summaries_dir / filename
 
-    if (
-        not str(file_path).startswith(str(summaries_dir))
-        or not file_path.suffix == ".md"
-    ):
+    if not str(file_path).startswith(str(summaries_dir)) or file_path.suffix != ".md":
         return jsonify({"success": False, "error": "Ungültige Datei"}), 400
 
     data = request.get_json()
@@ -882,10 +920,7 @@ def delete_my_summary(filename):
 
     file_path = summaries_dir / filename
 
-    if (
-        not str(file_path).startswith(str(summaries_dir))
-        or not file_path.suffix == ".md"
-    ):
+    if not str(file_path).startswith(str(summaries_dir)) or file_path.suffix != ".md":
         return jsonify({"success": False, "error": "Ungültige Datei"}), 400
 
     try:
@@ -905,7 +940,9 @@ def delete_my_summary(filename):
 @auth_required
 def download_summary_as_md(filename):
     """Download Summary als Markdown-Datei."""
-    summaries_dir = summaries_store.user_dir(current_user()["id"], create=True).resolve()
+    summaries_dir = summaries_store.user_dir(
+        current_user()["id"], create=True
+    ).resolve()
 
     file_path = (summaries_dir / filename).resolve()
 
@@ -944,10 +981,7 @@ def download_summary_as_docx(filename):
 
     file_path = summaries_dir / filename
 
-    if (
-        not str(file_path).startswith(str(summaries_dir))
-        or not file_path.suffix == ".md"
-    ):
+    if not str(file_path).startswith(str(summaries_dir)) or file_path.suffix != ".md":
         return send_file(
             "/static/images/error.png",
             mimetype="image/png",
@@ -1073,9 +1107,12 @@ def download_summary_as_docx(filename):
         elif element.name == "blockquote":
             para = doc.add_paragraph(style="Intense Quote")
             for child in element.children:
-                if isinstance(child, Tag) and child.name == "p":
-                    _add_runs_from_inline(para, child)
-                elif isinstance(child, NavigableString) and str(child).strip():
+                if (
+                    isinstance(child, Tag)
+                    and child.name == "p"
+                    or isinstance(child, NavigableString)
+                    and str(child).strip()
+                ):
                     _add_runs_from_inline(para, child)
             # Weitere Block-Typen innerhalb von blockquote (Listen etc.)
             # rekursiv anhängen.

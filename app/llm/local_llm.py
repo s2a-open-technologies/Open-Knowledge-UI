@@ -66,7 +66,11 @@ class TaskLLM:
         if not ref and self.task in ("tables", "images"):
             from app.ingest.tasks import load_task
 
-            ref = load_task("vision")["model_ref"]  # Tabellen und Chat-Bilder brauchen ein Bildmodell: wie die Bildbeschreibung
+            ref = load_task(
+                "vision"
+            )[
+                "model_ref"
+            ]  # Tabellen und Chat-Bilder brauchen ein Bildmodell: wie die Bildbeschreibung
         resolved = self._resolve(ref)
         params = {**resolved.params, "thinking": "none"}
         if cfg["temperature"] is not None:
@@ -88,9 +92,8 @@ class TaskLLM:
 
     vision_model = ""
 
-
     def generate_image_message(
-        self, image: str, instruction: str = None
+        self, image: str, instruction: str | None = None
     ) -> HumanMessage:
         """Generiert die Message für den Call ans Visionmodell"""
 

@@ -29,10 +29,18 @@ from app.core.settings_service import SettingsService
 # (Schluessel, Standardwert, Beschreibung). Die Untergrenze fuer den Speicher wurde in
 # tests/test_tool_worker_sandbox.py gemessen (pandas reserviert virtuellen Speicher).
 PANDAS_SETTINGS = [
-    ("TOOL_WORKER_URL", "http://tool-worker:8090", "Adresse des Tool-Workers (fuehrt Pandas-Code isoliert aus)"),
+    (
+        "TOOL_WORKER_URL",
+        "http://tool-worker:8090",
+        "Adresse des Tool-Workers (fuehrt Pandas-Code isoliert aus)",
+    ),
     ("PANDAS_TIMEOUT_S", "30", "Zeitlimit einer Pandas-Auswertung in Sekunden"),
     ("PANDAS_MAX_MEMORY_MB", "1024", "Speicherlimit einer Pandas-Auswertung in MB"),
-    ("PANDAS_MAX_OUTPUT_CHARS", "20000", "Maximale Laenge der Ausgabe einer Pandas-Auswertung in Zeichen"),
+    (
+        "PANDAS_MAX_OUTPUT_CHARS",
+        "20000",
+        "Maximale Laenge der Ausgabe einer Pandas-Auswertung in Zeichen",
+    ),
 ]
 
 # Wert muss zu alembic/versions/0025_sql_knowledge.py passen (Test: test_migrations_seed_the_same_keys)
@@ -46,18 +54,42 @@ SQL_PROMPT_DEFAULT = (
 )
 
 SQL_SETTINGS = [
-    ("SQL_WORKER_URL", "http://tool-worker-sql:8090", "Adresse des SQL-Workers (fragt Datenbanken lesend ab)"),
+    (
+        "SQL_WORKER_URL",
+        "http://tool-worker-sql:8090",
+        "Adresse des SQL-Workers (fragt Datenbanken lesend ab)",
+    ),
     ("SQL_ROW_LIMIT", "50", "Maximale Zeilen je SQL-Abfrage, die das Modell sieht"),
     ("SQL_TIMEOUT_S", "15", "Zeitlimit einer SQL-Abfrage in Sekunden"),
-    ("SQL_MAX_CELL_CHARS", "500", "Maximale Laenge eines Zellwerts in SQL-Ergebnissen in Zeichen"),
-    ("SQL_PROMPT", SQL_PROMPT_DEFAULT, "Hinweis an das Modell bei SQL-Quellen (Platzhalter {sources})"),
+    (
+        "SQL_MAX_CELL_CHARS",
+        "500",
+        "Maximale Laenge eines Zellwerts in SQL-Ergebnissen in Zeichen",
+    ),
+    (
+        "SQL_PROMPT",
+        SQL_PROMPT_DEFAULT,
+        "Hinweis an das Modell bei SQL-Quellen (Platzhalter {sources})",
+    ),
 ]
-SQL_VALUES_HINT_DEFAULT = 'Für Textwerte (Namen, Kategorien, Orte) rufe vor dem SELECT sql_find_values mit dem Begriff aus der Frage auf: es liefert die exakten Schreibweisen aus der Datenbank (Ein-/Mehrzahl, Umlaute, zusammengesetzte Wörter). Setze diese Werte mit IN (...) ein, statt zu raten.'
+SQL_VALUES_HINT_DEFAULT = "Für Textwerte (Namen, Kategorien, Orte) rufe vor dem SELECT sql_find_values mit dem Begriff aus der Frage auf: es liefert die exakten Schreibweisen aus der Datenbank (Ein-/Mehrzahl, Umlaute, zusammengesetzte Wörter). Setze diese Werte mit IN (...) ein, statt zu raten."
 
 VALUES_SETTINGS = [
-    ("SQL_VALUES_MAX_DISTINCT", "5000", "Hoechstens so viele verschiedene Werte je Spalte im Wertverzeichnis (darueber ist es kein Kategoriefeld)"),
-    ("SQL_VALUES_MAX_RESULTS", "20", "Hoechstens so viele Werte liefert die Wertsuche an das Modell"),
-    ("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT, "Hinweis an das Modell, wenn ein Wertverzeichnis vorhanden ist"),
+    (
+        "SQL_VALUES_MAX_DISTINCT",
+        "5000",
+        "Hoechstens so viele verschiedene Werte je Spalte im Wertverzeichnis (darueber ist es kein Kategoriefeld)",
+    ),
+    (
+        "SQL_VALUES_MAX_RESULTS",
+        "20",
+        "Hoechstens so viele Werte liefert die Wertsuche an das Modell",
+    ),
+    (
+        "SQL_VALUES_HINT",
+        SQL_VALUES_HINT_DEFAULT,
+        "Hinweis an das Modell, wenn ein Wertverzeichnis vorhanden ist",
+    ),
 ]
 SETTINGS = PANDAS_SETTINGS + SQL_SETTINGS + VALUES_SETTINGS
 RANGES = {
@@ -106,7 +138,9 @@ def load() -> WorkerSettings:
     try:
         s = SettingsService(session)
         return WorkerSettings(
-            url=(s.get("TOOL_WORKER_URL", "http://tool-worker:8090") or "").strip().rstrip("/"),
+            url=(s.get("TOOL_WORKER_URL", "http://tool-worker:8090") or "")
+            .strip()
+            .rstrip("/"),
             timeout_s=s.get_int("PANDAS_TIMEOUT_S", 30),
             memory_mb=s.get_int("PANDAS_MAX_MEMORY_MB", 1024),
             max_output_chars=s.get_int("PANDAS_MAX_OUTPUT_CHARS", 20000),
@@ -128,7 +162,9 @@ def load_sql() -> SqlSettings:
     try:
         s = SettingsService(session)
         return SqlSettings(
-            url=(s.get("SQL_WORKER_URL", "http://tool-worker-sql:8090") or "").strip().rstrip("/"),
+            url=(s.get("SQL_WORKER_URL", "http://tool-worker-sql:8090") or "")
+            .strip()
+            .rstrip("/"),
             row_limit=s.get_int("SQL_ROW_LIMIT", 50),
             timeout_s=s.get_int("SQL_TIMEOUT_S", 15),
             max_cell_chars=s.get_int("SQL_MAX_CELL_CHARS", 500),
@@ -142,7 +178,9 @@ def values_settings() -> tuple[int, int]:
     session = get_db_service().get_session()
     try:
         s = SettingsService(session)
-        return max(1, s.get_int("SQL_VALUES_MAX_DISTINCT", 5000)), max(1, s.get_int("SQL_VALUES_MAX_RESULTS", 20))
+        return max(1, s.get_int("SQL_VALUES_MAX_DISTINCT", 5000)), max(
+            1, s.get_int("SQL_VALUES_MAX_RESULTS", 20)
+        )
     finally:
         session.close()
 
@@ -150,7 +188,10 @@ def values_settings() -> tuple[int, int]:
 def values_hint() -> str:
     session = get_db_service().get_session()
     try:
-        return SettingsService(session).get("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT) or SQL_VALUES_HINT_DEFAULT
+        return (
+            SettingsService(session).get("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT)
+            or SQL_VALUES_HINT_DEFAULT
+        )
     finally:
         session.close()
 
@@ -158,7 +199,10 @@ def values_hint() -> str:
 def sql_prompt() -> str:
     session = get_db_service().get_session()
     try:
-        return SettingsService(session).get("SQL_PROMPT", SQL_PROMPT_DEFAULT) or SQL_PROMPT_DEFAULT
+        return (
+            SettingsService(session).get("SQL_PROMPT", SQL_PROMPT_DEFAULT)
+            or SQL_PROMPT_DEFAULT
+        )
     finally:
         session.close()
 

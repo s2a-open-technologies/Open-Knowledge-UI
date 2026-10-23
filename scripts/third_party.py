@@ -43,8 +43,13 @@ def python_dists() -> tuple[list[dict], set[str]]:
         key = name.lower()
         license_text = _normal_license(dist.metadata.get("License"))
         urls = [u for u in (dist.metadata.get_all("Project-URL") or []) if u]
-        homepage = next((u.split(", ")[-1] for u in urls if u.lower().startswith("homepage,")), None)
-        repo = next((u.split(", ")[-1] for u in urls if u.lower().startswith("repository,")), homepage)
+        homepage = next(
+            (u.split(", ")[-1] for u in urls if u.lower().startswith("homepage,")), None
+        )
+        repo = next(
+            (u.split(", ")[-1] for u in urls if u.lower().startswith("repository,")),
+            homepage,
+        )
         rows[key] = {
             "name": name,
             "version": dist.version,
@@ -82,28 +87,52 @@ def npm_packages() -> list[dict]:
             if license_str.startswith("("):  # Dual-License "("x OR y")" kuerzen
                 license_str = license_str.replace("(", "").replace(")", "")
             key = f"{name}@{version}"
-            rows[key] = {"name": name, "version": version, "license": license_str or "n/a"}
+            rows[key] = {
+                "name": name,
+                "version": version,
+                "license": license_str or "n/a",
+            }
         except (json.JSONDecodeError, OSError):
             continue
-    return sorted({(r["name"], r["version"], r["license"]): r for r in rows.values()}.values(), key=lambda r: r["name"].lower())
+    return sorted(
+        {(r["name"], r["version"], r["license"]): r for r in rows.values()}.values(),
+        key=lambda r: r["name"].lower(),
+    )
 
 
 def main() -> int:
     py_rows, _ = python_dists()
     if not py_rows:
-        print("Keine Python-Distributionen gefunden — uv sync laufen lassen.", file=sys.stderr)
+        print(
+            "Keine Python-Distributionen gefunden — uv sync laufen lassen.",
+            file=sys.stderr,
+        )
         return 1
     npm_rows = npm_packages()
 
-    lines = [HEADER, f"## Python-Abhängigkeiten ({len(py_rows)} Pakete, uv.lock)", "", "| Paket | Version | Lizenz | Projekt |", "|---|---|---|---|"]
+    lines = [
+        HEADER,
+        f"## Python-Abhängigkeiten ({len(py_rows)} Pakete, uv.lock)",
+        "",
+        "| Paket | Version | Lizenz | Projekt |",
+        "|---|---|---|---|",
+    ]
     for r in py_rows:
         lines.append(f"| {r['name']} | {r['version']} | {r['license']} | {r['url']} |")
-    lines += ["", f"## Frontend-Abhängigkeiten ({len(npm_rows)} Pakete, frontend/package-lock.json)", "", "| Paket | Version | Lizenz |", "|---|---|---|---|"]
+    lines += [
+        "",
+        f"## Frontend-Abhängigkeiten ({len(npm_rows)} Pakete, frontend/package-lock.json)",
+        "",
+        "| Paket | Version | Lizenz |",
+        "|---|---|---|---|",
+    ]
     for r in npm_rows:
         lines.append(f"| {r['name']} | {r['version']} | {r['license']} |")
     lines.append("")
     OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"{OUT.relative_to(ROOT)}: {len(py_rows)} Python- + {len(npm_rows)} npm-Pakete")
+    print(
+        f"{OUT.relative_to(ROOT)}: {len(py_rows)} Python- + {len(npm_rows)} npm-Pakete"
+    )
     return 0
 
 

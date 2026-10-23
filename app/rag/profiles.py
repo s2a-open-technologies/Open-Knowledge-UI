@@ -208,8 +208,10 @@ def ensure_default_profiles(db_session) -> None:
         ),
         (
             "Gründlich",
-            "Wie Standard, zusätzlich formuliert ein LLM weitere Suchfragen. "
-            "Hilft bei vagen Fragen, dauert aber länger.",
+            (
+                "Wie Standard, zusätzlich formuliert ein LLM weitere Suchfragen. "
+                "Hilft bei vagen Fragen, dauert aber länger."
+            ),
             THOROUGH_CONFIG,
             False,
         ),
@@ -360,7 +362,10 @@ def set_knowledge_profile(knowledge_id: int, profile_id: int | None) -> bool:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if not k:
             return False
-        if profile_id is not None and not db.query(RetrievalProfile).filter_by(id=profile_id).first():
+        if (
+            profile_id is not None
+            and not db.query(RetrievalProfile).filter_by(id=profile_id).first()
+        ):
             raise ProfileError("Profil nicht gefunden", 404)
         k.retrieval_profile_id = profile_id
         db.commit()

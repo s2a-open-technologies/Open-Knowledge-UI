@@ -42,7 +42,13 @@ MIN_DICE = 0.6
 
 def key(text: str) -> str:
     """Vergleichsform: kleingeschrieben, ß=ss, ä/ae gleich, Akzente weg, nur Buchstaben und Ziffern."""
-    s = text.casefold().replace("ß", "ss").replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    s = (
+        text.casefold()
+        .replace("ß", "ss")
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+    )
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
@@ -65,10 +71,23 @@ def dice(a: set[str], b: set[str]) -> float:
 
 
 def entry(table: str, column: str, value: str, count: int) -> dict:
-    return {"table": table, "column": column, "value": value, "count": count, "key": key(value), "stem": stem(value)}
+    return {
+        "table": table,
+        "column": column,
+        "value": value,
+        "count": count,
+        "key": key(value),
+        "stem": stem(value),
+    }
 
 
-def rank(term: str, entries: list[dict], limit: int = 20, table: str | None = None, column: str | None = None):
+def rank(
+    term: str,
+    entries: list[dict],
+    limit: int = 20,
+    table: str | None = None,
+    column: str | None = None,
+):
     """``[(eintrag, score)]``, beste zuerst. Score: exakt 1.0, gleicher Stamm 0.9, Stamm steckt im Wert
     (Kompositum) 0.7, aehnliche Schreibweise (Trigramme) bis 0.5."""
     tk = key(term or "")

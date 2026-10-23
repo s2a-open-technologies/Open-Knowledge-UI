@@ -56,15 +56,31 @@ DEFAULT_PROMPT = (
 
 # (Schluessel, Standardwert, Beschreibung)
 SETTINGS = [
-    ("COMPACTION_ENABLED", "true", "Chat-Verlauf automatisch zusammenfassen, bevor der Kontext ueberlaeuft"),
-    ("COMPACTION_HEADROOM_PERCENT", "5", "Luft in Prozent: Zusammenfassen ab (100 - Wert) % des Eingabe-Budgets"),
-    ("COMPACTION_KEEP_PERCENT", "30", "Anteil des Eingabe-Budgets in Prozent, der als juengster Verlauf wortwoertlich bleibt"),
+    (
+        "COMPACTION_ENABLED",
+        "true",
+        "Chat-Verlauf automatisch zusammenfassen, bevor der Kontext ueberlaeuft",
+    ),
+    (
+        "COMPACTION_HEADROOM_PERCENT",
+        "5",
+        "Luft in Prozent: Zusammenfassen ab (100 - Wert) % des Eingabe-Budgets",
+    ),
+    (
+        "COMPACTION_KEEP_PERCENT",
+        "30",
+        "Anteil des Eingabe-Budgets in Prozent, der als juengster Verlauf wortwoertlich bleibt",
+    ),
     (
         "COMPACTION_OUTPUT_RESERVE_PERCENT",
         "20",
         "Reserve fuer die Antwort in Prozent des Kontexts, wenn das Modell keine max. Tokens setzt",
     ),
-    ("COMPACTION_PROMPT", DEFAULT_PROMPT, "Anweisung fuer die Zusammenfassung des Verlaufs (Platzhalter {messages})"),
+    (
+        "COMPACTION_PROMPT",
+        DEFAULT_PROMPT,
+        "Anweisung fuer die Zusammenfassung des Verlaufs (Platzhalter {messages})",
+    ),
 ]
 
 _LIMITS = {
@@ -97,12 +113,16 @@ def load_settings() -> dict:
         s = SettingsService(session)
         stored = session.query(Setting).filter_by(key="COMPACTION_PROMPT").first()
         prompt = (s.get("COMPACTION_PROMPT") or "").strip() or DEFAULT_PROMPT
-        default_prompt = ((stored.default_value if stored else "") or "").strip() or DEFAULT_PROMPT
+        default_prompt = (
+            (stored.default_value if stored else "") or ""
+        ).strip() or DEFAULT_PROMPT
         return {
             "enabled": s.get_bool("COMPACTION_ENABLED", True),
             "headroom_percent": _int(s.get("COMPACTION_HEADROOM_PERCENT"), 5),
             "keep_percent": _int(s.get("COMPACTION_KEEP_PERCENT"), 30),
-            "output_reserve_percent": _int(s.get("COMPACTION_OUTPUT_RESERVE_PERCENT"), 20),
+            "output_reserve_percent": _int(
+                s.get("COMPACTION_OUTPUT_RESERVE_PERCENT"), 20
+            ),
             "prompt": prompt,
             "default_prompt": default_prompt,
         }
@@ -122,16 +142,22 @@ def save_settings(data: dict) -> None:
             except (TypeError, ValueError):
                 raise CompactionConfigError(f"{field}: ganze Zahl erwartet") from None
             if not low <= number <= high:
-                raise CompactionConfigError(f"{field}: Wert zwischen {low} und {high} erwartet")
+                raise CompactionConfigError(
+                    f"{field}: Wert zwischen {low} und {high} erwartet"
+                )
             values[f"COMPACTION_{field.upper()}"] = str(number)
     if "prompt" in data:
         text = str(data["prompt"] or "").strip()
         if not text:
             raise CompactionConfigError("Der Prompt darf nicht leer sein")
         if len(text) > MAX_PROMPT_CHARS:
-            raise CompactionConfigError(f"Der Prompt ist zu lang (höchstens {MAX_PROMPT_CHARS} Zeichen)")
+            raise CompactionConfigError(
+                f"Der Prompt ist zu lang (höchstens {MAX_PROMPT_CHARS} Zeichen)"
+            )
         if "{messages}" not in text:
-            raise CompactionConfigError("Der Prompt muss den Platzhalter {messages} enthalten")
+            raise CompactionConfigError(
+                "Der Prompt muss den Platzhalter {messages} enthalten"
+            )
         values["COMPACTION_PROMPT"] = text
     if not values:
         return
@@ -158,7 +184,11 @@ def compute_budget(params: dict, cfg: dict | None = None) -> Budget | None:
         return None
     window = int(params.get("num_ctx") or 0)
     max_tokens = params.get("max_tokens")
-    output = int(max_tokens) if max_tokens else math.ceil(window * cfg["output_reserve_percent"] / 100)
+    output = (
+        int(max_tokens)
+        if max_tokens
+        else math.ceil(window * cfg["output_reserve_percent"] / 100)
+    )
     usable = window - output
     if usable < MIN_USABLE_TOKENS:
         logger.warning(
@@ -184,9 +214,9 @@ def effective_params(model_params: dict | None) -> dict:
     return {**global_chat_defaults(), **(model_params or {})}
 
 
-_THINK = re.compile(r"<think>.*?</think>\s*", re.S)
-_SOURCES = re.compile(r"\n*<sources>.*?</sources>\s*$", re.S)
-_TOOLS = re.compile(r"\n*<tools>.*?</tools>\s*$", re.S)
+_THINK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+_SOURCES = re.compile(r"\n*<sources>.*?</sources>\s*$", re.DOTALL)
+_TOOLS = re.compile(r"\n*<tools>.*?</tools>\s*$", re.DOTALL)
 
 
 def clean_history_text(content: str) -> str:
@@ -196,7 +226,11 @@ def clean_history_text(content: str) -> str:
 
 def prompt_for_langchain(template: str) -> str:
     """Mit ``str.format`` benutzbar: nur ``{messages}`` bleibt Platzhalter."""
-    return template.replace("{", "{{").replace("}", "}}").replace("{{messages}}", "{messages}")
+    return (
+        template.replace("{", "{{")
+        .replace("}", "}}")
+        .replace("{{messages}}", "{messages}")
+    )
 
 
 def render_prompt(template: str, messages_text: str) -> str:
@@ -205,18 +239,28 @@ def render_prompt(template: str, messages_text: str) -> str:
 
 def _format(messages: list[dict]) -> str:
     names = {"user": "Nutzer", "assistant": "Assistent"}
-    return "\n\n".join(f"{names.get(m['role'], m['role'])}: {m['content']}" for m in messages)
+    return "\n\n".join(
+        f"{names.get(m['role'], m['role'])}: {m['content']}" for m in messages
+    )
 
 
 def summarize(llm, cfg: dict, messages: list[dict], previous: str | None = None) -> str:
     """Fasst Nachrichten (und eine fruehere Zusammenfassung) zusammen. ``llm`` hat ``invoke``."""
     parts = list(messages)
     if previous:
-        parts.insert(0, {"role": "assistant", "content": f"[Bisherige Zusammenfassung]\n{previous}"})
+        parts.insert(
+            0,
+            {
+                "role": "assistant",
+                "content": f"[Bisherige Zusammenfassung]\n{previous}",
+            },
+        )
     reply = llm.invoke(render_prompt(cfg["prompt"], _format(parts)))
     text = reply.content if hasattr(reply, "content") else str(reply)
     if isinstance(text, list):  # inhaltsbloecke
-        text = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in text)
+        text = "".join(
+            b.get("text", "") if isinstance(b, dict) else str(b) for b in text
+        )
     text = _THINK.sub("", text or "").strip()
     if not text:
         raise RuntimeError("Die Zusammenfassung ist leer")
@@ -230,7 +274,9 @@ def tools_tokens(tools) -> int:
     total = 0
     for tool in tools or []:
         try:
-            total += estimate_tokens(f"{tool.name} {tool.description} {json.dumps(tool.args, default=str)}")
+            total += estimate_tokens(
+                f"{tool.name} {tool.description} {json.dumps(tool.args, default=str)}"
+            )
         except Exception:
             total += 200
     return total
@@ -247,7 +293,12 @@ def summary_llm(resolved, budget: Budget):
         "max_tokens": max(256, min(2000, budget.usable // 4)),
     }
     return build_chat_llm(
-        resolved.base_url, resolved.api_key, resolved.model_id, params, streaming=False, timeout=180
+        resolved.base_url,
+        resolved.api_key,
+        resolved.model_id,
+        params,
+        streaming=False,
+        timeout=180,
     )
 
 
@@ -259,10 +310,18 @@ def history_messages(rows, summary: str | None) -> list[dict]:
     out: list[dict] = []
     if summary:
         out.append({"role": "user", "content": SUMMARY_INTRO + summary})
-        out.append({"role": "assistant", "content": "Verstanden, ich berücksichtige den bisherigen Verlauf."})
+        out.append(
+            {
+                "role": "assistant",
+                "content": "Verstanden, ich berücksichtige den bisherigen Verlauf.",
+            }
+        )
     for row in rows:
         out.append(
-            {"role": "user" if row.role == "user" else "assistant", "content": clean_history_text(row.content)}
+            {
+                "role": "user" if row.role == "user" else "assistant",
+                "content": clean_history_text(row.content),
+            }
         )
     return out
 
@@ -299,7 +358,11 @@ def fit_history(
     rows = list(rows)
 
     def total(msgs: list[dict]) -> int:
-        return overhead_tokens + estimate_tokens(new_message) + sum(estimate_tokens(m["content"]) for m in msgs)
+        return (
+            overhead_tokens
+            + estimate_tokens(new_message)
+            + sum(estimate_tokens(m["content"]) for m in msgs)
+        )
 
     messages = history_messages(rows, summary)
     before = total(messages)
@@ -315,23 +378,35 @@ def fit_history(
             break
         acc += sizes[i]
         cut = i
-    while cut < len(rows) and rows[cut].role != "user":  # der behaltene Teil beginnt mit einer Frage
+    while (
+        cut < len(rows) and rows[cut].role != "user"
+    ):  # der behaltene Teil beginnt mit einer Frage
         cut += 1
     if cut >= len(rows):
         users = [i for i, r in enumerate(rows) if r.role == "user"]
         cut = users[-1] if users else 0
     if cut <= 0:
-        logger.info("Compaction: nichts Aelteres zum Zusammenfassen, Nachrichten werden gekuerzt")
+        logger.info(
+            "Compaction: nichts Aelteres zum Zusammenfassen, Nachrichten werden gekuerzt"
+        )
         clipped = _clip_all(messages, budget)
         return clipped, {"before": before, "after": total(clipped), "clipped": True}
 
     old, kept = rows[:cut], rows[cut:]
-    older = [{"role": "user" if r.role == "user" else "assistant", "content": clean_history_text(r.content)} for r in old]
+    older = [
+        {
+            "role": "user" if r.role == "user" else "assistant",
+            "content": clean_history_text(r.content),
+        }
+        for r in old
+    ]
     if mask_many:
         texts = ([summary] if summary else []) + [m["content"] for m in older]
         masked, mapping = mask_many(texts)
         previous = masked[0] if summary else None
-        older = [{**m, "content": t} for m, t in zip(older, masked[1 if summary else 0 :])]
+        older = [
+            {**m, "content": t} for m, t in zip(older, masked[1 if summary else 0 :])
+        ]
         new_summary = unmask(summarize(llm_factory(), cfg, older, previous), mapping)
     else:
         new_summary = summarize(llm_factory(), cfg, older, summary)

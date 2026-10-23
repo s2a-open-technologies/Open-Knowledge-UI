@@ -44,7 +44,9 @@ def parse_markdown_table(text: str):
     """Markdown-Tabelle -> DataFrame (Kopfzeile = Spaltennamen) oder ``None``, wenn sie nicht einheitlich ist."""
     import pandas as pd
 
-    text = re.sub(r"^```[a-z]*\s*|\s*```$", "", (text or "").strip(), flags=re.I)
+    text = re.sub(
+        r"^```[a-z]*\s*|\s*```$", "", (text or "").strip(), flags=re.IGNORECASE
+    )
     lines = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("|")]
     if len(lines) < 3:
         return None
@@ -65,7 +67,9 @@ def parse_markdown_table(text: str):
     return pd.DataFrame(rows, columns=header)
 
 
-def is_plausible(fixed, draft, max_deviation_percent: int = DEFAULT_MAX_ROW_DEVIATION) -> bool:
+def is_plausible(
+    fixed, draft, max_deviation_percent: int = DEFAULT_MAX_ROW_DEVIATION
+) -> bool:
     """Weicht die korrigierte Tabelle zu stark vom Entwurf ab, ist eher etwas weggelassen oder erfunden worden."""
     if fixed is None or fixed.shape[0] < 1 or fixed.shape[1] < 2:
         return False
@@ -91,7 +95,9 @@ class PageRenderer:
 
             self._pdf = pdfium.PdfDocument(self.pdf_path)
         if self._page_no != page_no:
-            self._image = self._pdf[page_no - 1].render(scale=SCALE).to_pil().convert("RGB")
+            self._image = (
+                self._pdf[page_no - 1].render(scale=SCALE).to_pil().convert("RGB")
+            )
             self._page_no = page_no
         return self._image
 
@@ -122,8 +128,17 @@ def _b64(image) -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
-def refine_table(item, doc, draft_df, draft_markdown: str, renderer: PageRenderer, model, instruction: str,
-                 max_deviation_percent: int = DEFAULT_MAX_ROW_DEVIATION, retries: int = 2):
+def refine_table(
+    item,
+    doc,
+    draft_df,
+    draft_markdown: str,
+    renderer: PageRenderer,
+    model,
+    instruction: str,
+    max_deviation_percent: int = DEFAULT_MAX_ROW_DEVIATION,
+    retries: int = 2,
+):
     """Korrigierte Tabelle (DataFrame) oder ``None`` (dann gilt der Docling-Entwurf)."""
     prov = (getattr(item, "prov", None) or [None])[0]
     if prov is None:
@@ -141,7 +156,9 @@ def refine_table(item, doc, draft_df, draft_markdown: str, renderer: PageRendere
             answer = model.generate(message)
             answer = answer.content if hasattr(answer, "content") else str(answer)
         except Exception as e:
-            logger.warning(f"Tabellen-Pruefung: Versuch {attempt}/{retries} fehlgeschlagen: {str(e)[:100]}")
+            logger.warning(
+                f"Tabellen-Pruefung: Versuch {attempt}/{retries} fehlgeschlagen: {str(e)[:100]}"
+            )
             continue
         fixed = parse_markdown_table(answer)
         if is_plausible(fixed, draft_df, max_deviation_percent):

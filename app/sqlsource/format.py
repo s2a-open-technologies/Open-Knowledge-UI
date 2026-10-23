@@ -24,7 +24,9 @@ def _cell(value) -> str:
     return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
-def result_text(source: str, columns: list, rows: list, truncated: bool, row_limit: int) -> str:
+def result_text(
+    source: str, columns: list, rows: list, truncated: bool, row_limit: int
+) -> str:
     if not columns:
         return f"Quelle „{source}“: Die Abfrage lieferte keine Spalten."
     n = len(rows)
@@ -33,24 +35,52 @@ def result_text(source: str, columns: list, rows: list, truncated: bool, row_lim
     lines.append("|" + "|".join("---" for _ in columns) + "|")
     lines += ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows]
     if truncated:
-        lines += ["", f"(Ergebnis auf {row_limit} Zeilen gekürzt – fasse mit COUNT/SUM/GROUP BY zusammen oder filtere genauer.)"]
+        lines += [
+            "",
+            f"(Ergebnis auf {row_limit} Zeilen gekürzt – fasse mit COUNT/SUM/GROUP BY zusammen oder filtere genauer.)",
+        ]
     return "\n".join(lines)
 
 
-DIALECTS = {"postgresql": "PostgreSQL", "mysql": "MySQL/MariaDB", "mssql": "SQL Server", "sqlite": "SQLite"}
+DIALECTS = {
+    "postgresql": "PostgreSQL",
+    "mysql": "MySQL/MariaDB",
+    "mssql": "SQL Server",
+    "sqlite": "SQLite",
+}
 
 
 def schema_text(source: str, tables: list, dialect: str = "") -> str:
     lines = [f"Quelle „{source}“: {len(tables)} Tabellen"]
-    if dialect in DIALECTS:  # sonst nimmt das Modell Funktionen eines anderen Dialekts (z. B. strftime auf PostgreSQL)
-        lines.append(f"SQL-Dialekt: {DIALECTS[dialect]} (Datums- und Textfunktionen dieses Dialekts verwenden)")
+    if (
+        dialect in DIALECTS
+    ):  # sonst nimmt das Modell Funktionen eines anderen Dialekts (z. B. strftime auf PostgreSQL)
+        lines.append(
+            f"SQL-Dialekt: {DIALECTS[dialect]} (Datums- und Textfunktionen dieses Dialekts verwenden)"
+        )
     for t in tables:
-        lines += ["", f"### {t['name']}" + (" (View)" if t.get("kind") == "view" else "")]
+        lines += [
+            "",
+            f"### {t['name']}" + (" (View)" if t.get("kind") == "view" else ""),
+        ]
         if t.get("comment"):
             lines.append(t["comment"])
         for c in t["columns"]:
-            flags = ", ".join(x for x in (c["type"], "PK" if c["pk"] else "", "" if c["nullable"] else "NOT NULL") if x)
-            lines.append(f"- {c['name']} ({flags})" + (f": {c['comment']}" if c.get("comment") else ""))
+            flags = ", ".join(
+                x
+                for x in (
+                    c["type"],
+                    "PK" if c["pk"] else "",
+                    "" if c["nullable"] else "NOT NULL",
+                )
+                if x
+            )
+            lines.append(
+                f"- {c['name']} ({flags})"
+                + (f": {c['comment']}" if c.get("comment") else "")
+            )
         for fk in t["foreign_keys"]:
-            lines.append(f"- FK: {', '.join(fk['columns'])} → {fk['ref_table']}({', '.join(fk['ref_columns'])})")
+            lines.append(
+                f"- FK: {', '.join(fk['columns'])} → {fk['ref_table']}({', '.join(fk['ref_columns'])})"
+            )
     return "\n".join(lines)

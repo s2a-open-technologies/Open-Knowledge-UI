@@ -10,17 +10,59 @@ import sys
 import tempfile
 
 BLOCKED_NAMES = {
-    "__import__", "eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals",
-    "locals", "vars", "input", "breakpoint", "memoryview", "type", "help", "dir", "exit", "quit",
+    "__import__",
+    "eval",
+    "exec",
+    "compile",
+    "open",
+    "getattr",
+    "setattr",
+    "delattr",
+    "globals",
+    "locals",
+    "vars",
+    "input",
+    "breakpoint",
+    "memoryview",
+    "type",
+    "help",
+    "dir",
+    "exit",
+    "quit",
 }
 # Attribute, die Dateien lesen/schreiben oder Code ausfuehren (ausser den erlaubten to_*-Formen)
 BLOCKED_ATTRS = {
-    "load", "loads", "loadtxt", "genfromtxt", "fromfile", "fromregex", "memmap", "save", "savez",
-    "savez_compressed", "savetxt", "eval", "system", "popen", "DataSource", "open_memmap",
+    "load",
+    "loads",
+    "loadtxt",
+    "genfromtxt",
+    "fromfile",
+    "fromregex",
+    "memmap",
+    "save",
+    "savez",
+    "savez_compressed",
+    "savetxt",
+    "eval",
+    "system",
+    "popen",
+    "DataSource",
+    "open_memmap",
 }
 ALLOWED_TO = {
-    "to_string", "to_dict", "to_list", "to_numpy", "to_frame", "to_markdown", "to_datetime",
-    "to_numeric", "to_timedelta", "to_period", "to_timestamp", "to_series", "to_records",
+    "to_string",
+    "to_dict",
+    "to_list",
+    "to_numpy",
+    "to_frame",
+    "to_markdown",
+    "to_datetime",
+    "to_numeric",
+    "to_timedelta",
+    "to_period",
+    "to_timestamp",
+    "to_series",
+    "to_records",
 }
 
 
@@ -34,15 +76,24 @@ def check_code(code: str) -> str | None:
         bad = None
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             bad = "import"
-        elif isinstance(node, ast.Name) and (node.id in BLOCKED_NAMES or node.id.startswith("__")):
+        elif isinstance(node, ast.Name) and (
+            node.id in BLOCKED_NAMES or node.id.startswith("__")
+        ):
             bad = node.id
         elif isinstance(node, ast.Attribute):
             a = node.attr
-            if a.startswith("__") or a in BLOCKED_ATTRS or a.startswith("read_"):
+            if (
+                a.startswith(("__", "read_"))
+                or a in BLOCKED_ATTRS
+                or a.startswith("to_")
+                and a not in ALLOWED_TO
+            ):
                 bad = a
-            elif a.startswith("to_") and a not in ALLOWED_TO:
-                bad = a
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and "__" in node.value:
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "__" in node.value
+        ):
             bad = "__"  # verhindert "{0.__class__}".format(...)
         if bad:
             return f"FEHLER: '{bad}' ist aus Sicherheitsgründen blockiert."
@@ -69,11 +120,20 @@ def _truncate(text: str, limit: int) -> str:
     return text[:limit] + f"\n… (gekürzt auf {limit} Zeichen)"
 
 
-def run_job(path: str, code: str, *, timeout_s: float, memory_mb: int, max_output_chars: int) -> dict:
+def run_job(
+    path: str, code: str, *, timeout_s: float, memory_mb: int, max_output_chars: int
+) -> dict:
     blocked = check_code(code)
     if blocked:
         return {"ok": False, "error": blocked}
-    job = json.dumps({"path": path, "code": code, "memory_mb": memory_mb, "cpu_s": int(timeout_s) + 5})
+    job = json.dumps(
+        {
+            "path": path,
+            "code": code,
+            "memory_mb": memory_mb,
+            "cpu_s": int(timeout_s) + 5,
+        }
+    )
     with tempfile.TemporaryDirectory() as tmp:
         env = {
             "PATH": os.environ.get("PATH", ""),
@@ -103,11 +163,23 @@ def run_job(path: str, code: str, *, timeout_s: float, memory_mb: int, max_outpu
             except ProcessLookupError:
                 pass
             proc.communicate()
-            return {"ok": False, "error": f"FEHLER: Zeitlimit von {timeout_s:g} s überschritten."}
+            return {
+                "ok": False,
+                "error": f"FEHLER: Zeitlimit von {timeout_s:g} s überschritten.",
+            }
     try:
         data = json.loads(out.decode("utf-8", "replace"))
     except ValueError:
-        return {"ok": False, "error": "FEHLER: Ausführung abgebrochen (Speicher- oder Rechenlimit erreicht)."}
+        return {
+            "ok": False,
+            "error": "FEHLER: Ausführung abgebrochen (Speicher- oder Rechenlimit erreicht).",
+        }
     if data.get("ok"):
-        return {"ok": True, "output": _truncate(data.get("output", ""), max_output_chars)}
-    return {"ok": False, "error": _truncate(data.get("error", "FEHLER: unbekannt"), max_output_chars)}
+        return {
+            "ok": True,
+            "output": _truncate(data.get("output", ""), max_output_chars),
+        }
+    return {
+        "ok": False,
+        "error": _truncate(data.get("error", "FEHLER: unbekannt"), max_output_chars),
+    }

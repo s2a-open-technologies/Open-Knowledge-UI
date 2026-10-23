@@ -57,27 +57,53 @@ class ToolWorkerClient:
         try:
             return self._send(method, path, payload, timeout)
         except Exception:  # noqa: BLE001 - Verbindung, Timeout, DNS: nie Details nach aussen
-            raise ToolWorkerUnavailable("Der Tool-Worker ist nicht erreichbar.") from None
+            raise ToolWorkerUnavailable(
+                "Der Tool-Worker ist nicht erreichbar."
+            ) from None
 
-    def run_pandas(self, file: str, code: str, *, timeout_s: float, memory_mb: int, max_output_chars: int) -> str:
+    def run_pandas(
+        self,
+        file: str,
+        code: str,
+        *,
+        timeout_s: float,
+        memory_mb: int,
+        max_output_chars: int,
+    ) -> str:
         status, body = self._call(
             "POST",
             "/v1/pandas",
-            {"file": file, "code": code, "limits": {"timeout_s": timeout_s, "memory_mb": memory_mb, "max_output_chars": max_output_chars}},
+            {
+                "file": file,
+                "code": code,
+                "limits": {
+                    "timeout_s": timeout_s,
+                    "memory_mb": memory_mb,
+                    "max_output_chars": max_output_chars,
+                },
+            },
             timeout_s + NETWORK_MARGIN_S,
         )
         if status == 401:
-            raise ToolWorkerUnavailable("Der Tool-Worker lehnt die Zugangsdaten ab (TOOL_WORKER_TOKEN prüfen).")
+            raise ToolWorkerUnavailable(
+                "Der Tool-Worker lehnt die Zugangsdaten ab (TOOL_WORKER_TOKEN prüfen)."
+            )
         if status == 404:
             return f"FEHLER: Datei '{file}' ist für die Auswertung nicht verfügbar."
         if status != 200 or not isinstance(body, dict):
             raise ToolWorkerUnavailable("Der Tool-Worker meldet einen Fehler.")
-        return body.get("output") if body.get("ok") else (body.get("error") or "FEHLER: unbekannt")
+        return (
+            body.get("output")
+            if body.get("ok")
+            else (body.get("error") or "FEHLER: unbekannt")
+        )
 
     def sql(self, action: str, payload: dict, timeout: float) -> dict:
         status, body = self._call("POST", f"/v1/sql/{action}", payload, timeout)
         if status == 401:
-            raise ToolWorkerUnavailable("Der SQL-Dienst lehnt die Zugangsdaten ab (TOOL_WORKER_TOKEN prüfen).")
+            raise ToolWorkerUnavailable(
+                "Der SQL-Dienst lehnt die Zugangsdaten ab (TOOL_WORKER_TOKEN prüfen)."
+            )
         if status != 200 or not isinstance(body, dict):
             raise ToolWorkerUnavailable("Der SQL-Dienst ist nicht verfügbar.")
         return body
@@ -88,7 +114,11 @@ class ToolWorkerClient:
         except Exception:  # noqa: BLE001
             return {"reachable": False, "version": "", "error": "nicht erreichbar"}
         if status == 200 and isinstance(body, dict):
-            return {"reachable": True, "version": str(body.get("version", "")), "error": ""}
+            return {
+                "reachable": True,
+                "version": str(body.get("version", "")),
+                "error": "",
+            }
         return {"reachable": False, "version": "", "error": f"HTTP {status}"}
 
 

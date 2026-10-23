@@ -58,8 +58,15 @@ def _token() -> str:
 def configure_cookies(app) -> None:
     """Session-Cookie: nicht per Skript lesbar, nicht bei fremden Seiten; ``Secure`` per Umgebungsvariable."""
     app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = app.config.get("SESSION_COOKIE_SAMESITE") or "Lax"
-    if os.getenv("SESSION_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes", "on"):
+    app.config["SESSION_COOKIE_SAMESITE"] = (
+        app.config.get("SESSION_COOKIE_SAMESITE") or "Lax"
+    )
+    if os.getenv("SESSION_COOKIE_SECURE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         app.config["SESSION_COOKIE_SECURE"] = True
 
 
@@ -78,7 +85,9 @@ def init_csrf(app) -> None:
 
     @app.before_request
     def check_csrf():
-        if request.method not in UNSAFE or not current_app.config.get("CSRF_ENABLED", True):
+        if request.method not in UNSAFE or not current_app.config.get(
+            "CSRF_ENABLED", True
+        ):
             return None
         expected = session.get("csrf_token")
         sent = request.headers.get(HEADER) or request.form.get(FIELD) or ""
@@ -97,7 +106,10 @@ def init_csrf(app) -> None:
 
     @app.after_request
     def issue_cookie(response):
-        if not current_app.config.get("CSRF_ENABLED", True) or request.endpoint == "static":
+        if (
+            not current_app.config.get("CSRF_ENABLED", True)
+            or request.endpoint == "static"
+        ):
             return response
         token = _token()
         if request.cookies.get(COOKIE) != token:

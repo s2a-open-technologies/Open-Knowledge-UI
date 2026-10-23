@@ -4,18 +4,65 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 
-DIALECTS = {"postgresql": "postgres", "mysql": "mysql", "mssql": "tsql", "sqlite": "sqlite"}
+DIALECTS = {
+    "postgresql": "postgres",
+    "mysql": "mysql",
+    "mssql": "tsql",
+    "sqlite": "sqlite",
+}
 
 DENY_FUNCS = {
-    "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file", "lo_import", "lo_export", "lo_get",
-    "lo_put", "pg_sleep", "pg_terminate_backend", "pg_cancel_backend", "dblink", "dblink_exec", "set_config",
-    "load_file", "sleep", "benchmark", "get_lock", "sys_exec", "sys_eval", "xp_cmdshell", "openrowset",
-    "opendatasource", "openquery", "load_extension", "readfile", "writefile", "current_setting", "copy",
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "pg_stat_file",
+    "lo_import",
+    "lo_export",
+    "lo_get",
+    "lo_put",
+    "pg_sleep",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "dblink",
+    "dblink_exec",
+    "set_config",
+    "load_file",
+    "sleep",
+    "benchmark",
+    "get_lock",
+    "sys_exec",
+    "sys_eval",
+    "xp_cmdshell",
+    "openrowset",
+    "opendatasource",
+    "openquery",
+    "load_extension",
+    "readfile",
+    "writefile",
+    "current_setting",
+    "copy",
 }
 DENY_NODES = (
-    exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Create, exp.Alter, exp.Merge, exp.Command, exp.Into,
-    exp.Lock, exp.Set, exp.Use, exp.Transaction, exp.Commit, exp.Rollback, exp.Grant, exp.Pragma,
-    exp.Copy, exp.Analyze, exp.TruncateTable,
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Drop,
+    exp.Create,
+    exp.Alter,
+    exp.Merge,
+    exp.Command,
+    exp.Into,
+    exp.Lock,
+    exp.Set,
+    exp.Use,
+    exp.Transaction,
+    exp.Commit,
+    exp.Rollback,
+    exp.Grant,
+    exp.Pragma,
+    exp.Copy,
+    exp.Analyze,
+    exp.TruncateTable,
 )
 
 
@@ -51,14 +98,20 @@ def validate_select(
     if not isinstance(root, (exp.Select, exp.Union, exp.Subquery)):
         raise SqlRejected("Nur SELECT-Abfragen sind erlaubt")
     allowed = {_norm(t) for t in allowed_tables} if allowed_tables else None
-    blocked = {_norm(t): {_norm(c) for c in cols} for t, cols in (blocked_columns or {}).items() if cols}
+    blocked = {
+        _norm(t): {_norm(c) for c in cols}
+        for t, cols in (blocked_columns or {}).items()
+        if cols
+    }
     cte_names = {_norm(c.alias) for c in root.find_all(exp.CTE)}
     tables_in_query: set[str] = set()
     for node in root.walk():
         if isinstance(node, DENY_NODES):
             raise SqlRejected("Nur lesende SELECT-Abfragen sind erlaubt")
         if isinstance(node, (exp.Func, exp.Anonymous)):
-            name = _norm(node.name if isinstance(node, exp.Anonymous) else node.sql_name())
+            name = _norm(
+                node.name if isinstance(node, exp.Anonymous) else node.sql_name()
+            )
             if name in DENY_FUNCS:
                 raise SqlRejected(f"Die Funktion {name} ist nicht erlaubt")
         if isinstance(node, exp.Table):
@@ -74,7 +127,9 @@ def validate_select(
         col = _norm(node.name)
         owner = _norm(node.table)
         for tname, cols in blocked.items():
-            if col in cols and (not owner or owner == tname or tname in tables_in_query):
+            if col in cols and (
+                not owner or owner == tname or tname in tables_in_query
+            ):
                 raise SqlRejected(f"Die Spalte {node.name} ist gesperrt")
     hit = [t for t in blocked if t in tables_in_query]
     if hit:
@@ -90,11 +145,20 @@ def validate_select(
                     "Die ganze Zeile einer Tabelle mit gesperrten Spalten ist nicht abfragbar, nenne die Spalten einzeln"
                 )
         # COUNT(*) liefert keine Spaltenwerte und bleibt erlaubt
-        if any(isinstance(n, exp.Star) and not isinstance(n.parent, exp.Count) for n in root.walk()):
-            raise SqlRejected("SELECT * ist hier nicht erlaubt (gesperrte Spalten), nenne die Spalten einzeln")
+        if any(
+            isinstance(n, exp.Star) and not isinstance(n.parent, exp.Count)
+            for n in root.walk()
+        ):
+            raise SqlRejected(
+                "SELECT * ist hier nicht erlaubt (gesperrte Spalten), nenne die Spalten einzeln"
+            )
     if isinstance(root, exp.Select):
         current = root.args.get("limit")
-        if current is not None and isinstance(current.expression, exp.Literal) and current.expression.is_int:
+        if (
+            current is not None
+            and isinstance(current.expression, exp.Literal)
+            and current.expression.is_int
+        ):
             row_limit = min(int(current.expression.this), row_limit)
         root = root.limit(row_limit)
     return root.sql(dialect=gdialect)

@@ -29,7 +29,9 @@ def upgrade() -> None:
     cols = {c["name"] for c in sa.inspect(bind).get_columns("knowledge")}
     if "bm25_language" not in cols:
         with op.batch_alter_table("knowledge") as batch_op:
-            batch_op.add_column(sa.Column("bm25_language", sa.String(20), nullable=True))
+            batch_op.add_column(
+                sa.Column("bm25_language", sa.String(20), nullable=True)
+            )
     key, value, description = SETTING
     bind.execute(
         sa.text(

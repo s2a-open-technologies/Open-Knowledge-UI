@@ -48,12 +48,16 @@ aggregiere mit COUNT/SUM/AVG und GROUP BY, statt viele Zeilen zu laden. Verwende
 
 
 class SchemaInput(BaseModel):
-    source: str = Field(default="", description="Name der Datenbank (nur bei mehreren nötig)")
+    source: str = Field(
+        default="", description="Name der Datenbank (nur bei mehreren nötig)"
+    )
 
 
 class QueryInput(BaseModel):
     query: str = Field(description="Eine einzelne SELECT-Abfrage")
-    source: str = Field(default="", description="Name der Datenbank (nur bei mehreren nötig)")
+    source: str = Field(
+        default="", description="Name der Datenbank (nur bei mehreren nötig)"
+    )
 
 
 FIND_VALUES_DESCRIPTION = """
@@ -67,8 +71,12 @@ Nicht für Jahre, Zahlen oder Zeiträume: die filterst du in `sql_query` über d
 
 
 class FindValuesInput(BaseModel):
-    term: str = Field(description="Begriff aus der Frage, z. B. ein Produkt, eine Kategorie oder ein Ort")
-    source: str = Field(default="", description="Name der Datenbank (nur bei mehreren nötig)")
+    term: str = Field(
+        description="Begriff aus der Frage, z. B. ein Produkt, eine Kategorie oder ein Ort"
+    )
+    source: str = Field(
+        default="", description="Name der Datenbank (nur bei mehreren nötig)"
+    )
     table: str = Field(default="", description="Optional: nur in dieser Tabelle suchen")
     column: str = Field(default="", description="Optional: nur in dieser Spalte suchen")
 
@@ -86,11 +94,17 @@ def _resolve(source: str):
     if not wanted:
         if len(entries) == 1:
             return entries[0]
-        raise _Fail("Mehrere SQL-Datenbanken sind verbunden, gib die Quelle an: " + ", ".join(f"„{e[1]}“" for e in entries))
+        raise _Fail(
+            "Mehrere SQL-Datenbanken sind verbunden, gib die Quelle an: "
+            + ", ".join(f"„{e[1]}“" for e in entries)
+        )
     for entry in entries:
         if entry[1].lower() == wanted:
             return entry
-    raise _Fail(f"Unbekannte Quelle „{source}“. Verfügbar: " + ", ".join(f"„{e[1]}“" for e in entries))
+    raise _Fail(
+        f"Unbekannte Quelle „{source}“. Verfügbar: "
+        + ", ".join(f"„{e[1]}“" for e in entries)
+    )
 
 
 def _unmask(text: str) -> str:
@@ -122,9 +136,15 @@ def _call(action: str, cfg, extra: dict):
     limits = worker_config.load_sql()
     payload = {
         "connection": cfg.connection(),
-        "allowed_tables": sorted(cfg.allowed_tables()) if cfg.allowed_tables() else None,
+        "allowed_tables": sorted(cfg.allowed_tables())
+        if cfg.allowed_tables()
+        else None,
         "blocked_columns": {t: sorted(c) for t, c in cfg.blocked().items()},
-        "limits": {"row_limit": limits.row_limit, "timeout_s": limits.timeout_s, "max_cell_chars": limits.max_cell_chars},
+        "limits": {
+            "row_limit": limits.row_limit,
+            "timeout_s": limits.timeout_s,
+            "max_cell_chars": limits.max_cell_chars,
+        },
         **extra,
     }
     try:
@@ -144,10 +164,12 @@ class SqlTools:
                 return f"FEHLER: {e}"
             if not out.get("ok"):
                 return f"FEHLER: {out.get('error') or 'Schema nicht lesbar'}"
-            return fmt.schema_text(name, out.get("tables") or [], parse_config(raw).dialect)
+            return fmt.schema_text(
+                name, out.get("tables") or [], parse_config(raw).dialect
+            )
 
         def sql_query(query: str, source: str = "") -> str:
-            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: sql_query | {query[:60]}")
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: sql_query")
             try:
                 _id, name, raw = _resolve(_unmask(source))
                 out, limits = _call("query", parse_config(raw), {"sql": _unmask(query)})
@@ -159,13 +181,21 @@ class SqlTools:
                 rows = out["rows"]
                 flat = _mask_values([v for row in rows for v in row])
                 width = len(out["columns"]) or 1
-                rows = [flat[i : i + width] for i in range(0, len(flat), width)] if rows else rows
+                rows = (
+                    [flat[i : i + width] for i in range(0, len(flat), width)]
+                    if rows
+                    else rows
+                )
             except PIIFilterUnavailable as e:
                 return _filter_down(e)
-            return fmt.result_text(name, out["columns"], rows, bool(out.get("truncated")), limits.row_limit)
+            return fmt.result_text(
+                name, out["columns"], rows, bool(out.get("truncated")), limits.row_limit
+            )
 
-        def sql_find_values(term: str, source: str = "", table: str = "", column: str = "") -> str:
-            phase_logger.log_phase(Phase.TOOL_EXECUTION, f"Tool: sql_find_values | {term[:40]}")
+        def sql_find_values(
+            term: str, source: str = "", table: str = "", column: str = ""
+        ) -> str:
+            phase_logger.log_phase(Phase.TOOL_EXECUTION, "Tool: sql_find_values")
             try:
                 kid, name, _raw = _resolve(_unmask(source))
             except _Fail as e:
@@ -175,7 +205,12 @@ class SqlTools:
                     f"Für „{name}“ gibt es kein Wertverzeichnis. Suche mit sql_query und LIKE '%…%' "
                     "(Teil des Wortes, ohne Umlaute und Endung)."
                 )
-            hits = valueindex.search(kid, _unmask(term), table=_unmask(table) or None, column=_unmask(column) or None)
+            hits = valueindex.search(
+                kid,
+                _unmask(term),
+                table=_unmask(table) or None,
+                column=_unmask(column) or None,
+            )
             if not hits:
                 # Der Begriff steht so da, wie das Modell ihn geschickt hat (schon maskiert); nichts neu durch den Filter
                 return (
@@ -188,14 +223,35 @@ class SqlTools:
                 return _filter_down(e)
             grouped: dict[tuple[str, str], list[str]] = {}
             for (e, _score), value in zip(hits, values):
-                grouped.setdefault((e["table"], e["column"]), []).append(f"{value} ({e['count']})")
-            lines = [f"Quelle „{name}“: Werte zu „{term}“ (in Klammern die Häufigkeit):"]
-            lines += [f"- {t}.{c}: {', '.join(vals)}" for (t, c), vals in grouped.items()]
+                grouped.setdefault((e["table"], e["column"]), []).append(
+                    f"{value} ({e['count']})"
+                )
+            lines = [
+                f"Quelle „{name}“: Werte zu „{term}“ (in Klammern die Häufigkeit):"
+            ]
+            lines += [
+                f"- {t}.{c}: {', '.join(vals)}" for (t, c), vals in grouped.items()
+            ]
             lines.append("Setze die passenden Werte mit IN (...) in sql_query ein.")
             return "\n".join(lines)
 
         return [
-            StructuredTool.from_function(func=sql_find_values, name="sql_find_values", description=FIND_VALUES_DESCRIPTION, args_schema=FindValuesInput),
-            StructuredTool.from_function(func=sql_schema, name="sql_schema", description=SCHEMA_DESCRIPTION, args_schema=SchemaInput),
-            StructuredTool.from_function(func=sql_query, name="sql_query", description=QUERY_DESCRIPTION, args_schema=QueryInput),
+            StructuredTool.from_function(
+                func=sql_find_values,
+                name="sql_find_values",
+                description=FIND_VALUES_DESCRIPTION,
+                args_schema=FindValuesInput,
+            ),
+            StructuredTool.from_function(
+                func=sql_schema,
+                name="sql_schema",
+                description=SCHEMA_DESCRIPTION,
+                args_schema=SchemaInput,
+            ),
+            StructuredTool.from_function(
+                func=sql_query,
+                name="sql_query",
+                description=QUERY_DESCRIPTION,
+                args_schema=QueryInput,
+            ),
         ]

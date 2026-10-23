@@ -24,7 +24,7 @@ Daten (CSV/Excel als Pandas-Referenz, NICHT in der Vektordatenbank).
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 # Strukturierte Daten: nur als Referenz nach DATA_DIR für die Pandas-Tools,
 # niemals in die Vektordatenbank embedden.
@@ -65,7 +65,7 @@ def _unique_path(directory: Path, filename: str) -> Path:
 UPLOADER_SUFFIX = ".uploader"
 
 
-def read_uploader(file_path: str, consume: bool = False) -> Optional[int]:
+def read_uploader(file_path: str, consume: bool = False) -> int | None:
     """Nutzer-ID aus der Begleitdatei einer hochgeladenen Datei (``None`` = unbekannt)."""
     sidecar = Path(f"{file_path}{UPLOADER_SUFFIX}")
     try:
@@ -77,7 +77,9 @@ def read_uploader(file_path: str, consume: bool = False) -> Optional[int]:
     return value
 
 
-def store_uploaded_files(files, paths=None, uploader_id: Optional[int] = None) -> Dict[str, Any]:
+def store_uploaded_files(
+    files, paths=None, uploader_id: int | None = None
+) -> dict[str, Any]:
     """Speichert hochgeladene Dateien je nach Typ.
 
     - Strukturierte Daten (CSV/XLSX/XLS) gehen direkt nach DATA_DIR und sind
@@ -133,7 +135,9 @@ def store_uploaded_files(files, paths=None, uploader_id: Optional[int] = None) -
             file.save(files_dir / filename)
             if uploader_id is not None:
                 # Wer hochgeladen hat, merkt sich die Ingestion fuer "Meine Uploads"
-                (files_dir / f"{filename}{UPLOADER_SUFFIX}").write_text(str(int(uploader_id)))
+                (files_dir / f"{filename}{UPLOADER_SUFFIX}").write_text(
+                    str(int(uploader_id))
+                )
             documents.append(filename)
         else:
             skipped.append(filename)
@@ -146,10 +150,10 @@ def store_uploaded_files(files, paths=None, uploader_id: Optional[int] = None) -
     }
 
 
-def list_data_files(data_dir: Optional[Path] = None) -> list[Dict[str, Any]]:
+def list_data_files(data_dir: Path | None = None) -> list[dict[str, Any]]:
     """Listet die strukturierten Daten (CSV/Excel) im DATA_DIR auf."""
     data_dir = Path(data_dir) if data_dir is not None else get_data_dir()
-    result: list[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     if not data_dir.exists():
         return result
 
@@ -170,7 +174,7 @@ def list_data_files(data_dir: Optional[Path] = None) -> list[Dict[str, Any]]:
     return result
 
 
-def delete_data_file(filename: str, data_dir: Optional[Path] = None) -> bool:
+def delete_data_file(filename: str, data_dir: Path | None = None) -> bool:
     """Löscht eine strukturierte Datei sicher aus dem DATA_DIR."""
     data_dir = (Path(data_dir) if data_dir is not None else get_data_dir()).resolve()
     name = os.path.basename(filename)
@@ -186,7 +190,7 @@ def delete_data_file(filename: str, data_dir: Optional[Path] = None) -> bool:
     return False
 
 
-def extract_filename_from_payload(payload: Dict[str, Any]) -> Optional[str]:
+def extract_filename_from_payload(payload: dict[str, Any]) -> str | None:
     """
     Extrahiert den Dateinamen aus Qdrant-Dokument-Payload.
     Prüft 'filename' und 'source' Felder.
@@ -239,7 +243,7 @@ def check_data_file_exists(filename: str) -> bool:
     return file_path.exists() and file_path.is_file()
 
 
-def delete_associated_file(payload: Dict[str, Any]) -> bool:
+def delete_associated_file(payload: dict[str, Any]) -> bool:
     """
     Löscht zugehörige Datei basierend auf Qdrant-Metadaten.
 
@@ -312,7 +316,7 @@ def delete_associated_file(payload: Dict[str, Any]) -> bool:
     return False
 
 
-def get_data_file_info(filename: str) -> Optional[Dict[str, Any]]:
+def get_data_file_info(filename: str) -> dict[str, Any] | None:
     """
     Holt Informationen über eine Datei im DATA_DIR.
 

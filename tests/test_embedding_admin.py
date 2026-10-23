@@ -53,17 +53,43 @@ def test_only_admins_see_and_change_models(app, db):
 
 def test_save_validates_and_switches_model(app, db, monkeypatch):
     loaded = []
-    monkeypatch.setattr(mr, "load_in_background", lambda kind, spec: loaded.append((kind, spec.model)))
+    monkeypatch.setattr(
+        mr, "load_in_background", lambda kind, spec: loaded.append((kind, spec.model))
+    )
     admin = client_for(app, ADMIN)
 
-    bad = admin.put("/api/admin/embedding", json={"embedding": {"source": "endpoint", "model": "m"}})
+    bad = admin.put(
+        "/api/admin/embedding", json={"embedding": {"source": "endpoint", "model": "m"}}
+    )
     assert bad.status_code == 400
     # fastembed bleibt waehlbar (z. B. um zu einem bestehenden Index zurueckzukehren)
-    back = admin.put("/api/admin/embedding", json={"embedding": {"source": "fastembed", "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"}})
+    back = admin.put(
+        "/api/admin/embedding",
+        json={
+            "embedding": {
+                "source": "fastembed",
+                "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            }
+        },
+    )
     assert back.status_code == 200 and back.json["embedding"]["source"] == "fastembed"
-    assert admin.put("/api/admin/embedding", json={"ingest": {"chunk_size": 50}}).status_code == 400
-    assert admin.put("/api/admin/embedding", json={"ingest": {"chunk_size": 500, "chunk_overlap": 600}}).status_code == 400
-    assert admin.put("/api/admin/embedding", json={"ingest": {"nope": 1}}).status_code == 400
+    assert (
+        admin.put(
+            "/api/admin/embedding", json={"ingest": {"chunk_size": 50}}
+        ).status_code
+        == 400
+    )
+    assert (
+        admin.put(
+            "/api/admin/embedding",
+            json={"ingest": {"chunk_size": 500, "chunk_overlap": 600}},
+        ).status_code
+        == 400
+    )
+    assert (
+        admin.put("/api/admin/embedding", json={"ingest": {"nope": 1}}).status_code
+        == 400
+    )
 
     r = admin.put(
         "/api/admin/embedding",
@@ -74,9 +100,15 @@ def test_save_validates_and_switches_model(app, db, monkeypatch):
         },
     )
     assert r.status_code == 200
-    assert loaded[-2:] == [("embedding", "BAAI/bge-m3"), ("reranker", "BAAI/bge-reranker-v2-m3")]
+    assert loaded[-2:] == [
+        ("embedding", "BAAI/bge-m3"),
+        ("reranker", "BAAI/bge-reranker-v2-m3"),
+    ]
     body = r.json
-    assert body["embedding"]["model"] == "BAAI/bge-m3" and body["ingest"]["chunk_size"] == 800
+    assert (
+        body["embedding"]["model"] == "BAAI/bge-m3"
+        and body["ingest"]["chunk_size"] == 800
+    )
     assert body["ingest"]["keep_original"] is False
     # Das Standard-Knowledge wurde mit dem alten Modell indexiert -> veraltet
     assert [k["name"] for k in body["stale"]] == ["Standard"]
@@ -96,7 +128,9 @@ def test_existing_knowledge_keeps_its_own_model_until_reindexed(db):
 def test_chunk_setting_change_marks_signed_knowledge_stale(db, app):
     k = knowledge.create_knowledge("Neu", dimension=4)
     assert not model_settings.is_stale(knowledge.get_knowledge(k["id"]))
-    client_for(app, ADMIN).put("/api/admin/embedding", json={"ingest": {"chunk_size": 700}})
+    client_for(app, ADMIN).put(
+        "/api/admin/embedding", json={"ingest": {"chunk_size": 700}}
+    )
     assert model_settings.is_stale(knowledge.get_knowledge(k["id"]))
 
 
@@ -109,22 +143,45 @@ def test_legacy_knowledge_without_signature_is_not_stale_for_same_model(db):
 def test_test_endpoint_reports_dimension_and_errors(app, db, monkeypatch):
     admin = client_for(app, ADMIN)
     monkeypatch.setattr(mr, "get_embedder", lambda spec: FakeEmbedder())
-    ok = admin.post("/api/admin/embedding/test", json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}})
+    ok = admin.post(
+        "/api/admin/embedding/test",
+        json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}},
+    )
     assert ok.status_code == 200 and ok.json["dimension"] == 5
 
     def boom(spec):
         raise mr.ModelLoadError("kein Netz")
 
     monkeypatch.setattr(mr, "get_embedder", boom)
-    bad = admin.post("/api/admin/embedding/test", json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}})
+    bad = admin.post(
+        "/api/admin/embedding/test",
+        json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}},
+    )
     assert bad.status_code == 502 and "kein Netz" in bad.json["error"]
-    assert admin.post("/api/admin/embedding/test", json={"kind": "x", "spec": {}}).status_code == 400
+    assert (
+        admin.post(
+            "/api/admin/embedding/test", json={"kind": "x", "spec": {}}
+        ).status_code
+        == 400
+    )
 
 
 def test_endpoint_spec_needs_an_existing_connection(app, db):
     admin = client_for(app, ADMIN)
-    r = admin.put("/api/admin/embedding", json={"embedding": {"source": "endpoint", "model": "m", "connection_id": 99}})
+    r = admin.put(
+        "/api/admin/embedding",
+        json={"embedding": {"source": "endpoint", "model": "m", "connection_id": 99}},
+    )
     assert r.status_code == 400
     conn = store.create_connection("emb", "http://127.0.0.1:9/v1", "")
-    r = admin.put("/api/admin/embedding", json={"embedding": {"source": "endpoint", "model": "m", "connection_id": conn["id"]}})
+    r = admin.put(
+        "/api/admin/embedding",
+        json={
+            "embedding": {
+                "source": "endpoint",
+                "model": "m",
+                "connection_id": conn["id"],
+            }
+        },
+    )
     assert r.status_code == 200 and r.json["embedding"]["connection_id"] == conn["id"]

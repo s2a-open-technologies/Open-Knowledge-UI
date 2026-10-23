@@ -42,7 +42,11 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
     from app.rag.retrieval import get_scope_or_none
 
     scope = get_scope_or_none()
-    names = dict(scope.knowledge_names) if scope is not None and len(scope.knowledge_names) > 1 else {}
+    names = (
+        dict(scope.knowledge_names)
+        if scope is not None and len(scope.knowledge_names) > 1
+        else {}
+    )
     blocks = []
     for k, doc in enumerate(docs):
         i = numbers[k] if numbers and k < len(numbers) else k + 1
@@ -58,8 +62,14 @@ def format_hits(docs: list[Document], numbers: list[int] | None = None) -> str:
         pages = _pages(meta)
         if pages:
             where = f" ({pages}{', ' + where.strip(' ()') if where else ''})"
-        wissen = f" – Knowledge „{names[meta.get('collection')]}“" if meta.get("collection") in names else ""
-        blocks.append(f"[{i}] Quelle: {source}{where}{wissen}\n{doc.page_content.strip()}")
+        wissen = (
+            f" – Knowledge „{names[meta.get('collection')]}“"
+            if meta.get("collection") in names
+            else ""
+        )
+        blocks.append(
+            f"[{i}] Quelle: {source}{where}{wissen}\n{doc.page_content.strip()}"
+        )
     return "\n\n---\n\n".join(blocks)
 
 

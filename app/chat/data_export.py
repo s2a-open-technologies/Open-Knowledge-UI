@@ -107,7 +107,10 @@ def build_export(user_id: int) -> dict:
                             "inhalt": message.content,
                             "erstellt": _iso(message.created_at),
                         }
-                        for message in sorted(chat.messages, key=lambda m: (m.created_at is None, m.created_at, m.id))
+                        for message in sorted(
+                            chat.messages,
+                            key=lambda m: (m.created_at is None, m.created_at, m.id),
+                        )
                     ],
                 }
             )
@@ -117,11 +120,15 @@ def build_export(user_id: int) -> dict:
                 {
                     "dateiname": summary.filename,
                     "erstellt": _iso(summary.created_at),
-                    "inhalt": _read_markdown(_summaries_path(user.id, summary.filename)),
+                    "inhalt": _read_markdown(
+                        _summaries_path(user.id, summary.filename)
+                    ),
                 }
             )
 
-        for document in session.query(UserDocument).filter_by(uploaded_by=user.id).all():
+        for document in (
+            session.query(UserDocument).filter_by(uploaded_by=user.id).all()
+        ):
             data["meine_dokumente"].append(
                 {
                     "id": document.document_id,
@@ -132,7 +139,9 @@ def build_export(user_id: int) -> dict:
                 }
             )
 
-        for attachment in session.query(ChatAttachment).filter_by(user_id=user.id).all():
+        for attachment in (
+            session.query(ChatAttachment).filter_by(user_id=user.id).all()
+        ):
             data["chat_anhaenge"].append(
                 {
                     "id": attachment.id,

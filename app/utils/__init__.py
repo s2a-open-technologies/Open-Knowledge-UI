@@ -20,6 +20,6 @@
 Utilities module
 """
 
-from app.utils.phase_logger import phase_logger, Phase
+from app.utils.phase_logger import Phase, phase_logger
 
-__all__ = ["phase_logger", "Phase"]
+__all__ = ["Phase", "phase_logger"]

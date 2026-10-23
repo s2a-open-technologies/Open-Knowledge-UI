@@ -19,7 +19,12 @@ def conn(db):
 
 class FakeAgent:
     def __init__(self, llm, tools, system_prompt=None, middleware=None):
-        self.llm, self.tools, self.system_prompt, self.middleware = llm, tools, system_prompt, middleware
+        self.llm, self.tools, self.system_prompt, self.middleware = (
+            llm,
+            tools,
+            system_prompt,
+            middleware,
+        )
 
 
 @pytest.fixture
@@ -35,12 +40,21 @@ def test_compose_prompt_layers_base_then_default_instructions_then_model_extra()
     full = DocumentAgent.compose_prompt("Sei knapp.", behavior="Antworte formell.")
     assert full.startswith(base)
     assert full.index("Antworte formell.") < full.index("Sei knapp.")
-    assert DocumentAgent.compose_prompt("Sei knapp.", behavior="").endswith("Sei knapp.")
+    assert DocumentAgent.compose_prompt("Sei knapp.", behavior="").endswith(
+        "Sei knapp."
+    )
 
 
 def test_the_base_prompt_holds_only_tool_and_source_rules():
     base = DocumentAgent.SYSTEM_PROMPT
-    for must in ("document_search_tool", "run_pandas", "[STRUKTURIERTE DATEN]", "eckigen Klammern", "Keine Halluzinationen", "nie vollständig wieder"):
+    for must in (
+        "document_search_tool",
+        "run_pandas",
+        "[STRUKTURIERTE DATEN]",
+        "eckigen Klammern",
+        "Keine Halluzinationen",
+        "nie vollständig wieder",
+    ):
         assert must in base
     # Rolle, Sprache und Stil gehoeren in die Standard-Anweisungen (UI), nicht in den festen Prompt
     for gone in ("Senior Document AI Analyst", "Immer auf Deutsch", "formell"):
@@ -62,7 +76,9 @@ def test_default_instructions_are_stored_editable_and_reach_the_agent(db):
         behavior.save({"prompt": "x" * (behavior.MAX_CHARS + 1)})
 
 
-def test_a_changed_default_instruction_is_not_served_from_the_agent_cache(conn, db, monkeypatch):
+def test_a_changed_default_instruction_is_not_served_from_the_agent_cache(
+    conn, db, monkeypatch
+):
     from app.agent import behavior
 
     ref = store.make_base_ref(conn["id"], "qwen")
@@ -74,7 +90,11 @@ def test_a_changed_default_instruction_is_not_served_from_the_agent_cache(conn, 
 
 def test_resolve_base_model_without_config(conn):
     r = registry.resolve_model(store.make_base_ref(conn["id"], "qwen"))
-    assert (r.model_id, r.base_url, r.api_key) == ("qwen", "http://litellm:4000/v1", "sk-1")
+    assert (r.model_id, r.base_url, r.api_key) == (
+        "qwen",
+        "http://litellm:4000/v1",
+        "sk-1",
+    )
     assert r.params == {} and r.system_prompt == "" and r.knowledge_ids is None
 
 
@@ -82,11 +102,16 @@ def test_resolve_clone_uses_its_config_and_base_model(conn):
     base = store.make_base_ref(conn["id"], "qwen")
     clone = store.clone_model(base, "Recht")
     store.save_model_config(
-        clone["ref"], {"system_prompt": "Juristisch", "params": {"top_k": 10}, "knowledge_ids": [4]}
+        clone["ref"],
+        {"system_prompt": "Juristisch", "params": {"top_k": 10}, "knowledge_ids": [4]},
     )
     r = registry.resolve_model(clone["ref"])
     assert (r.model_id, r.display_name) == ("qwen", "Recht")
-    assert (r.system_prompt, r.params, r.knowledge_ids) == ("Juristisch", {"top_k": 10}, (4,))
+    assert (r.system_prompt, r.params, r.knowledge_ids) == (
+        "Juristisch",
+        {"top_k": 10},
+        (4,),
+    )
 
 
 def test_resolve_errors(conn):
@@ -113,23 +138,34 @@ def test_default_falls_back_to_legacy_chat_model(db):
     assert registry.default_model_ref() == ref
 
 
-def test_agent_is_cached_and_rebuilt_when_config_changes(conn, fake_agent):
+def test_every_request_gets_a_fresh_agent_and_llm(conn, monkeypatch):
+    # Jede Chat-Anfrage laeuft in einer eigenen Event-Loop, die danach geschlossen wird.
+    # Ein gecachtes LLM haelt einen async HTTP-Pool, dessen Keep-Alive-Verbindungen an
+    # die tote Loop gebunden sind ("Event loop is closed" bei der Folge-Anfrage).
+    monkeypatch.setattr(registry, "DocumentAgent", FakeAgent)
+    FakeAgent.compose_prompt = DocumentAgent.compose_prompt
+    monkeypatch.setattr(registry, "build_chat_llm", lambda *a, **k: object())
+    resolved = registry.resolve_model(store.make_base_ref(conn["id"], "qwen"))
+    a1 = registry.get_agent(resolved, ["t"])
+    a2 = registry.get_agent(resolved, ["t"])
+    assert a1 is not a2
+    assert a1.llm is not a2.llm
+
+
+def test_agent_follows_config_changes_immediately(conn, fake_agent):
     ref = store.make_base_ref(conn["id"], "qwen")
     tools = ["t"]
-    a1 = registry.get_agent(registry.resolve_model(ref), tools)
-    assert registry.get_agent(registry.resolve_model(ref), tools) is a1
-
     store.save_model_config(ref, {"system_prompt": "Neu"})
-    a2 = registry.get_agent(registry.resolve_model(ref), tools)
-    assert a2 is not a1 and "Neu" in a2.system_prompt
-
-    store.update_connection(conn["id"], api_key="sk-2")
-    assert registry.get_agent(registry.resolve_model(ref), tools) is not a2
+    assert "Neu" in registry.get_agent(registry.resolve_model(ref), tools).system_prompt
 
 
 def test_different_models_get_different_agents(conn, fake_agent):
-    a = registry.get_agent(registry.resolve_model(store.make_base_ref(conn["id"], "a")), [])
-    b = registry.get_agent(registry.resolve_model(store.make_base_ref(conn["id"], "b")), [])
+    a = registry.get_agent(
+        registry.resolve_model(store.make_base_ref(conn["id"], "a")), []
+    )
+    b = registry.get_agent(
+        registry.resolve_model(store.make_base_ref(conn["id"], "b")), []
+    )
     assert a is not b
 
 
@@ -138,7 +174,9 @@ def test_list_models_merges_remote_clones_and_reports_errors(conn, monkeypatch):
     store.save_model_config(base, {"visible": False, "system_prompt": "x"})
     clone = store.clone_model(base, "Qwen Recht")
 
-    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["llama", "qwen"])
+    monkeypatch.setattr(
+        registry, "fetch_remote_models", lambda c, force=False: ["llama", "qwen"]
+    )
     result = registry.list_models()
     by_ref = {m["ref"]: m for m in result["models"]}
     assert by_ref[base]["visible"] is False and by_ref[base]["customized"] is True
@@ -185,19 +223,24 @@ def test_fetch_remote_models_parses_openai_format_and_maps_errors(monkeypatch):
     with pytest.raises(registry.RemoteModelsError, match="Weiterleitung"):
         registry.fetch_remote_models(connection, force=True)
 
-    monkeypatch.setattr(registry.requests, "get", lambda *a, **k: Resp(200, ["kein", "dict"]))
+    monkeypatch.setattr(
+        registry.requests, "get", lambda *a, **k: Resp(200, ["kein", "dict"])
+    )
     with pytest.raises(registry.RemoteModelsError, match="OpenAI-Format"):
         registry.fetch_remote_models(connection, force=True)
 
 
 @pytest.mark.parametrize(
-    "url", ["http://169.254.169.254/v1", "http://[fe80::1]/v1", "http://169.254.1.1:8080/v1"]
+    "url",
+    ["http://169.254.169.254/v1", "http://[fe80::1]/v1", "http://169.254.1.1:8080/v1"],
 )
 def test_link_local_targets_are_rejected(url, monkeypatch):
     called = []
     monkeypatch.setattr(registry.requests, "get", lambda *a, **k: called.append(1))
     with pytest.raises(registry.RemoteModelsError, match="Link-Local"):
-        registry.fetch_remote_models({"id": 1, "base_url": url, "api_key": "k"}, force=True)
+        registry.fetch_remote_models(
+            {"id": 1, "base_url": url, "api_key": "k"}, force=True
+        )
     assert called == []  # nie eine Anfrage (und damit nie ein Key) gesendet
 
 
@@ -213,7 +256,9 @@ def test_private_lan_targets_stay_allowed(monkeypatch):
     assert registry.fetch_remote_models(conn, force=True) == ["m"]
 
 
-def test_migration_0030_seeds_the_default_instructions_and_drops_replace_prompt(tmp_path):
+def test_migration_0030_seeds_the_default_instructions_and_drops_replace_prompt(
+    tmp_path,
+):
     import importlib.util
     import os
     import subprocess
@@ -224,19 +269,59 @@ def test_migration_0030_seeds_the_default_instructions_and_drops_replace_prompt(
 
     from app.agent import behavior
 
-    spec = importlib.util.spec_from_file_location("m0030", Path("alembic/versions/0030_agent_behavior.py"))
+    spec = importlib.util.spec_from_file_location(
+        "m0030", Path("alembic/versions/0030_agent_behavior.py")
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.DEFAULT_BEHAVIOR == behavior.DEFAULT_BEHAVIOR and mod.KEY == behavior.KEY
 
     url = f"sqlite:///{tmp_path / 'm.db'}"
     env = {**os.environ, "DATABASE_URL": url}
-    run = lambda *a: subprocess.run([sys.executable, "-m", "alembic", *a], env=env, check=True, capture_output=True)  # noqa: E731
+    run = lambda *a: subprocess.run(
+        [sys.executable, "-m", "alembic", *a], env=env, check=True, capture_output=True
+    )
     run("upgrade", "head")
     eng = sa.create_engine(url)
-    assert "replace_prompt" not in {c["name"] for c in sa.inspect(eng).get_columns("model_configs")}
+    assert "replace_prompt" not in {
+        c["name"] for c in sa.inspect(eng).get_columns("model_configs")
+    }
     with eng.connect() as c:
-        assert c.execute(sa.text("select value from settings where key='AGENT_BEHAVIOR_PROMPT'")).scalar() == behavior.DEFAULT_BEHAVIOR
+        assert (
+            c.execute(
+                sa.text("select value from settings where key='AGENT_BEHAVIOR_PROMPT'")
+            ).scalar()
+            == behavior.DEFAULT_BEHAVIOR
+        )
     run("downgrade", "0029")
-    assert "replace_prompt" in {c["name"] for c in sa.inspect(sa.create_engine(url)).get_columns("model_configs")}
+    assert "replace_prompt" in {
+        c["name"]
+        for c in sa.inspect(sa.create_engine(url)).get_columns("model_configs")
+    }
     run("upgrade", "head")
+
+
+@pytest.mark.parametrize("field", ["reasoning", "reasoning_content"])
+def test_chat_llm_passes_the_servers_thinking_through(field):
+    # vLLM liefert das Denken in delta.reasoning, nicht im Inhalt; ChatOpenAI wuerde es verwerfen.
+    from langchain_core.messages import AIMessageChunk
+
+    from app.llm.factory import build_chat_llm
+
+    llm = build_chat_llm("http://127.0.0.1:9/v1", "k", "m", {"thinking": "medium"})
+    raw = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": None, field: "Hmm, 17*23"},
+            }
+        ]
+    }
+    out = llm._convert_chunk_to_generation_chunk(raw, AIMessageChunk, None)
+    assert out.message.additional_kwargs["reasoning_content"] == "Hmm, 17*23"
+    plain = {"choices": [{"index": 0, "delta": {"content": "391"}}]}
+    out = llm._convert_chunk_to_generation_chunk(plain, AIMessageChunk, None)
+    assert (
+        out.message.content == "391"
+        and "reasoning_content" not in out.message.additional_kwargs
+    )

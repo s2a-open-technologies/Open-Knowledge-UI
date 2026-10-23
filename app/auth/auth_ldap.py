@@ -47,7 +47,9 @@ def _server(cfg: dict, get_info=ALL) -> Server:
 
     url = cfg["url"]
     try:
-        _reject_link_local(url.replace("ldaps://", "https://").replace("ldap://", "http://"))
+        _reject_link_local(
+            url.replace("ldaps://", "https://").replace("ldap://", "http://")
+        )
     except RemoteModelsError as e:
         raise LdapError(str(e)) from None
     import ssl
@@ -55,10 +57,18 @@ def _server(cfg: dict, get_info=ALL) -> Server:
     tls = None
     if url.startswith("ldaps://") or cfg.get("starttls"):
         tls = Tls(
-            validate=ssl.CERT_REQUIRED if cfg.get("verify_tls", True) else ssl.CERT_NONE,
+            validate=ssl.CERT_REQUIRED
+            if cfg.get("verify_tls", True)
+            else ssl.CERT_NONE,
             ca_certs_file=cfg.get("ca_file") or None,
         )
-    return Server(url, use_ssl=url.startswith("ldaps://"), tls=tls, get_info=get_info, connect_timeout=cfg["timeout"])
+    return Server(
+        url,
+        use_ssl=url.startswith("ldaps://"),
+        tls=tls,
+        get_info=get_info,
+        connect_timeout=cfg["timeout"],
+    )
 
 
 def _open(cfg: dict, user: str | None, password: str | None, server=None) -> Connection:
@@ -75,10 +85,18 @@ def _open(cfg: dict, user: str | None, password: str | None, server=None) -> Con
     try:
         conn.open()  # liefert nichts zurueck, Fehler kommen als Ausnahme
     except LDAPException as e:
-        raise LdapError(f"Server nicht erreichbar: {type(e).__name__}: {e}"[:300]) from None
+        raise LdapError(
+            f"Server nicht erreichbar: {type(e).__name__}: {e}"[:300]
+        ) from None
     if conn.closed:
-        raise LdapError(f"Server nicht erreichbar: {conn.last_error or 'keine Antwort'}")
-    if cfg.get("starttls") and not cfg["url"].startswith("ldaps://") and not conn.start_tls():
+        raise LdapError(
+            f"Server nicht erreichbar: {conn.last_error or 'keine Antwort'}"
+        )
+    if (
+        cfg.get("starttls")
+        and not cfg["url"].startswith("ldaps://")
+        and not conn.start_tls()
+    ):
         raise LdapError(f"StartTLS fehlgeschlagen: {conn.last_error}")
     return conn
 
@@ -94,18 +112,30 @@ def find_user(cfg: dict, username: str) -> dict | None:
     conn = _open(cfg, cfg.get("bind_dn") or None, cfg.get("bind_password") or None)
     try:
         if cfg.get("bind_dn") and not conn.bind():
-            raise LdapError(f"Service-Bind fehlgeschlagen: {conn.result.get('description', conn.last_error)}")
+            raise LdapError(
+                f"Service-Bind fehlgeschlagen: {conn.result.get('description', conn.last_error)}"
+            )
         flt = cfg["user_filter"].replace("{username}", escape_filter_chars(username))
-        attrs = [a for a in (cfg["username_attr"], cfg["name_attr"], cfg["group_attr"]) if a]
-        ok = conn.search(cfg["base_dn"], flt, search_scope=SUBTREE, attributes=attrs, size_limit=2)
+        attrs = [
+            a for a in (cfg["username_attr"], cfg["name_attr"], cfg["group_attr"]) if a
+        ]
+        ok = conn.search(
+            cfg["base_dn"], flt, search_scope=SUBTREE, attributes=attrs, size_limit=2
+        )
         if not ok or not conn.entries:
             return None
         if len(conn.entries) > 1:
-            logger.warning("LDAP: der Benutzerfilter liefert mehrere Treffer, Anmeldung abgelehnt")
+            logger.warning(
+                "LDAP: der Benutzerfilter liefert mehrere Treffer, Anmeldung abgelehnt"
+            )
             return None
         entry = conn.entries[0]
         data = entry.entry_attributes_as_dict
-        groups = [group_name_from(str(g)) for g in (data.get(cfg["group_attr"]) or [])] if cfg.get("group_attr") else []
+        groups = (
+            [group_name_from(str(g)) for g in (data.get(cfg["group_attr"]) or [])]
+            if cfg.get("group_attr")
+            else []
+        )
         return {
             "dn": entry.entry_dn,
             "username": _first(data.get(cfg["username_attr"])) or username,
@@ -156,7 +186,9 @@ def probe_ldap(cfg: dict, username: str = "", password: str = "") -> dict:
             if cfg.get("bind_dn"):
                 result["service_bind"] = bool(conn.bind())
                 if not result["service_bind"]:
-                    raise LdapError(f"Service-Bind fehlgeschlagen: {conn.result.get('description', conn.last_error)}")
+                    raise LdapError(
+                        f"Service-Bind fehlgeschlagen: {conn.result.get('description', conn.last_error)}"
+                    )
         finally:
             conn.unbind()
         if username:
@@ -166,7 +198,9 @@ def probe_ldap(cfg: dict, username: str = "", password: str = "") -> dict:
                 result["groups"] = found["groups"]
                 result["display_name"] = found["name"]
                 if password:
-                    result["login_ok"] = authenticate_ldap(cfg, username, password) is not None
+                    result["login_ok"] = (
+                        authenticate_ldap(cfg, username, password) is not None
+                    )
     except LDAPException as e:
         raise LdapError(f"{type(e).__name__}: {e}"[:300]) from None
     return result

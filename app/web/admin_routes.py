@@ -67,7 +67,11 @@ def connections_create():
 
     try:
         created = store.create_connection(
-            name, base_url, data.get("api_key") or "", bool(data.get("enabled", True)), kind=data.get("kind") or "llm"
+            name,
+            base_url,
+            data.get("api_key") or "",
+            bool(data.get("enabled", True)),
+            kind=data.get("kind") or "llm",
         )
     except ValueError as e:
         return _error(str(e), 400)
@@ -99,9 +103,7 @@ def connections_update(connection_id):
         and current["has_key"]
         and not (data.get("api_key") or "").strip()
     ):
-        return _error(
-            "Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400
-        )
+        return _error("Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400)
 
     updated = store.update_connection(
         connection_id,
@@ -148,7 +150,12 @@ def connections_test():
     kind = data.get("kind") or "llm"
     if kind not in store.CONNECTION_KINDS:
         return _error("Unbekannter Typ", 400)
-    connection = {"id": int(connection_id or 0), "kind": kind, "base_url": base_url, "api_key": api_key}
+    connection = {
+        "id": int(connection_id or 0),
+        "kind": kind,
+        "base_url": base_url,
+        "api_key": api_key,
+    }
     if kind == "llm":
         result = registry.test_connection(connection)
     else:  # TEI / Infinity: Erreichbarkeit und beide APIs wirklich pruefen
@@ -176,7 +183,9 @@ def models_list():
         ]
     if not is_admin:
         user = current_user()
-        result["models"] = [m for m in result["models"] if can_use_model(user, m["ref"])]
+        result["models"] = [
+            m for m in result["models"] if can_use_model(user, m["ref"])
+        ]
         if result["default"] and not can_use_model(user, result["default"]):
             result["default"] = ""
     # Das Modell-Knowledge ist immer die Basis und im Chat nicht abwaehlbar: ``knowledge_base`` und
@@ -188,7 +197,9 @@ def models_list():
         cfg = m.get("config")
         ids = (cfg or {}).get("knowledge_ids") or []
         # Gesperrt ist die Auswahl nur, wenn der Admin zusaetzliches Knowledge nicht erlaubt hat.
-        m["knowledge_locked"] = bool(ids) and not (cfg or {}).get("allow_extra_knowledge", True)
+        m["knowledge_locked"] = bool(ids) and not (cfg or {}).get(
+            "allow_extra_knowledge", True
+        )
         m["knowledge_base"] = [{"id": i, "name": names[i]} for i in ids if i in names]
         m["vision"] = bool((cfg or {}).get("vision"))
         if not is_admin:
@@ -277,7 +288,11 @@ INGEST_FIELDS = {
 }
 
 MODEL_SUGGESTIONS = {
-    "embedding": ["BAAI/bge-m3", "intfloat/multilingual-e5-large", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"],
+    "embedding": [
+        "BAAI/bge-m3",
+        "intfloat/multilingual-e5-large",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    ],
     "reranker": ["BAAI/bge-reranker-v2-m3", "BAAI/bge-reranker-base"],
 }
 
@@ -337,7 +352,11 @@ def _tasks_overview() -> dict:
             "prompt": cfg["prompt"],
             "default_prompt": cfg["default_prompt"],
             **({"excerpt_chars": cfg["excerpt_chars"]} if name == "context" else {}),
-            **({"max_row_deviation": cfg["max_row_deviation"]} if name == "tables" else {}),
+            **(
+                {"max_row_deviation": cfg["max_row_deviation"]}
+                if name == "tables"
+                else {}
+            ),
         }
     return out
 
@@ -422,13 +441,19 @@ def _embedding_overview() -> dict:
     emb, rr = model_settings.embedding_spec(), model_settings.reranker_spec()
     stale = [k for k in list_knowledge() if model_settings.is_stale(k)]
     return {
-        "embedding": {**emb.to_dict(), "status": models_runtime.status("embedding", emb)},
+        "embedding": {
+            **emb.to_dict(),
+            "status": models_runtime.status("embedding", emb),
+        },
         "reranker": {**rr.to_dict(), "status": models_runtime.status("reranker", rr)},
         "ingest": _ingest_values(),
         "bm25_languages": sparse_lang.supported_languages(),
         "device": torch_device(),
         "tasks": _tasks_overview(),
-        "stale": [{"id": k["id"], "name": k["name"], "error": k.get("last_reindex_error")} for k in stale],
+        "stale": [
+            {"id": k["id"], "name": k["name"], "error": k.get("last_reindex_error")}
+            for k in stale
+        ],
         "suggestions": MODEL_SUGGESTIONS,
     }
 
@@ -485,7 +510,9 @@ def embedding_save():
                 return _error(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
             values[key] = str(number)
     size = int(values.get("INGEST_CHUNK_SIZE") or _ingest_values()["chunk_size"])
-    overlap = int(values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"])
+    overlap = int(
+        values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"]
+    )
     if overlap >= size:
         return _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
 
@@ -525,12 +552,15 @@ def embedding_test():
             result = {"dimension": model.dimension}
         else:
             scores = models_runtime.get_reranker(spec).score(
-                "Wie hoch ist die Miete?", ["Die Miete beträgt 800 Euro.", "Das Wetter ist schön."]
+                "Wie hoch ist die Miete?",
+                ["Die Miete beträgt 800 Euro.", "Das Wetter ist schön."],
             )
             result = {"ranking_ok": scores[0] > scores[1]}
     except models_runtime.ModelLoadError as e:
         return jsonify({"success": False, "error": str(e)}), 502
-    return jsonify({"success": True, "seconds": round(time.time() - started, 1), **result})
+    return jsonify(
+        {"success": True, "seconds": round(time.time() - started, 1), **result}
+    )
 
 
 @admin_bp.route("/admin/embedding/remote-models", methods=["GET"])
@@ -539,15 +569,23 @@ def embedding_remote_models():
     """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
     from app.rag import endpoints
 
-    conn = store.get_connection(request.args.get("connection_id", type=int) or 0, with_key=True)
+    conn = store.get_connection(
+        request.args.get("connection_id", type=int) or 0, with_key=True
+    )
     if not conn:
         return _error("Connection nicht gefunden", 404)
     try:
         if conn.get("kind", "llm") == "llm":
             return jsonify(registry.fetch_remote_models(conn))
-        wanted = request.args.get("capability")  # embedding | reranker: nur passende Modelle
+        wanted = request.args.get(
+            "capability"
+        )  # embedding | reranker: nur passende Modelle
         return jsonify(
-            [m["id"] for m in endpoints.describe(conn) if not wanted or wanted in m["capabilities"]]
+            [
+                m["id"]
+                for m in endpoints.describe(conn)
+                if not wanted or wanted in m["capabilities"]
+            ]
         )
     except (registry.RemoteModelsError, endpoints.EndpointError) as e:
         return _error(str(e), 502)
@@ -592,7 +630,8 @@ def _tools_overview() -> dict:
             },
             "search": {
                 "url": s.get("SEARCH_SEARXNG_URL", "") or "",
-                "categories": s.get("SEARCH_SEARXNG_CATEGORIES", "general") or "general",
+                "categories": s.get("SEARCH_SEARXNG_CATEGORIES", "general")
+                or "general",
                 "allow_unmasked": s.get_bool("SEARCH_ALLOW_UNMASKED", False),
             },
             "pii": {
@@ -645,9 +684,12 @@ def tools_save():
             values["STT_MODEL"] = (stt.get("model") or "").strip()
             if "mode" in stt:
                 from app.stt import stt_config
+
                 mode = str(stt.get("mode") or "auto").strip().lower()
                 if mode not in stt_config.MODES:
-                    raise ValueError("Spracheingabe: Betriebsart muss auto, stream oder upload sein")
+                    raise ValueError(
+                        "Spracheingabe: Betriebsart muss auto, stream oder upload sein"
+                    )
                 values["STT_MODE"] = mode
             if stt.get("clear_key"):
                 values["STT_API_KEY"] = ""
@@ -656,36 +698,52 @@ def tools_save():
         if "search" in data:
             search = data["search"] or {}
             values["SEARCH_SEARXNG_URL"] = _clean_url(search.get("url"), "Websuche")
-            values["SEARCH_SEARXNG_CATEGORIES"] = (search.get("categories") or "general").strip()
+            values["SEARCH_SEARXNG_CATEGORIES"] = (
+                search.get("categories") or "general"
+            ).strip()
             if "allow_unmasked" in search:
-                values["SEARCH_ALLOW_UNMASKED"] = "true" if search["allow_unmasked"] else "false"
+                values["SEARCH_ALLOW_UNMASKED"] = (
+                    "true" if search["allow_unmasked"] else "false"
+                )
         if "pii" in data:
             pii = data["pii"] or {}
             url = (pii.get("url") or "").strip()
             if url and not url.startswith(("http://", "https://")):
-                raise ValueError("PII-Filter: Adresse muss mit http:// oder https:// beginnen")
+                raise ValueError(
+                    "PII-Filter: Adresse muss mit http:// oder https:// beginnen"
+                )
             if url:
                 try:
                     registry._reject_link_local(url)
                 except registry.RemoteModelsError as e:
                     raise ValueError(f"PII-Filter: {e}") from None
             values["PII_FILTER_URL"] = url
-            values["PII_FILTER_ENABLED"] = "true" if pii.get("enabled", True) else "false"
+            values["PII_FILTER_ENABLED"] = (
+                "true" if pii.get("enabled", True) else "false"
+            )
             if "timeout_s" in pii:
                 try:
                     timeout_s = float(pii["timeout_s"])
                 except (TypeError, ValueError):
-                    raise ValueError("PII-Filter: Zeitlimit muss eine Zahl sein") from None
+                    raise ValueError(
+                        "PII-Filter: Zeitlimit muss eine Zahl sein"
+                    ) from None
                 if not 2 <= timeout_s <= 120:
-                    raise ValueError("PII-Filter: Zeitlimit zwischen 2 und 120 Sekunden")
+                    raise ValueError(
+                        "PII-Filter: Zeitlimit zwischen 2 und 120 Sekunden"
+                    )
                 values["PII_FILTER_TIMEOUT_S"] = f"{timeout_s:g}"
             if "max_chars" in pii:
                 try:
                     chars = int(pii["max_chars"])
                 except (TypeError, ValueError):
-                    raise ValueError("PII-Filter: Höchstlänge muss eine ganze Zahl sein") from None
+                    raise ValueError(
+                        "PII-Filter: Höchstlänge muss eine ganze Zahl sein"
+                    ) from None
                 if not 2000 <= chars <= 100000:
-                    raise ValueError("PII-Filter: Höchstlänge zwischen 2000 und 100000 Zeichen")
+                    raise ValueError(
+                        "PII-Filter: Höchstlänge zwischen 2000 und 100000 Zeichen"
+                    )
                 values["PII_FILTER_MAX_CHARS"] = str(chars)
             if pii.get("clear_key"):
                 values["PII_FILTER_API_KEY"] = ""
@@ -702,6 +760,7 @@ def tools_save():
             db.close()
         if any(k.startswith("STT_") for k in values):
             from app.stt import stt_config
+
             stt_config.clear_probe_cache()
     # Ohne PII-Filter darf keine Websuche an Modellen haengen (sie steht dann nicht mehr bereit)
     return jsonify(_tools_overview())
@@ -728,12 +787,22 @@ def tools_test():
         if kind == "stt":
             url = (values_in.get("base_url") or "").strip()
             key = (values_in.get("api_key") or "").strip()
-            if not key and store.normalize_base_url(url) == store.normalize_base_url(saved.get("STT_BASEURL", "") or ""):
+            if not key and store.normalize_base_url(url) == store.normalize_base_url(
+                saved.get("STT_BASEURL", "") or ""
+            ):
                 key = saved.get("STT_API_KEY") or ""
-            form = _FormSettings({"STT_BASEURL": url, "STT_MODEL": values_in.get("model", ""), "STT_API_KEY": key})
+            form = _FormSettings(
+                {
+                    "STT_BASEURL": url,
+                    "STT_MODEL": values_in.get("model", ""),
+                    "STT_API_KEY": key,
+                }
+            )
             test = _test_stt
         elif kind == "search":
-            form = _FormSettings({"SEARCH_SEARXNG_URL": (values_in.get("url") or "").strip()})
+            form = _FormSettings(
+                {"SEARCH_SEARXNG_URL": (values_in.get("url") or "").strip()}
+            )
             test = _test_search
         else:
             url = (values_in.get("url") or "").strip()
@@ -741,7 +810,11 @@ def tools_test():
             if not key and url == (saved.get("PII_FILTER_URL", "") or ""):
                 key = saved.get("PII_FILTER_API_KEY") or ""
             form = _FormSettings(
-                {"PII_FILTER_URL": url, "PII_FILTER_API_KEY": key, "PII_FILTER_TIMEOUT_S": values_in.get("timeout_s")}
+                {
+                    "PII_FILTER_URL": url,
+                    "PII_FILTER_API_KEY": key,
+                    "PII_FILTER_TIMEOUT_S": values_in.get("timeout_s"),
+                }
             )
             test = _test_pii_filter
     finally:
@@ -770,6 +843,7 @@ def tools_test():
 @require_role("admin")
 def auth_overview():
     from app.auth import auth_external
+
     cfg = auth_external.load_config()
     pub = auth_external.public_config(cfg)
     base = cfg["base_url"] or request.host_url.rstrip("/")
@@ -782,6 +856,7 @@ def auth_overview():
 def auth_save():
     """Speichert die Einstellungen. Leere Geheimnis-Felder behalten den gespeicherten Wert."""
     from app.auth import auth_external
+
     try:
         auth_external.save_config(request.get_json() or {})
     except auth_external.AuthConfigError as e:
@@ -796,6 +871,7 @@ def auth_test():
 
     Ein leeres Geheimnis-Feld nutzt das gespeicherte, aber nur bei unveraenderter Adresse."""
     from app.auth import auth_external, auth_ldap, auth_oidc
+
     data = request.get_json() or {}
     kind = data.get("kind")
     if kind not in ("ldap", "oidc"):
@@ -807,14 +883,26 @@ def auth_test():
     same_target = (incoming.get(target_key) or "").strip() == current.get(target_key)
     merged = {**current}
     try:
-        merged = auth_external._clean_block(kind, incoming, current if same_target else {**current, **{s: "" for s in auth_external.SECRET_FIELDS[kind]}})
+        merged = auth_external._clean_block(
+            kind,
+            incoming,
+            current
+            if same_target
+            else {**current, **{s: "" for s in auth_external.SECRET_FIELDS[kind]}},
+        )
     except auth_external.AuthConfigError as e:
         return _error(str(e), 400)
     try:
         if kind == "ldap":
-            result = auth_ldap.probe_ldap(merged, str(data.get("test_user") or ""), str(data.get("test_password") or ""))
+            result = auth_ldap.probe_ldap(
+                merged,
+                str(data.get("test_user") or ""),
+                str(data.get("test_password") or ""),
+            )
         else:
-            result = auth_oidc.probe_oidc(merged, saved["base_url"] or request.host_url.rstrip("/"))
+            result = auth_oidc.probe_oidc(
+                merged, saved["base_url"] or request.host_url.rstrip("/")
+            )
     except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
         return jsonify({"success": False, "error": str(e)}), 502
     return jsonify({"success": True, **result})
@@ -829,6 +917,7 @@ def auth_test():
 @require_role("admin")
 def compaction_overview():
     from app.chat import compaction
+
     return jsonify(compaction.load_settings())
 
 

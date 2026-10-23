@@ -2,7 +2,7 @@ import pytest
 
 from app.toolworker.client import ToolWorkerClient, ToolWorkerUnavailable
 
-LIMITS = dict(timeout_s=5, memory_mb=256, max_output_chars=1000)
+LIMITS = {"timeout_s": 5, "memory_mb": 256, "max_output_chars": 1000}
 
 
 def client_with(status, payload):
@@ -22,12 +22,22 @@ def test_returns_output_and_sends_limits():
     assert c.run_pandas("a.csv", "result=1", **LIMITS) == "Ergebnis:\n350"
     method, path, body, timeout = calls[0]
     assert (method, path) == ("POST", "/v1/pandas")
-    assert body == {"file": "a.csv", "code": "result=1", "limits": {"timeout_s": 5, "memory_mb": 256, "max_output_chars": 1000}}
+    assert body == {
+        "file": "a.csv",
+        "code": "result=1",
+        "limits": {"timeout_s": 5, "memory_mb": 256, "max_output_chars": 1000},
+    }
     assert timeout > 5  # Netzwerk-Puffer ueber dem Rechenlimit
 
 
 def test_user_code_error_is_text_not_unavailable():
-    c, _ = client_with(200, {"ok": False, "error": "FEHLER: 'import' ist aus Sicherheitsgründen blockiert."})
+    c, _ = client_with(
+        200,
+        {
+            "ok": False,
+            "error": "FEHLER: 'import' ist aus Sicherheitsgründen blockiert.",
+        },
+    )
     assert c.run_pandas("a.csv", "import os", **LIMITS).startswith("FEHLER: 'import'")
 
 
@@ -61,7 +71,9 @@ def test_ping_reports_reachable_and_not():
 
 
 def test_sql_calls_post_to_the_sql_endpoints_and_return_the_body():
-    c, calls = client_with(200, {"ok": True, "columns": ["a"], "rows": [[1]], "truncated": False})
+    c, calls = client_with(
+        200, {"ok": True, "columns": ["a"], "rows": [[1]], "truncated": False}
+    )
     assert c.sql("query", {"sql": "select 1"}, 20)["rows"] == [[1]]
     assert calls[0][:2] == ("POST", "/v1/sql/query") and calls[0][3] == 20
 

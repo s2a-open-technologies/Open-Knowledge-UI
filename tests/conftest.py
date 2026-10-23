@@ -39,6 +39,7 @@ def fixed_encryption_key(monkeypatch):
     from cryptography.fernet import Fernet
 
     from app.core import crypto
+
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
     crypto.reset()
     yield
@@ -54,6 +55,7 @@ def silence_phase_logger():
     phase_logger.logger.disabled = True
     yield
     phase_logger.logger.disabled = False
+
 
 @pytest.fixture
 def worker(monkeypatch, db):

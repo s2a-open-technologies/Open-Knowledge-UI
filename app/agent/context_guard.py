@@ -29,7 +29,9 @@ from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
 from app.chat.compaction import Budget, clip_text, estimate_tokens, prompt_for_langchain
 
-CLIP_SHARE = 0.4  # ein einzelnes Werkzeug-Ergebnis darf hoechstens so viel vom Budget belegen
+CLIP_SHARE = (
+    0.4  # ein einzelnes Werkzeug-Ergebnis darf hoechstens so viel vom Budget belegen
+)
 
 
 def count_message_tokens(messages) -> int:
@@ -38,7 +40,9 @@ def count_message_tokens(messages) -> int:
     for m in messages:
         content = getattr(m, "content", m if isinstance(m, str) else "")
         if isinstance(content, list):
-            content = " ".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+            content = " ".join(
+                b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+            )
         total += estimate_tokens(str(content)) + 4
         for call in getattr(m, "tool_calls", None) or []:
             total += estimate_tokens(str(call.get("args", "")))
@@ -55,7 +59,9 @@ class ToolResultClipMiddleware(AgentMiddleware):
     def _clip(self, result):
         content = getattr(result, "content", None)
         if isinstance(content, str) and estimate_tokens(content) > self.max_tokens:
-            return result.model_copy(update={"content": clip_text(content, self.max_tokens)})
+            return result.model_copy(
+                update={"content": clip_text(content, self.max_tokens)}
+            )
         return result
 
     def wrap_tool_call(self, request, handler):
@@ -65,7 +71,9 @@ class ToolResultClipMiddleware(AgentMiddleware):
         return self._clip(await handler(request))
 
 
-def build_middleware(summary_llm, budget: Budget, prompt: str, overhead_tokens: int) -> list:
+def build_middleware(
+    summary_llm, budget: Budget, prompt: str, overhead_tokens: int
+) -> list:
     """Middleware fuer ``create_agent``: Kuerzen einzelner Ergebnisse, Zusammenfassen des Laufs.
 
     ``overhead_tokens`` (Systemprompt, Werkzeug-Beschreibungen) zaehlt die Middleware nicht mit

@@ -51,7 +51,7 @@ sock = Sock()
 _STOP_JOIN_TIMEOUT_S = 15.0
 
 
-def _build_stream_url(base_url: str) -> str:  # noqa: D401 - bleibt fuer bestehende Aufrufer
+def _build_stream_url(base_url: str) -> str:
     """Wandelt STT_BASEURL (z.B. http://parakeet:5001/v1) in die Parakeet-WS-URL um.
 
     Gleiche Umwandlung wie im openDox-`ParakeetStreamBackend`-Client:
@@ -87,7 +87,8 @@ def stt_stream(ws):
     # WebSocket-Verbindungen unterliegen keiner CORS-Pruefung: nur Seiten derselben Adresse zulassen
     if not same_origin(
         flask_request.headers.get("Origin"),
-        flask_request.headers.get("X-Forwarded-Host") or flask_request.headers.get("Host"),
+        flask_request.headers.get("X-Forwarded-Host")
+        or flask_request.headers.get("Host"),
     ):
         ws.close()
         return

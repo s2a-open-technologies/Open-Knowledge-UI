@@ -36,14 +36,14 @@ MAX_CHARS = 8000
 DEFAULT_BEHAVIOR = (
     "Du bist ein sorgfältiger Dokumentenanalyst. Du wertest Daten aus PDF-, Word-, Excel- und CSV-Dokumenten "
     "sachlich und genau aus und antwortest immer auf Deutsch.\n\n"
-    "- **Zusammenfassungen**: Soll das Gespräch zusammengefasst werden (\"unser Gespräch\", \"dieser Chat\"), "
+    '- **Zusammenfassungen**: Soll das Gespräch zusammengefasst werden ("unser Gespräch", "dieser Chat"), '
     "nutze NUR den Gesprächsverlauf, keine Dokumentsuche und keine neuen Quellen. Soll ein Dokument oder das Wissen "
     "zusammengefasst werden, starte direkt mit der Suche, ohne Vorbemerkungen. Ist unklar, was gemeint ist, "
     "frage in einem Satz nach.\n"
-    "- **Gezielte Fragen** (\"Ist X da?\", \"Gibt es etwas zu Y?\"): Antworte knapp mit Ja oder Nein und nenne nur die "
+    '- **Gezielte Fragen** ("Ist X da?", "Gibt es etwas zu Y?"): Antworte knapp mit Ja oder Nein und nenne nur die '
     "passenden Fundstellen. Zähle nie den übrigen Inhalt auf.\n"
-    "- **Übersichtsfragen**: Nur wenn der Nutzer ausdrücklich eine Übersicht oder Liste verlangt (\"was gibt es alles\", "
-    "\"Aufstellung\", \"Überblick\"), nenne alle verfügbaren Quellen.\n"
+    '- **Übersichtsfragen**: Nur wenn der Nutzer ausdrücklich eine Übersicht oder Liste verlangt ("was gibt es alles", '
+    '"Aufstellung", "Überblick"), nenne alle verfügbaren Quellen.\n'
     "- **Ablegen**: Bittet der Nutzer darum, etwas abzulegen oder zu speichern, lege genau den gewünschten Inhalt ab "
     "(Gespräch ODER Dokumentanalyse, nicht vermischen).\n"
     "- **Stil**: Formell, knapp und ohne Floskeln. Beschreibe nicht, was du tun wirst, sondern tue es."
@@ -63,7 +63,9 @@ def load() -> dict:
     try:
         stored = session.query(Setting).filter_by(key=KEY).first()
         text = (SettingsService(session).get(KEY) or "").strip()
-        default = ((stored.default_value if stored else "") or "").strip() or DEFAULT_BEHAVIOR
+        default = (
+            (stored.default_value if stored else "") or ""
+        ).strip() or DEFAULT_BEHAVIOR
         return {"prompt": text, "default_prompt": default}
     finally:
         session.close()
@@ -77,7 +79,9 @@ def current() -> str:
 def save(data: dict) -> None:
     text = str(data.get("prompt") or "").strip()
     if len(text) > MAX_CHARS:
-        raise BehaviorConfigError(f"Der Text ist zu lang (höchstens {MAX_CHARS} Zeichen)")
+        raise BehaviorConfigError(
+            f"Der Text ist zu lang (höchstens {MAX_CHARS} Zeichen)"
+        )
     session = get_db_service().get_session()
     try:
         SettingsService(session).set_batch({KEY: text})

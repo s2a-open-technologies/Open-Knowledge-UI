@@ -21,7 +21,11 @@ def upgrade() -> None:
     cols = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("model_configs")}
     if "vision" not in cols:
         with op.batch_alter_table("model_configs") as batch_op:
-            batch_op.add_column(sa.Column("vision", sa.Boolean, nullable=False, server_default=sa.false()))
+            batch_op.add_column(
+                sa.Column(
+                    "vision", sa.Boolean, nullable=False, server_default=sa.false()
+                )
+            )
 
 
 def downgrade() -> None:

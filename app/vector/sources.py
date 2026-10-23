@@ -101,10 +101,23 @@ def parse_config(raw: dict | str | None) -> SourceConfig:
     if isinstance(raw, str):
         raw = json.loads(raw or "{}")
     raw = raw or {}
-    fields = {**DEFAULT_FIELDS, **{k: (v or DEFAULT_FIELDS[k]) for k, v in (raw.get("fields") or {}).items() if k in DEFAULT_FIELDS}}
-    access = {**DEFAULT_ACCESS, **{k: v for k, v in (raw.get("access") or {}).items() if k in DEFAULT_ACCESS}}
+    fields = {
+        **DEFAULT_FIELDS,
+        **{
+            k: (v or DEFAULT_FIELDS[k])
+            for k, v in (raw.get("fields") or {}).items()
+            if k in DEFAULT_FIELDS
+        },
+    }
+    access = {
+        **DEFAULT_ACCESS,
+        **{k: v for k, v in (raw.get("access") or {}).items() if k in DEFAULT_ACCESS},
+    }
     access["static"] = [
-        {"field": str(c.get("field", "")).strip(), "values": [str(v) for v in (c.get("values") or [])]}
+        {
+            "field": str(c.get("field", "")).strip(),
+            "values": [str(v) for v in (c.get("values") or [])],
+        }
         for c in (access.get("static") or [])
         if isinstance(c, dict) and str(c.get("field", "")).strip()
     ]
@@ -136,7 +149,9 @@ def connect(cfg: SourceConfig) -> QdrantClient:
     if cfg.kind not in KINDS:
         raise SourceError(f"Unbekannte Art: {cfg.kind}")
     _check_url(cfg.url)
-    return QdrantClient(url=cfg.url, api_key=cfg.api_key or None, timeout=TIMEOUT_S, prefer_grpc=False)
+    return QdrantClient(
+        url=cfg.url, api_key=cfg.api_key or None, timeout=TIMEOUT_S, prefer_grpc=False
+    )
 
 
 def _vector_info(collection_info) -> tuple[dict[str, int], list[str]]:
@@ -164,16 +179,22 @@ def probe_source(cfg: SourceConfig, client=None, sample_vector: bool = False) ->
         try:
             names = [c.name for c in client.get_collections().collections]
         except Exception as e:
-            raise SourceError(f"Nicht erreichbar: {type(e).__name__}: {e}"[:300]) from None
+            raise SourceError(
+                f"Nicht erreichbar: {type(e).__name__}: {e}"[:300]
+            ) from None
         result: dict = {"collections": names, "reachable": True}
         if not cfg.collection:
             return result
         if cfg.collection not in names:
-            raise SourceError(f"Collection „{cfg.collection}“ gibt es auf dem Server nicht")
+            raise SourceError(
+                f"Collection „{cfg.collection}“ gibt es auf dem Server nicht"
+            )
         info = client.get_collection(cfg.collection)
         dense, sparse = _vector_info(info)
-        wanted = ([cfg.dense_vector] if sample_vector else False)
-        points, _ = client.scroll(cfg.collection, limit=1, with_payload=True, with_vectors=wanted)
+        wanted = [cfg.dense_vector] if sample_vector else False
+        points, _ = client.scroll(
+            cfg.collection, limit=1, with_payload=True, with_vectors=wanted
+        )
         result.update(
             {
                 "points": int(client.count(cfg.collection).count),
@@ -185,12 +206,16 @@ def probe_source(cfg: SourceConfig, client=None, sample_vector: bool = False) ->
         if sample_vector and points:
             vec = points[0].vector
             vec = vec.get(cfg.dense_vector) if isinstance(vec, dict) else vec
-            result["sample_vector"] = list(vec) if isinstance(vec, (list, tuple)) else None
+            result["sample_vector"] = (
+                list(vec) if isinstance(vec, (list, tuple)) else None
+            )
         return result
     except SourceError:
         raise
     except Exception as e:
-        raise SourceError(f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300]) from None
+        raise SourceError(
+            f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300]
+        ) from None
     finally:
         if own:
             client.close()
@@ -221,7 +246,9 @@ def validate_source(cfg: SourceConfig, dimension: int, client=None, embed=None) 
     dense = facts["dense_vectors"]
     if cfg.dense_vector not in dense:
         known = ", ".join(repr(n) for n in dense) or "keine"
-        raise SourceError(f"Vektor {cfg.dense_vector!r} gibt es in der Collection nicht (vorhanden: {known})")
+        raise SourceError(
+            f"Vektor {cfg.dense_vector!r} gibt es in der Collection nicht (vorhanden: {known})"
+        )
     if dense[cfg.dense_vector] != dimension:
         raise SourceError(
             f"Das Embedding-Modell liefert {dimension} Dimensionen, der Vektor der Quelle hat "
@@ -290,22 +317,32 @@ def validate_access(cfg: SourceConfig) -> None:
     if not a.get("enabled"):
         return
     if a["user_attr"] not in ("username", "display_name"):
-        raise SourceError("Zugriffsfilter: Benutzerattribut muss username oder display_name sein")
+        raise SourceError(
+            "Zugriffsfilter: Benutzerattribut muss username oder display_name sein"
+        )
     if a["groups_from"] not in ("local", "external", "both"):
-        raise SourceError("Zugriffsfilter: Gruppenquelle muss local, external oder both sein")
+        raise SourceError(
+            "Zugriffsfilter: Gruppenquelle muss local, external oder both sein"
+        )
     if not (a["user_field"] or a["group_field"] or a["static"]):
         raise SourceError(
             "Zugriffsfilter: mindestens ein Benutzerfeld, ein Gruppenfeld oder eine feste Bedingung angeben"
         )
     for cond in a["static"]:
         if not cond["values"]:
-            raise SourceError(f"Zugriffsfilter: die feste Bedingung für „{cond['field']}“ braucht Werte")
+            raise SourceError(
+                f"Zugriffsfilter: die feste Bedingung für „{cond['field']}“ braucht Werte"
+            )
 
 
 def _variants(value: str) -> list[str]:
     """Schreibweisen eines Namens (Qdrant vergleicht exakt): wie eingegeben, klein, gross,
     erster Buchstabe gross, jedes Wort gross. Exotische Mischschreibweisen muessen exakt passen."""
-    return list(dict.fromkeys([value, value.lower(), value.upper(), value.capitalize(), value.title()]))
+    return list(
+        dict.fromkeys(
+            [value, value.lower(), value.upper(), value.capitalize(), value.title()]
+        )
+    )
 
 
 def build_filter(cfg: SourceConfig, identity: dict):
@@ -329,18 +366,33 @@ def build_filter(cfg: SourceConfig, identity: dict):
     ]
     should = []
     if a["user_field"]:
-        name = identity.get("display_name" if a["user_attr"] == "display_name" else "username") or ""
+        name = (
+            identity.get(
+                "display_name" if a["user_attr"] == "display_name" else "username"
+            )
+            or ""
+        )
         if name:
-            should.append(qm.FieldCondition(key=a["user_field"], match=qm.MatchAny(any=_variants(name))))
+            should.append(
+                qm.FieldCondition(
+                    key=a["user_field"], match=qm.MatchAny(any=_variants(name))
+                )
+            )
     if a["group_field"]:
         groups: list[str] = []
         if a["groups_from"] in ("local", "both"):
             groups += identity.get("groups") or []
         if a["groups_from"] in ("external", "both"):
             groups += identity.get("external_groups") or []
-        names = list(dict.fromkeys(v for g in groups for v in _variants(str(g)) if str(g).strip()))
+        names = list(
+            dict.fromkeys(
+                v for g in groups for v in _variants(str(g)) if str(g).strip()
+            )
+        )
         if names:
-            should.append(qm.FieldCondition(key=a["group_field"], match=qm.MatchAny(any=names)))
+            should.append(
+                qm.FieldCondition(key=a["group_field"], match=qm.MatchAny(any=names))
+            )
     wants_identity = bool(a["user_field"] or a["group_field"])
     if wants_identity and not should:
         return None, True  # Filter verlangt eine Identitaet, der Benutzer hat keine

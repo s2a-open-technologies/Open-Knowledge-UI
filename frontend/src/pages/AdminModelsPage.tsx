@@ -35,6 +35,7 @@ import { ModelConfigDialog } from "@/components/ModelConfigDialog";
 import { AdminLink } from "@/components/AdminNav";
 import { BehaviorCard } from "@/components/BehaviorCard";
 import { api, errorMessage } from "@/lib/api";
+import { notifyModelsChanged } from "@/lib/modelChoice";
 import { cn } from "@/lib/utils";
 import type { AccessInfo, Knowledge, ModelEntry, ModelsResponse } from "@/lib/types";
 
@@ -84,6 +85,7 @@ export function AdminModelsPage() {
     try {
       await api.put("/api/models/config", { ref: m.ref, visible });
       await load();
+      notifyModelsChanged();
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -93,6 +95,7 @@ export function AdminModelsPage() {
     try {
       await api.put("/api/models/default", { ref });
       setData((prev) => (prev ? { ...prev, default: ref } : prev));
+      notifyModelsChanged();
       toast.success("Standardmodell gesetzt");
     } catch (e) {
       toast.error(errorMessage(e));
@@ -109,6 +112,7 @@ export function AdminModelsPage() {
       toast.success("Modell geklont");
       setCloneSource(null);
       await load();
+      notifyModelsChanged();
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -119,6 +123,7 @@ export function AdminModelsPage() {
     try {
       await api.del(`/api/models/config?ref=${encodeURIComponent(resetTarget.ref)}`);
       await load();
+      notifyModelsChanged();
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -310,7 +315,7 @@ export function AdminModelsPage() {
         paramDefaults={data?.param_defaults}
         compaction={data?.compaction}
         onOpenChange={(o) => !o && setConfigTarget(null)}
-        onSaved={() => void load()}
+        onSaved={() => void load().then(notifyModelsChanged)}
       />
 
       <Dialog open={cloneSource !== null} onOpenChange={(o) => !o && setCloneSource(null)}>
@@ -354,6 +359,7 @@ export function AdminModelsPage() {
             ...info,
           });
           await load();
+      notifyModelsChanged();
           return saved;
         }}
       />

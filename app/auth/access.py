@@ -64,11 +64,23 @@ def _granted(db, user: dict, rtype: str, rid: int, level: str) -> bool:
     groups = _group_ids(db, user["id"])
     wanted = ("write",) if level == "write" else LEVELS
     # Editoren duerfen alles bearbeiten, was einer ihrer Gruppen freigegeben ist (auch bei Lese-Freigabe)
-    group_wanted = LEVELS if (level == "write" and rtype == "knowledge" and user.get("role") == "editor") else wanted
+    group_wanted = (
+        LEVELS
+        if (level == "write" and rtype == "knowledge" and user.get("role") == "editor")
+        else wanted
+    )
     for g in db.query(ResourceGrant).filter_by(resource_type=rtype, resource_id=rid):
-        if g.principal_type == "user" and g.principal_id == user["id"] and g.access in wanted:
+        if (
+            g.principal_type == "user"
+            and g.principal_id == user["id"]
+            and g.access in wanted
+        ):
             return True
-        if g.principal_type == "group" and g.principal_id in groups and g.access in group_wanted:
+        if (
+            g.principal_type == "group"
+            and g.principal_id in groups
+            and g.access in group_wanted
+        ):
             return True
     return False
 
@@ -96,7 +108,9 @@ def accessible_knowledge_ids(user: dict, level: str = "read") -> set[int]:
     try:
         ids = set()
         for k in db.query(Knowledge):
-            if (level == "read" and k.is_public) or _granted(db, user, "knowledge", k.id, level):
+            if (level == "read" and k.is_public) or _granted(
+                db, user, "knowledge", k.id, level
+            ):
                 ids.add(k.id)
         return ids
     finally:
@@ -125,7 +139,9 @@ def can_use_model(user: dict, ref: str) -> bool:
             if cfg is None:
                 return False
         else:
-            cfg = q.filter_by(connection_id=key, base_model=model, is_clone=False).first()
+            cfg = q.filter_by(
+                connection_id=key, base_model=model, is_clone=False
+            ).first()
             if cfg is None:
                 return True  # nie angepasstes Basismodell: oeffentlich
         return bool(cfg.is_public) or _granted(db, user, "model", cfg.id, "read")
@@ -161,7 +177,9 @@ def get_access(rtype: str, rid: int) -> dict | None:
         if res is None:
             return None
         grants = []
-        for g in db.query(ResourceGrant).filter_by(resource_type=rtype, resource_id=rid):
+        for g in db.query(ResourceGrant).filter_by(
+            resource_type=rtype, resource_id=rid
+        ):
             name = _principal_name(db, g.principal_type, g.principal_id)
             if name is None:
                 continue  # verwaister Grant (Principal geloescht)
@@ -225,7 +243,12 @@ def set_access(rtype: str, rid: int, is_public: bool, grants: list[dict]) -> boo
 
         from app.auth import audit
 
-        audit.record(audit.ACCESS_SET, object_type=rtype, object_id=rid, detail={"oeffentlich": is_public, "freigaben": len(clean)})
+        audit.record(
+            audit.ACCESS_SET,
+            object_type=rtype,
+            object_id=rid,
+            detail={"oeffentlich": is_public, "freigaben": len(clean)},
+        )
         return True
     except Exception:
         db.rollback()
@@ -283,7 +306,9 @@ def delete_grants_for_resource(rtype: str, rid: int) -> None:
 def delete_grants_for_principal(ptype: str, pid: int) -> None:
     db = get_db_service().get_session()
     try:
-        db.query(ResourceGrant).filter_by(principal_type=ptype, principal_id=pid).delete()
+        db.query(ResourceGrant).filter_by(
+            principal_type=ptype, principal_id=pid
+        ).delete()
         db.commit()
     except Exception:
         db.rollback()

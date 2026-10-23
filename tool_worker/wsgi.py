@@ -11,7 +11,7 @@ def _secret(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
-from tool_worker.server import create_app  # noqa: E402
+from tool_worker.server import create_app
 
 app = create_app(
     _secret("TOOL_WORKER_TOKEN"),

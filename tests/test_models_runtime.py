@@ -36,9 +36,12 @@ def server():
                 out = {"data": data}
             elif self.path.endswith("/rerank"):
                 docs = body["documents"]
-                out = {"results": [
-                    {"index": i, "relevance_score": float(len(d))} for i, d in reversed(list(enumerate(docs)))
-                ]}
+                out = {
+                    "results": [
+                        {"index": i, "relevance_score": float(len(d))}
+                        for i, d in reversed(list(enumerate(docs)))
+                    ]
+                }
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -130,8 +133,13 @@ def test_hf_models_with_fake_sentence_transformers(monkeypatch):
     emb = mr.get_embedder(spec)
     mr.get_embedder(spec)
     assert FakeST.loads == 1 and emb.dimension == 5
-    assert emb.embed_query("a") == [1.0] * 5 and emb.embed_documents(["a"]) == [[2.0] * 5]
-    assert mr.get_reranker(mr.ModelSpec("hf", "r")).score("q", ["ab", "c"]) == [2.0, 1.0]
+    assert emb.embed_query("a") == [1.0] * 5 and emb.embed_documents(["a"]) == [
+        [2.0] * 5
+    ]
+    assert mr.get_reranker(mr.ModelSpec("hf", "r")).score("q", ["ab", "c"]) == [
+        2.0,
+        1.0,
+    ]
 
 
 def test_hf_load_failure_message(monkeypatch):
@@ -139,7 +147,11 @@ def test_hf_load_failure_message(monkeypatch):
         def __init__(self, name, **kw):
             raise OSError("kein Netz")
 
-    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=Boom))
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=Boom),
+    )
     with pytest.raises(mr.ModelLoadError, match="kein Netz"):
         mr.get_embedder(mr.ModelSpec("hf", "x/y"))
 
@@ -147,9 +159,15 @@ def test_hf_load_failure_message(monkeypatch):
 def test_signature_and_uploads_collection():
     a = mr.ModelSpec("hf", "a")
     b = mr.ModelSpec("hf", "b")
-    assert mr.index_signature(a, 1000, 150, 1, 1) == mr.index_signature(a.to_dict(), 1000, 150, 1, 1)
-    assert mr.index_signature(a, 1000, 150, 1, 1) != mr.index_signature(b, 1000, 150, 1, 1)
-    assert mr.index_signature(a, 1000, 150, 1, 1) != mr.index_signature(a, 800, 150, 1, 1)
+    assert mr.index_signature(a, 1000, 150, 1, 1) == mr.index_signature(
+        a.to_dict(), 1000, 150, 1, 1
+    )
+    assert mr.index_signature(a, 1000, 150, 1, 1) != mr.index_signature(
+        b, 1000, 150, 1, 1
+    )
+    assert mr.index_signature(a, 1000, 150, 1, 1) != mr.index_signature(
+        a, 800, 150, 1, 1
+    )
     assert mr.uploads_collection(a) != mr.uploads_collection(b)
 
 
@@ -178,7 +196,9 @@ def test_redirects_are_not_followed(db):
     srv = HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
-        conn = connections.create_connection("r", f"http://127.0.0.1:{srv.server_port}/v1", "")
+        conn = connections.create_connection(
+            "r", f"http://127.0.0.1:{srv.server_port}/v1", ""
+        )
         with pytest.raises(mr.ModelLoadError, match="Weiterleitung"):
             mr.get_embedder(mr.ModelSpec("endpoint", "m", conn["id"]))
 

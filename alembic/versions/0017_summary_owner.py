@@ -21,11 +21,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    cols = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("user_summary_files")}
+    cols = {
+        c["name"] for c in sa.inspect(op.get_bind()).get_columns("user_summary_files")
+    }
     if "user_id" not in cols:
         with op.batch_alter_table("user_summary_files") as batch_op:
             batch_op.add_column(sa.Column("user_id", sa.Integer, nullable=True))
-            batch_op.create_foreign_key("fk_user_summary_files_user_id", "users", ["user_id"], ["id"])
+            batch_op.create_foreign_key(
+                "fk_user_summary_files_user_id", "users", ["user_id"], ["id"]
+            )
             batch_op.create_index("ix_user_summary_files_user_id", ["user_id"])
 
 

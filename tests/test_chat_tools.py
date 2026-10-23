@@ -51,7 +51,13 @@ def names(ts):
 def test_without_knowledge_only_the_conversation_tools_remain():
     got = names(select_tools(tools(), has_knowledge=False))
     assert not set(got) & KNOWLEDGE_TOOLS
-    assert got == ["list_summaries", "read_summary", "write_summary", "edit_summary", "web_search_tool"]
+    assert got == [
+        "list_summaries",
+        "read_summary",
+        "write_summary",
+        "edit_summary",
+        "web_search_tool",
+    ]
 
 
 def test_with_knowledge_or_attachments_all_tools_are_kept():
@@ -74,15 +80,24 @@ def test_default_instructions_separate_conversation_summaries_from_document_summ
 def test_default_instructions_answer_targeted_questions_briefly_and_list_only_on_request():
     from app.agent.behavior import DEFAULT_BEHAVIOR as prompt
 
-    assert "Zähle nie den übrigen Inhalt auf" in prompt and "ausdrücklich eine Übersicht" in prompt
+    assert (
+        "Zähle nie den übrigen Inhalt auf" in prompt
+        and "ausdrücklich eine Übersicht" in prompt
+    )
     assert "nie vollständig wieder" in DocumentAgent.SYSTEM_PROMPT
 
 
 def test_conversation_only_hint_forbids_inventing_documents():
-    assert "kein Wissen" in CONVERSATION_ONLY_HINT and "Erfinde keine Dokumentinhalte" in CONVERSATION_ONLY_HINT
+    assert (
+        "kein Wissen" in CONVERSATION_ONLY_HINT
+        and "Erfinde keine Dokumentinhalte" in CONVERSATION_ONLY_HINT
+    )
 
 
 def test_write_summary_description_does_not_force_a_document_search():
     from app.tools.custom_tools import WRITE_SUMMARY_DESCRIPTION
 
-    assert "Gespräch ODER" in WRITE_SUMMARY_DESCRIPTION and "Meine Ablagen" in WRITE_SUMMARY_DESCRIPTION
+    assert (
+        "Gespräch ODER" in WRITE_SUMMARY_DESCRIPTION
+        and "Meine Ablagen" in WRITE_SUMMARY_DESCRIPTION
+    )

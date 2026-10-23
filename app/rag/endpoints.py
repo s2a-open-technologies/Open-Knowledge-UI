@@ -66,7 +66,14 @@ def _bases(conn: dict) -> list[str]:
     return [base, alt]
 
 
-def _request(conn: dict, method: str, path: str, payload: dict | None, what: str, timeout: float = HTTP_TIMEOUT):
+def _request(
+    conn: dict,
+    method: str,
+    path: str,
+    payload: dict | None,
+    what: str,
+    timeout: float = HTTP_TIMEOUT,
+):
     """Probiert die Adressvarianten durch; erste Antwort ausser 404 gilt. Wiederholt bei 5xx und Netzfehlern."""
     key = conn.get("api_key") or ""
     headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -77,22 +84,35 @@ def _request(conn: dict, method: str, path: str, payload: dict | None, what: str
         url = f"{base}{path}"
         for attempt in range(3):
             try:
-                resp = requests.request(method, url, json=payload, headers=headers, timeout=timeout, allow_redirects=False)
+                resp = requests.request(
+                    method,
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=timeout,
+                    allow_redirects=False,
+                )
             except requests.exceptions.Timeout:
                 last = f"Zeitüberschreitung ({timeout:g} s)"
             except requests.exceptions.RequestException:
                 last = "Verbindung fehlgeschlagen"
             else:
                 if 300 <= resp.status_code < 400:
-                    raise EndpointError(f"{what}: Weiterleitung wird nicht verfolgt (HTTP {resp.status_code})")
+                    raise EndpointError(
+                        f"{what}: Weiterleitung wird nicht verfolgt (HTTP {resp.status_code})"
+                    )
                 if resp.status_code in (401, 403):
-                    raise EndpointError(f"{what}: Zugriff verweigert (HTTP {resp.status_code}), API-Key prüfen")
+                    raise EndpointError(
+                        f"{what}: Zugriff verweigert (HTTP {resp.status_code}), API-Key prüfen"
+                    )
                 if resp.status_code == 404:
                     not_found += 1
                     break  # naechste Adressvariante
                 if resp.status_code < 500:
                     if resp.status_code != 200:
-                        raise EndpointError(f"{what}: HTTP {resp.status_code}: {resp.text[:200]}")
+                        raise EndpointError(
+                            f"{what}: HTTP {resp.status_code}: {resp.text[:200]}"
+                        )
                     return resp
                 last = f"HTTP {resp.status_code}"
             if attempt < 2:
@@ -100,7 +120,9 @@ def _request(conn: dict, method: str, path: str, payload: dict | None, what: str
         else:
             continue
     if not_found == len(bases):
-        raise EndpointError(f"{what}: Pfad {path} nicht gefunden (HTTP 404), Typ der Connection und Adresse prüfen")
+        raise EndpointError(
+            f"{what}: Pfad {path} nicht gefunden (HTTP 404), Typ der Connection und Adresse prüfen"
+        )
     raise EndpointError(f"{what}: {last}")
 
 
@@ -115,7 +137,12 @@ def _json(resp, what: str):
 # Modelle
 # --------------------------------------------------------------------------------------
 
-_CAPABILITIES = {"embed": "embedding", "embedding": "embedding", "rerank": "reranker", "reranker": "reranker"}
+_CAPABILITIES = {
+    "embed": "embedding",
+    "embedding": "embedding",
+    "rerank": "reranker",
+    "reranker": "reranker",
+}
 
 
 def describe(conn: dict) -> list[dict]:
@@ -125,17 +152,35 @@ def describe(conn: dict) -> list[dict]:
     if kind == "tei":
         info = _json(_request(conn, "GET", "/info", None, "TEI", PROBE_TIMEOUT), "TEI")
         model_type = info.get("model_type") if isinstance(info, dict) else None
-        caps = [c for c in ("embedding", "reranker") if isinstance(model_type, dict) and c in model_type]
-        model_id = (info.get("model_id") if isinstance(info, dict) else None) or "tei-model"
+        caps = [
+            c
+            for c in ("embedding", "reranker")
+            if isinstance(model_type, dict) and c in model_type
+        ]
+        model_id = (
+            info.get("model_id") if isinstance(info, dict) else None
+        ) or "tei-model"
         return [{"id": model_id, "capabilities": caps}]
     if kind == "infinity":
-        body = _json(_request(conn, "GET", "/models", None, "Infinity", PROBE_TIMEOUT), "Infinity")
+        body = _json(
+            _request(conn, "GET", "/models", None, "Infinity", PROBE_TIMEOUT),
+            "Infinity",
+        )
         out = []
         for m in (body.get("data") if isinstance(body, dict) else None) or []:
             if not isinstance(m, dict) or not m.get("id"):
                 continue
-            caps = [_CAPABILITIES[c] for c in (m.get("capabilities") or []) if c in _CAPABILITIES]
-            out.append({"id": m["id"], "capabilities": sorted(set(caps)) or ["embedding", "reranker"]})
+            caps = [
+                _CAPABILITIES[c]
+                for c in (m.get("capabilities") or [])
+                if c in _CAPABILITIES
+            ]
+            out.append(
+                {
+                    "id": m["id"],
+                    "capabilities": sorted(set(caps)) or ["embedding", "reranker"],
+                }
+            )
         return out
     raise EndpointError("Nur für TEI und Infinity")
 
@@ -151,22 +196,40 @@ def embed(conn: dict, model: str, texts: list[str]) -> list[list[float]]:
     for i in range(0, len(texts), EMBED_BATCH):
         batch = texts[i : i + EMBED_BATCH]
         if kind == "tei":
-            resp = _request(conn, "POST", "/embed", {"inputs": batch, "truncate": True}, "Embedding-Endpoint (TEI)")
+            resp = _request(
+                conn,
+                "POST",
+                "/embed",
+                {"inputs": batch, "truncate": True},
+                "Embedding-Endpoint (TEI)",
+            )
             body = _json(resp, "Embedding-Endpoint (TEI)")
             try:
                 vectors = [list(map(float, v)) for v in body]
             except (TypeError, ValueError):
-                raise EndpointError("Embedding-Endpoint (TEI): unerwartete Antwort") from None
+                raise EndpointError(
+                    "Embedding-Endpoint (TEI): unerwartete Antwort"
+                ) from None
         else:
-            resp = _request(conn, "POST", "/embeddings", {"model": model, "input": batch}, "Embedding-Endpoint")
+            resp = _request(
+                conn,
+                "POST",
+                "/embeddings",
+                {"model": model, "input": batch},
+                "Embedding-Endpoint",
+            )
             body = _json(resp, "Embedding-Endpoint")
             try:
                 rows = sorted(body["data"], key=lambda r: r["index"])
                 vectors = [list(map(float, r["embedding"])) for r in rows]
             except (KeyError, ValueError, TypeError):
-                raise EndpointError("Embedding-Endpoint: unerwartete Antwort (kein OpenAI-Format)") from None
+                raise EndpointError(
+                    "Embedding-Endpoint: unerwartete Antwort (kein OpenAI-Format)"
+                ) from None
         if len(vectors) != len(batch):
-            raise EndpointError("Embedding-Endpoint: Anzahl der Vektoren passt nicht zur Anfrage")
+            raise EndpointError(
+                "Embedding-Endpoint: Anzahl der Vektoren passt nicht zur Anfrage"
+            )
         out.extend(vectors)
     return out
 
@@ -187,7 +250,9 @@ def rerank(conn: dict, model: str, query: str, texts: list[str]) -> list[float]:
         rows = body["results"] if isinstance(body, dict) else body
         scores: list[float | None] = [None] * len(texts)
         for row in rows:
-            scores[int(row["index"])] = float(row.get("relevance_score", row.get("score")))
+            scores[int(row["index"])] = float(
+                row.get("relevance_score", row.get("score"))
+            )
     except (KeyError, ValueError, TypeError, IndexError):
         raise EndpointError(f"{what}: unerwartete Antwort") from None
     if any(s is None for s in scores):
@@ -212,7 +277,11 @@ def test_connection(conn: dict) -> dict:
     if emb_models:
         model = emb_models[0]["id"]
         try:
-            embedding = {"model": model, "dimension": len(embed(conn, model, ["Test"])[0]), "ok": True}
+            embedding = {
+                "model": model,
+                "dimension": len(embed(conn, model, ["Test"])[0]),
+                "ok": True,
+            }
         except EndpointError as e:
             embedding = {"model": model, "ok": False, "error": str(e)}
     if rr_models:
@@ -221,16 +290,26 @@ def test_connection(conn: dict) -> dict:
             scores = rerank(conn, model, RANK_QUERY, list(RANK_TEXTS))
             reranker = {"model": model, "ok": scores[0] > scores[1]}
             if not reranker["ok"]:
-                reranker["error"] = "Die Reihenfolge der Test-Texte stimmt nicht (Modell geeignet?)"
+                reranker["error"] = (
+                    "Die Reihenfolge der Test-Texte stimmt nicht (Modell geeignet?)"
+                )
         except EndpointError as e:
             reranker = {"model": model, "ok": False, "error": str(e)}
     parts = []
     if embedding:
-        parts.append(f"Embedding {'✓ (Dimension ' + str(embedding['dimension']) + ')' if embedding['ok'] else '✗ ' + embedding['error']}")
+        parts.append(
+            f"Embedding {'✓ (Dimension ' + str(embedding['dimension']) + ')' if embedding['ok'] else '✗ ' + embedding['error']}"
+        )
     if reranker:
-        parts.append(f"Reranker {'✓' if reranker['ok'] else '✗ ' + reranker.get('error', '')}")
+        parts.append(
+            f"Reranker {'✓' if reranker['ok'] else '✗ ' + reranker.get('error', '')}"
+        )
     if not parts:
-        return {"success": False, "error": "Der Dienst meldet weder ein Embedding- noch ein Rerank-Modell.", "models": [m["id"] for m in models]}
+        return {
+            "success": False,
+            "error": "Der Dienst meldet weder ein Embedding- noch ein Rerank-Modell.",
+            "models": [m["id"] for m in models],
+        }
     ok = bool((embedding and embedding["ok"]) or (reranker and reranker["ok"]))
     result = {
         "success": ok,

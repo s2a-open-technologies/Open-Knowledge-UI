@@ -22,16 +22,16 @@ Verbindet sich zu einem laufenden Qdrant-Server (exe, docker, remote).
 """
 
 import os
-from typing import Optional
+
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 
 def get_qdrant_client(
     collection_name: str = "open_knowledge_ui",
-    custom_host: Optional[str] = None,
-    custom_port: Optional[int] = None,
-    api_key: Optional[str] = None,
+    custom_host: str | None = None,
+    custom_port: int | None = None,
+    api_key: str | None = None,
 ) -> "QdrantClient":
     """
     Erstellt einen Qdrant-Client fuer einen laufenden Qdrant-Server.
@@ -96,12 +96,12 @@ def test_connection(client: QdrantClient, timeout: int = 5) -> tuple[bool, str]:
             f"Verbunden. {len(collections.collections)} Collection(s) gefunden.",
         )
     except Exception as e:
-        return False, f"Verbindungsfehler: {str(e)}"
+        return False, f"Verbindungsfehler: {e!s}"
 
 
 def get_collection_info(
     client: QdrantClient, collection_name: str = "open_knowledge_ui"
-) -> Optional[dict]:
+) -> dict | None:
     """
     Holt Informationen ueber eine Collection.
 

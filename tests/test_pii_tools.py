@@ -1,6 +1,12 @@
 import pytest
 
-from app.chat.pii_session import PIISession, StreamDemasker, get_session, merge_masked, set_session
+from app.chat.pii_session import (
+    PIISession,
+    StreamDemasker,
+    get_session,
+    merge_masked,
+    set_session,
+)
 from app.utils.pii_filter_client import PIIFilterResult, PIIFilterUnavailable
 
 
@@ -35,7 +41,14 @@ def test_a_reused_placeholder_for_another_person_is_renamed_and_both_unmask_corr
 
 def test_the_same_person_keeps_the_existing_placeholder():
     known = {"[NAME_1]": "Anna"}
-    assert merge_masked(known, "[NAME_2] und [NAME_1]", [("[NAME_2]", "Anna"), ("[NAME_1]", "Bernd")]) == "[NAME_1] und [NAME_1_2]"
+    assert (
+        merge_masked(
+            known,
+            "[NAME_2] und [NAME_1]",
+            [("[NAME_2]", "Anna"), ("[NAME_1]", "Bernd")],
+        )
+        == "[NAME_1] und [NAME_1_2]"
+    )
     assert known == {"[NAME_1]": "Anna", "[NAME_1_2]": "Bernd"}
 
 

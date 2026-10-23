@@ -32,7 +32,12 @@ def upgrade() -> None:
             "VALUES (:key, :value, :value, 'llm', :sensitive, :description) "
             "ON CONFLICT (key) DO NOTHING"
         ),
-        {"key": KEY, "value": DEFAULT_BEHAVIOR, "sensitive": False, "description": DESCRIPTION},
+        {
+            "key": KEY,
+            "value": DEFAULT_BEHAVIOR,
+            "sensitive": False,
+            "description": DESCRIPTION,
+        },
     )
 
 
@@ -42,4 +47,11 @@ def downgrade() -> None:
     cols = {c["name"] for c in sa.inspect(bind).get_columns("model_configs")}
     if "replace_prompt" not in cols:
         with op.batch_alter_table("model_configs") as batch_op:
-            batch_op.add_column(sa.Column("replace_prompt", sa.Boolean, nullable=False, server_default=sa.false()))
+            batch_op.add_column(
+                sa.Column(
+                    "replace_prompt",
+                    sa.Boolean,
+                    nullable=False,
+                    server_default=sa.false(),
+                )
+            )

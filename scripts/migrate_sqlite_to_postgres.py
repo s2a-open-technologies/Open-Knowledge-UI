@@ -49,9 +49,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import sqlalchemy as sa  # noqa: E402
+import sqlalchemy as sa
 
-from app.core.models import Base  # noqa: E402
+from app.core.models import Base
 
 BATCH = 500
 
@@ -78,11 +78,16 @@ def upgrade_copy(sqlite_path: Path) -> Path:
 
 def reflect_counts(engine, names):
     with engine.connect() as conn:
-        return {n: conn.execute(sa.text(f'SELECT COUNT(*) FROM "{n}"')).scalar() for n in names}
+        return {
+            n: conn.execute(sa.text(f'SELECT COUNT(*) FROM "{n}"')).scalar()
+            for n in names
+        }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--sqlite", default="data/app.db")
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
     parser.add_argument("--dry-run", action="store_true")
@@ -94,15 +99,21 @@ def main() -> int:
         print(f"❌ SQLite-Datei nicht gefunden: {source_file}")
         return 1
     if not args.database_url or args.database_url.startswith("sqlite"):
-        print("❌ Ziel fehlt oder ist SQLite: --database-url postgresql+psycopg://... bzw. DATABASE_URL setzen.")
+        print(
+            "❌ Ziel fehlt oder ist SQLite: --database-url postgresql+psycopg://... bzw. DATABASE_URL setzen."
+        )
         return 1
 
     target = sa.create_engine(args.database_url)
     try:
         with target.connect() as conn:
-            current = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
+            current = conn.execute(
+                sa.text("SELECT version_num FROM alembic_version")
+            ).scalar()
     except Exception as e:
-        print(f"❌ Ziel nicht bereit ({type(e).__name__}). Zuerst 'alembic upgrade head' gegen Postgres ausfuehren.")
+        print(
+            f"❌ Ziel nicht bereit ({type(e).__name__}). Zuerst 'alembic upgrade head' gegen Postgres ausfuehren."
+        )
         return 1
 
     print(f"📄 Quelle: {source_file} (wird nur gelesen)")
@@ -110,7 +121,9 @@ def main() -> int:
     source = sa.create_engine(f"sqlite:///{work}")
 
     with source.connect() as conn:
-        source_version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
+        source_version = conn.execute(
+            sa.text("SELECT version_num FROM alembic_version")
+        ).scalar()
     if source_version != current:
         print(f"❌ Alembic-Stand verschieden: Quelle {source_version}, Ziel {current}.")
         return 1
@@ -125,7 +138,11 @@ def main() -> int:
         return 0
 
     if not args.yes:
-        answer = input("Zieltabellen leeren und mit diesen Daten fuellen? [ja/N] ").strip().lower()
+        answer = (
+            input("Zieltabellen leeren und mit diesen Daten fuellen? [ja/N] ")
+            .strip()
+            .lower()
+        )
         if answer not in ("ja", "j", "yes", "y"):
             print("Abgebrochen.")
             return 1
@@ -160,11 +177,17 @@ def main() -> int:
                 )
 
     target_counts = reflect_counts(target, [t.name for t in tables])
-    bad = {n: (source_counts[n], target_counts[n]) for n in source_counts if source_counts[n] != target_counts[n]}
+    bad = {
+        n: (source_counts[n], target_counts[n])
+        for n in source_counts
+        if source_counts[n] != target_counts[n]
+    }
     if bad:
         print(f"❌ Zeilenzahlen weichen ab (Quelle, Ziel): {bad}")
         return 1
-    print(f"✅ {sum(target_counts.values())} Zeilen in {len(tables)} Tabellen uebernommen.")
+    print(
+        f"✅ {sum(target_counts.values())} Zeilen in {len(tables)} Tabellen uebernommen."
+    )
     print("   Die SQLite-Datei wurde nicht veraendert; sie kann als Sicherung bleiben.")
     return 0
 

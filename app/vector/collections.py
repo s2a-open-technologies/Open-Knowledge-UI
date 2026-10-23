@@ -82,7 +82,9 @@ def ensure_collection(client, collection_name: str, dimensions: int) -> None:
 def _ensure_idf(client, collection_name: str) -> None:
     """Traegt den IDF-Modifier an Collections nach, die vor dieser Aenderung entstanden."""
     try:
-        sparse = client.get_collection(collection_name).config.params.sparse_vectors or {}
+        sparse = (
+            client.get_collection(collection_name).config.params.sparse_vectors or {}
+        )
         current = sparse.get(SPARSE_VECTOR)
         if current is not None and current.modifier != qdrant_models.Modifier.IDF:
             client.update_collection(

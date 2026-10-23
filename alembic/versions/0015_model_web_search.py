@@ -27,7 +27,9 @@ def upgrade() -> None:
     if "web_search" not in cols:
         with op.batch_alter_table("model_configs") as batch_op:
             batch_op.add_column(
-                sa.Column("web_search", sa.Boolean, nullable=False, server_default=sa.false())
+                sa.Column(
+                    "web_search", sa.Boolean, nullable=False, server_default=sa.false()
+                )
             )
 
 

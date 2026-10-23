@@ -16,19 +16,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-import os
-import sys
-import logging
 import atexit
+import logging
+import os
 import signal
+import sys
 import threading
 import warnings
 from pathlib import Path
+
 from flask import Flask
 
-from app.utils.qdrant_client import get_qdrant_client
 from app.core.database_service import init_db_service
 from app.core.settings_service import LiveSettingsService, SettingsService
+from app.utils.qdrant_client import get_qdrant_client
 
 # fastembed >=0.6 emits a UserWarning that the paraphrase-multilingual-MiniLM-L12-v2
 # model now uses mean pooling instead of CLS embedding. The new behaviour is correct
@@ -129,7 +130,9 @@ def init_resources(app, preload=False):
     try:
         for kb in list_knowledge():
             if kb["embedding_dimension"] and kb.get("kind") not in ("external", "sql"):
-                ensure_collection(_qdrant_client, kb["collection_name"], kb["embedding_dimension"])
+                ensure_collection(
+                    _qdrant_client, kb["collection_name"], kb["embedding_dimension"]
+                )
     except Exception as e:
         logger.warning(f"Knowledge-Collections konnten nicht angelegt werden: {e}")
 
@@ -148,7 +151,10 @@ def init_resources(app, preload=False):
     # Embedding- und Reranking-Modell im Hintergrund laden (Download beim ersten Start),
     # damit die erste Suche bzw. das erste Einlesen nicht darauf wartet.
     threading.Thread(
-        target=_prepare_models, args=(_qdrant_client,), name="prepare-models", daemon=True
+        target=_prepare_models,
+        args=(_qdrant_client,),
+        name="prepare-models",
+        daemon=True,
     ).start()
 
     # Modell-Laden: synchron (preload) oder asynchron (Hintergrund-Thread)
@@ -331,11 +337,15 @@ def create_app(preload=False):
     # Blueprints registrieren
     from app.core.csrf import init_csrf
 
-    init_csrf(app)  # CSRF-Token fuer alle aendernden Anfragen, Session-Cookie SameSite=Lax
+    init_csrf(
+        app
+    )  # CSRF-Token fuer alle aendernden Anfragen, Session-Cookie SameSite=Lax
 
     from app.core.security_headers import init_security_headers
 
-    init_security_headers(app)  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
+    init_security_headers(
+        app
+    )  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
 
     from app.web.routes import bp
 

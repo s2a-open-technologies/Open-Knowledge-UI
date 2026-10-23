@@ -82,9 +82,12 @@ def test_group_membership_grants_access_and_removal_revokes_it(db):
     kb = knowledge.create_knowledge("Team")
     carol = add_user(db, "carol")
     group = user_admin.create_group("Recht")
-    access.set_access("knowledge", kb["id"], False, [
-        {"principal_type": "group", "principal_id": group["id"], "access": "read"}
-    ])
+    access.set_access(
+        "knowledge",
+        kb["id"],
+        False,
+        [{"principal_type": "group", "principal_id": group["id"], "access": "read"}],
+    )
     assert not access.can_access_knowledge(carol, kb["id"])
 
     user_admin.set_group_members(group["id"], [carol["id"]])
@@ -102,10 +105,15 @@ def test_unknown_knowledge_is_never_accessible(db, admin):
 def test_set_access_replaces_grants_dedupes_and_validates(db):
     kb = knowledge.create_knowledge("X")
     u = add_user(db, "dora")
-    access.set_access("knowledge", kb["id"], False, [
-        {"principal_type": "user", "principal_id": u["id"], "access": "read"},
-        {"principal_type": "user", "principal_id": u["id"], "access": "write"},
-    ])
+    access.set_access(
+        "knowledge",
+        kb["id"],
+        False,
+        [
+            {"principal_type": "user", "principal_id": u["id"], "access": "read"},
+            {"principal_type": "user", "principal_id": u["id"], "access": "write"},
+        ],
+    )
     grants = access.get_access("knowledge", kb["id"])["grants"]
     assert [(g["principal_id"], g["access"]) for g in grants] == [(u["id"], "write")]
 
@@ -147,9 +155,12 @@ def test_private_override_and_clone_need_grants(db, conn):
     assert not access.can_use_model(eve, clone["ref"])
 
     rid = access.model_resource_id(clone["ref"])
-    access.set_access("model", rid, False, [
-        {"principal_type": "user", "principal_id": eve["id"], "access": "read"}
-    ])
+    access.set_access(
+        "model",
+        rid,
+        False,
+        [{"principal_type": "user", "principal_id": eve["id"], "access": "read"}],
+    )
     assert access.can_use_model(eve, clone["ref"])
     assert not access.can_use_model(eve, ref)  # Basis bleibt gesperrt
     assert not access.can_use_model(eve, "clone:999")
@@ -178,7 +189,9 @@ def test_grants_are_removed_with_their_principal_or_resource(db, conn):
     access.set_access("model", clone["id"], False, grants)
 
     user_admin.delete_group(g["id"])
-    assert [x["principal_type"] for x in access.get_access("knowledge", kb["id"])["grants"]] == ["user"]
+    assert [
+        x["principal_type"] for x in access.get_access("knowledge", kb["id"])["grants"]
+    ] == ["user"]
 
     user_admin.delete_user(u["id"], actor_id=1)
     assert access.get_access("knowledge", kb["id"])["grants"] == []
@@ -190,7 +203,12 @@ def test_grants_are_removed_with_their_principal_or_resource(db, conn):
     from app.core.models import ResourceGrant
 
     s = store.get_db_service().get_session()
-    assert s.query(ResourceGrant).filter_by(resource_type="knowledge", resource_id=kb["id"]).count() == 0
+    assert (
+        s.query(ResourceGrant)
+        .filter_by(resource_type="knowledge", resource_id=kb["id"])
+        .count()
+        == 0
+    )
     s.close()
 
 
@@ -201,7 +219,10 @@ def test_create_user_validation(db):
     ok = user_admin.create_user("Anna.K", "Anna", "geheim", "editor")
     assert ok["role"] == "editor" and "password" not in str(ok)
     for args, status in [
-        (("anna.k", "", "geheim", "user"), 409),  # Duplikat ohne Beachtung der Schreibweise
+        (
+            ("anna.k", "", "geheim", "user"),
+            409,
+        ),  # Duplikat ohne Beachtung der Schreibweise
         (("a b", "", "geheim", "user"), 400),
         (("ab", "", "geheim", "user"), 400),
         (("neu", "", "abc", "user"), 400),  # Passwort zu kurz
@@ -226,12 +247,19 @@ def test_last_admin_and_self_protection(db):
 
     second = add_user(db, "zweiter", "admin")
     # Mit zweitem Admin darf der erste herabgestuft werden - aber nicht von sich selbst.
-    assert user_admin.update_user(1, actor_id=second["id"], data={"role": "editor"})["role"] == "editor"
+    assert (
+        user_admin.update_user(1, actor_id=second["id"], data={"role": "editor"})[
+            "role"
+        ]
+        == "editor"
+    )
 
 
 def test_update_user_resets_password_and_name(db):
     u = add_user(db, "gina")
-    user_admin.update_user(u["id"], 1, {"display_name": "Gina G.", "password": "neuespw"})
+    user_admin.update_user(
+        u["id"], 1, {"display_name": "Gina G.", "password": "neuespw"}
+    )
     from app.auth.users import authenticate
 
     assert authenticate("gina", "neuespw")["display_name"] == "Gina G."
@@ -279,7 +307,7 @@ def test_editor_creates_private_knowledge_only_they_can_manage(app, db):
     access.add_grant("knowledge", kb["id"], "user", alice["id"], "write")
     kid = kb["id"]
 
-    ids = lambda c: {k["id"] for k in c.get("/api/knowledge").json}  # noqa: E731
+    ids = lambda c: {k["id"] for k in c.get("/api/knowledge").json}
     assert kid in ids(ca)
     assert kid not in ids(cb) and kid not in ids(cu)
 
@@ -319,7 +347,13 @@ def test_sharing_with_a_group_grants_read_but_not_write(app, db):
         f"/api/knowledge/{kb['id']}/access",
         json={
             "is_public": False,
-            "grants": [{"principal_type": "group", "principal_id": group["id"], "access": "read"}],
+            "grants": [
+                {
+                    "principal_type": "group",
+                    "principal_id": group["id"],
+                    "access": "read",
+                }
+            ],
         },
     )
     assert res.status_code == 200 and res.json["grants"][0]["name"] == "Team"
@@ -330,7 +364,9 @@ def test_sharing_with_a_group_grants_read_but_not_write(app, db):
     cc = client_for(app, carol)
     assert cc.get(f"/api/knowledge/{kb['id']}").json["can_write"] is False
     assert cc.get(f"/api/documents?knowledge_id={kb['id']}").status_code == 200  # lesen
-    assert cc.post(f"/api/documents/ingest?knowledge_id={kb['id']}").status_code == 404  # schreiben
+    assert (
+        cc.post(f"/api/documents/ingest?knowledge_id={kb['id']}").status_code == 404
+    )  # schreiben
     # Editor: alles, was einer seiner Gruppen freigegeben ist, darf er bearbeiten (auch bei Lese-Freigabe)
     assert cb.get(f"/api/knowledge/{kb['id']}").json["can_write"] is True
 
@@ -341,7 +377,11 @@ def test_access_endpoint_rejects_bad_principals(app, db):
     access.add_grant("knowledge", kb["id"], "user", alice["id"], "write")
     res = client_for(app, alice).put(
         f"/api/knowledge/{kb['id']}/access",
-        json={"grants": [{"principal_type": "user", "principal_id": 999, "access": "read"}]},
+        json={
+            "grants": [
+                {"principal_type": "user", "principal_id": 999, "access": "read"}
+            ]
+        },
     )
     assert res.status_code == 400
 
@@ -350,46 +390,105 @@ def test_user_and_group_admin_api_is_admin_only(app, db):
     editor = add_user(db, "ed", "editor")
     ce = client_for(app, editor)
     ca = client_for(app, {"id": 1})
-    for method, path in [("get", "/api/users"), ("post", "/api/users"), ("get", "/api/groups"),
-                         ("post", "/api/groups"), ("get", "/api/models/access?ref=base:1:x")]:
-        assert getattr(ce, method)(path, json={}).status_code == 403 if method == "post" else getattr(ce, method)(path).status_code == 403
-    created = ca.post("/api/users", json={"username": "neu", "password": "geheim", "role": "user"})
+    for method, path in [
+        ("get", "/api/users"),
+        ("post", "/api/users"),
+        ("get", "/api/groups"),
+        ("post", "/api/groups"),
+        ("get", "/api/models/access?ref=base:1:x"),
+    ]:
+        assert (
+            getattr(ce, method)(path, json={}).status_code == 403
+            if method == "post"
+            else getattr(ce, method)(path).status_code == 403
+        )
+    created = ca.post(
+        "/api/users", json={"username": "neu", "password": "geheim", "role": "user"}
+    )
     assert created.status_code == 201
-    assert ca.post("/api/users", json={"username": "neu", "password": "geheim"}).status_code == 409
-    assert ca.patch("/api/users/1", json={"role": "user"}).status_code == 409  # sich selbst
+    assert (
+        ca.post(
+            "/api/users", json={"username": "neu", "password": "geheim"}
+        ).status_code
+        == 409
+    )
+    assert (
+        ca.patch("/api/users/1", json={"role": "user"}).status_code == 409
+    )  # sich selbst
     assert ca.delete("/api/users/1").status_code == 409
-    assert ce.get("/api/principals").status_code == 200  # Editoren brauchen Namen zum Freigeben
+    assert (
+        ce.get("/api/principals").status_code == 200
+    )  # Editoren brauchen Namen zum Freigeben
 
 
 def test_everyone_can_change_their_own_password(app, db):
     u = add_user(db, "plain", "user")
     c = client_for(app, u)
-    assert c.post("/api/auth/change-password", json={"old_password": "x", "new_password": "neuespw"}).status_code == 403
-    assert c.post("/api/auth/change-password", json={"old_password": "pw", "new_password": "ab"}).status_code == 400
-    assert c.post("/api/auth/change-password", json={"old_password": "pw", "new_password": "neuespw"}).status_code == 200
+    assert (
+        c.post(
+            "/api/auth/change-password",
+            json={"old_password": "x", "new_password": "neuespw"},
+        ).status_code
+        == 403
+    )
+    assert (
+        c.post(
+            "/api/auth/change-password",
+            json={"old_password": "pw", "new_password": "ab"},
+        ).status_code
+        == 400
+    )
+    assert (
+        c.post(
+            "/api/auth/change-password",
+            json={"old_password": "pw", "new_password": "neuespw"},
+        ).status_code
+        == 200
+    )
 
 
 def test_models_listing_respects_model_access(app, db, conn, monkeypatch):
     from app.llm import registry
 
-    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["open", "secret"])
-    store.save_model_config(store.make_base_ref(conn["id"], "secret"), {"is_public": False})
+    monkeypatch.setattr(
+        registry, "fetch_remote_models", lambda c, force=False: ["open", "secret"]
+    )
+    store.save_model_config(
+        store.make_base_ref(conn["id"], "secret"), {"is_public": False}
+    )
     u = add_user(db, "plain", "user")
-    names = {m["model_id"] for m in client_for(app, u).get("/api/models").json["models"]
-             if m["connection_name"] == "C"}
+    names = {
+        m["model_id"]
+        for m in client_for(app, u).get("/api/models").json["models"]
+        if m["connection_name"] == "C"
+    }
     assert names == {"open"}
-    admin_names = {m["model_id"] for m in client_for(app, {"id": 1}).get("/api/models").json["models"]
-                   if m["connection_name"] == "C"}
+    admin_names = {
+        m["model_id"]
+        for m in client_for(app, {"id": 1}).get("/api/models").json["models"]
+        if m["connection_name"] == "C"
+    }
     assert admin_names == {"open", "secret"}
 
 
 def test_model_access_endpoint_creates_config_for_plain_base_model(app, db, conn):
     ca = client_for(app, {"id": 1})
     ref = store.make_base_ref(conn["id"], "qwen")
-    assert ca.get(f"/api/models/access?ref={ref}").json == {"is_public": True, "grants": []}
+    assert ca.get(f"/api/models/access?ref={ref}").json == {
+        "is_public": True,
+        "grants": [],
+    }
     u = add_user(db, "plain")
-    res = ca.put("/api/models/access", json={"ref": ref, "is_public": False, "grants": [
-        {"principal_type": "user", "principal_id": u["id"], "access": "read"}]})
+    res = ca.put(
+        "/api/models/access",
+        json={
+            "ref": ref,
+            "is_public": False,
+            "grants": [
+                {"principal_type": "user", "principal_id": u["id"], "access": "read"}
+            ],
+        },
+    )
     assert res.status_code == 200 and res.json["is_public"] is False
     assert access.can_use_model(u, ref)
     assert not access.can_use_model(add_user(db, "other"), ref)
@@ -407,7 +506,7 @@ class FakeAgent:
 @pytest.fixture
 def chat_env(app, db, conn, monkeypatch):
     """/chat ohne LLM: ein Fake-Agent, der Scope wird mitgeschrieben."""
-    import app.web.routes as routes
+    from app.web import routes
 
     seen = []
     monkeypatch.setattr(routes, "set_scope", lambda scope: seen.append(scope))
@@ -434,7 +533,10 @@ def test_chat_scope_only_contains_readable_knowledge(app, db, conn, chat_env):
 
     # Nutzer fordert ausdruecklich auch das fremde Knowledge an.
     chat(c, model=ref, knowledge_ids=[mine["id"], foreign["id"], default["id"]])
-    assert set(chat_env[-1].collections) == {mine["collection_name"], "open_knowledge_ui"}
+    assert set(chat_env[-1].collections) == {
+        mine["collection_name"],
+        "open_knowledge_ui",
+    }
 
     chat(c, model=ref)  # None = alle lesbaren
     assert foreign["collection_name"] not in chat_env[-1].collections
@@ -443,7 +545,9 @@ def test_chat_scope_only_contains_readable_knowledge(app, db, conn, chat_env):
     assert chat_env[-1].collections == ()
 
 
-def test_chat_denies_models_without_access_and_never_leaks_knowledge(app, db, conn, chat_env):
+def test_chat_denies_models_without_access_and_never_leaks_knowledge(
+    app, db, conn, chat_env
+):
     ref = store.make_base_ref(conn["id"], "geheim")
     store.save_model_config(ref, {"is_public": False})
     u = add_user(db, "plain")
@@ -458,11 +562,15 @@ def test_model_knowledge_is_searchable_without_own_grant(app, db, conn, chat_env
     store.save_model_config(ref, {"knowledge_ids": [secret["id"]], "is_public": True})
     u = add_user(db, "plain")  # kein Grant auf das Knowledge
 
-    chat(client_for(app, u), model=ref, knowledge_ids=[])  # Request waehlt bewusst nichts
+    chat(
+        client_for(app, u), model=ref, knowledge_ids=[]
+    )  # Request waehlt bewusst nichts
     assert chat_env[-1].collections == (secret["collection_name"],)
 
 
-def test_manager_cannot_lock_themselves_out_by_saving_a_list_without_themselves(app, db):
+def test_manager_cannot_lock_themselves_out_by_saving_a_list_without_themselves(
+    app, db
+):
     alice = add_user(db, "alice", "editor")
     bob = add_user(db, "bob", "editor")
     kb = knowledge.create_knowledge("Meins")
@@ -474,23 +582,36 @@ def test_manager_cannot_lock_themselves_out_by_saving_a_list_without_themselves(
         f"/api/knowledge/{kb['id']}/access",
         json={
             "is_public": False,
-            "grants": [{"principal_type": "user", "principal_id": bob["id"], "access": "read"}],
+            "grants": [
+                {"principal_type": "user", "principal_id": bob["id"], "access": "read"}
+            ],
         },
     )
     assert res.status_code == 200
     assert access.can_access_knowledge(alice, kb["id"], "write")
     assert access.can_access_knowledge(bob, kb["id"], "read")
-    assert ca.put(f"/api/knowledge/{kb['id']}/access", json={"is_public": False, "grants": []}).status_code == 200
+    assert (
+        ca.put(
+            f"/api/knowledge/{kb['id']}/access", json={"is_public": False, "grants": []}
+        ).status_code
+        == 200
+    )
     assert access.can_access_knowledge(alice, kb["id"], "write")
     assert not access.can_access_knowledge(bob, kb["id"], "read")
 
 
 def test_admin_keeps_write_access_when_saving_a_list_without_themselves(app, db):
     kb = knowledge.create_knowledge("Admin-Sicht")
-    access.add_grant("knowledge", kb["id"], "user", 1, "write")  # Admins sehen Knowledge nur mit Freigabe
+    access.add_grant(
+        "knowledge", kb["id"], "user", 1, "write"
+    )  # Admins sehen Knowledge nur mit Freigabe
     ca = client_for(app, {"id": 1})
-    res = ca.put(f"/api/knowledge/{kb['id']}/access", json={"is_public": False, "grants": []})
+    res = ca.put(
+        f"/api/knowledge/{kb['id']}/access", json={"is_public": False, "grants": []}
+    )
     assert res.status_code == 200
     # Wer verwaltet, sperrt sich beim Speichern nicht aus (Admins haben keinen Sonderzugriff mehr)
-    assert [g["principal_id"] for g in access.get_access("knowledge", kb["id"])["grants"]] == [1]
+    assert [
+        g["principal_id"] for g in access.get_access("knowledge", kb["id"])["grants"]
+    ] == [1]
     assert access.can_access_knowledge({"id": 1, "role": "admin"}, kb["id"], "write")

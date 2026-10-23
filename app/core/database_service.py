@@ -23,7 +23,6 @@ Database Service mit SQLAlchemy (Single-User)
 import os
 import uuid
 from datetime import datetime
-from typing import List, Optional
 
 from flask import after_this_request, g, has_request_context
 from sqlalchemy import create_engine
@@ -120,9 +119,9 @@ class DatabaseService:
             from app.core.settings_service import SettingsService
 
             crypto.encrypt_existing(self.engine, SettingsService.encrypted_keys())
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
@@ -185,7 +184,11 @@ class DatabaseService:
             "QDRANT_HOST": ("qdrant", "localhost", "Qdrant Host"),
             "QDRANT_PORT": ("qdrant", "6333", "Qdrant Port"),
             "INGEST_CHUNK_SIZE": ("ingest", "1000", "Chunk-Groesse in Zeichen"),
-            "INGEST_CHUNK_OVERLAP": ("ingest", "150", "Ueberlappung beim Zerlegen langer Absaetze"),
+            "INGEST_CHUNK_OVERLAP": (
+                "ingest",
+                "150",
+                "Ueberlappung beim Zerlegen langer Absaetze",
+            ),
             "INGEST_CONTEXT_ENRICHMENT": (
                 "ingest",
                 "true",
@@ -212,7 +215,11 @@ class DatabaseService:
                 "Inhaltsverzeichnis (index.md) pro Knowledge erzeugen und dem Modell geben",
             ),
             "UI_THEME": ("ui", "system", "Oberflaeche: light, dark oder system"),
-            "VISION_PROMPT": ("ingest", ingest_prompts.VISION_PROMPT, "Anweisung fuer die Beschreibung von Bildern in Dokumenten"),
+            "VISION_PROMPT": (
+                "ingest",
+                ingest_prompts.VISION_PROMPT,
+                "Anweisung fuer die Beschreibung von Bildern in Dokumenten",
+            ),
             "CONTEXT_PROMPT": (
                 "ingest",
                 ingest_prompts.CONTEXT_PROMPT,
@@ -228,10 +235,22 @@ class DatabaseService:
                 "true",
                 "Tabellen aus PDFs zusaetzlich per Vision-Modell pruefen und korrigieren (wirkt nur mit Bildbeschreibung)",
             ),
-            "TABLES_PROMPT": ("ingest", ingest_prompts.TABLES_PROMPT, "Anweisung fuer die Pruefung von Tabellen per Vision-Modell"),
-            "TABLES_MODEL_REF": ("ingest", "", "Modell der Tabellen-Pruefung (leer = Modell der Bildbeschreibung)"),
+            "TABLES_PROMPT": (
+                "ingest",
+                ingest_prompts.TABLES_PROMPT,
+                "Anweisung fuer die Pruefung von Tabellen per Vision-Modell",
+            ),
+            "TABLES_MODEL_REF": (
+                "ingest",
+                "",
+                "Modell der Tabellen-Pruefung (leer = Modell der Bildbeschreibung)",
+            ),
             "TABLES_TEMPERATURE": ("ingest", "0", "Temperatur der Tabellen-Pruefung"),
-            "TABLES_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Tabellen-Pruefung (leer = Wert des Modells)"),
+            "TABLES_MAX_TOKENS": (
+                "ingest",
+                "",
+                "Maximale Antwortlaenge der Tabellen-Pruefung (leer = Wert des Modells)",
+            ),
             "TABLES_MAX_ROW_DEVIATION": (
                 "ingest",
                 str(ingest_prompts.TABLES_MAX_ROW_DEVIATION),
@@ -242,20 +261,70 @@ class DatabaseService:
                 "true",
                 "Bilder im Chat annehmen: das Bildmodell liest sie, der Text wird wie ein Anhang durchsuchbar",
             ),
-            "IMAGES_PROMPT": ("ingest", ingest_prompts.IMAGES_PROMPT, "Anweisung fuer das Lesen von Bildern im Chat"),
-            "IMAGES_MODEL_REF": ("ingest", "", "Modell fuer Bilder im Chat (leer = Modell der Bildbeschreibung)"),
+            "IMAGES_PROMPT": (
+                "ingest",
+                ingest_prompts.IMAGES_PROMPT,
+                "Anweisung fuer das Lesen von Bildern im Chat",
+            ),
+            "IMAGES_MODEL_REF": (
+                "ingest",
+                "",
+                "Modell fuer Bilder im Chat (leer = Modell der Bildbeschreibung)",
+            ),
             "IMAGES_TEMPERATURE": ("ingest", "0", "Temperatur fuer Bilder im Chat"),
-            "IMAGES_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge fuer Bilder im Chat (leer = Wert des Modells)"),
-            "VISION_TEMPERATURE": ("ingest", "", "Temperatur der Bildbeschreibung (leer = Wert des Modells)"),
-            "VISION_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Bildbeschreibung (leer = Wert des Modells)"),
-            "CONTEXT_MODEL_REF": ("ingest", "", "Modell der Kontext-Anreicherung (leer = Standardmodell)"),
-            "CONTEXT_TEMPERATURE": ("ingest", "", "Temperatur der Kontext-Anreicherung (leer = Wert des Modells)"),
-            "CONTEXT_MAX_TOKENS": ("ingest", "", "Maximale Antwortlaenge der Kontext-Anreicherung (leer = Wert des Modells)"),
-            "AUTH_LDAP": ("auth", "{}", "LDAP/AD-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)", True),
-            "AUTH_OIDC": ("auth", "{}", "OIDC-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)", True),
+            "IMAGES_MAX_TOKENS": (
+                "ingest",
+                "",
+                "Maximale Antwortlaenge fuer Bilder im Chat (leer = Wert des Modells)",
+            ),
+            "VISION_TEMPERATURE": (
+                "ingest",
+                "",
+                "Temperatur der Bildbeschreibung (leer = Wert des Modells)",
+            ),
+            "VISION_MAX_TOKENS": (
+                "ingest",
+                "",
+                "Maximale Antwortlaenge der Bildbeschreibung (leer = Wert des Modells)",
+            ),
+            "CONTEXT_MODEL_REF": (
+                "ingest",
+                "",
+                "Modell der Kontext-Anreicherung (leer = Standardmodell)",
+            ),
+            "CONTEXT_TEMPERATURE": (
+                "ingest",
+                "",
+                "Temperatur der Kontext-Anreicherung (leer = Wert des Modells)",
+            ),
+            "CONTEXT_MAX_TOKENS": (
+                "ingest",
+                "",
+                "Maximale Antwortlaenge der Kontext-Anreicherung (leer = Wert des Modells)",
+            ),
+            "AUTH_LDAP": (
+                "auth",
+                "{}",
+                "LDAP/AD-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)",
+                True,
+            ),
+            "AUTH_OIDC": (
+                "auth",
+                "{}",
+                "OIDC-Anmeldung (JSON, Verwaltung unter Administration > Authentifizierung)",
+                True,
+            ),
             "AUTH_DEFAULT_ROLE": ("auth", "user", "Rolle neuer externer Konten"),
-            "AUTH_AUTO_CREATE": ("auth", "true", "Externe Konten beim ersten Login automatisch anlegen"),
-            "APP_BASE_URL": ("auth", "", "Oeffentliche Adresse der App (fuer den OIDC-Rueckruf)"),
+            "AUTH_AUTO_CREATE": (
+                "auth",
+                "true",
+                "Externe Konten beim ersten Login automatisch anlegen",
+            ),
+            "APP_BASE_URL": (
+                "auth",
+                "",
+                "Oeffentliche Adresse der App (fuer den OIDC-Rueckruf)",
+            ),
             "SEARCH_SEARXNG_URL": (
                 "search",
                 "",
@@ -272,9 +341,21 @@ class DatabaseService:
                 "Vollstaendige PII-Filter-Endpoint-URL (z. B. http://localhost:8082/api/v1/sanitize)",
             ),
             "PII_FILTER_API_KEY": ("pii_filter", "", "API-Key des PII-Filters", True),
-            "PII_FILTER_ENABLED": ("pii_filter", "true", "PII-Filter aktivieren (true/false)"),
-            "PII_FILTER_TIMEOUT_S": ("pii_filter", "10", "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)"),
-            "PII_FILTER_MAX_CHARS": ("pii_filter", "12000", "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken"),
+            "PII_FILTER_ENABLED": (
+                "pii_filter",
+                "true",
+                "PII-Filter aktivieren (true/false)",
+            ),
+            "PII_FILTER_TIMEOUT_S": (
+                "pii_filter",
+                "10",
+                "Zeitlimit eines PII-Filter-Aufrufs in Sekunden (waechst mit der Textlaenge)",
+            ),
+            "PII_FILTER_MAX_CHARS": (
+                "pii_filter",
+                "12000",
+                "Hoechste Textlaenge je PII-Filter-Aufruf; laengere Texte gehen in Stuecken",
+            ),
             "SEARCH_ALLOW_UNMASKED": (
                 "search",
                 "false",
@@ -342,7 +423,7 @@ class DatabaseService:
     # === ChatSession Methods ===
 
     def create_session(
-        self, title: Optional[str] = None, user_id: Optional[int] = None
+        self, title: str | None = None, user_id: int | None = None
     ) -> ChatSession:
         """Neue Session erstellen"""
         db = self.get_session()
@@ -352,15 +433,15 @@ class DatabaseService:
             db.commit()
             db.refresh(session)
             return session
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
     def get_chat_session(
-        self, session_id: str, user_id: Optional[int] = None
-    ) -> Optional[ChatSession]:
+        self, session_id: str, user_id: int | None = None
+    ) -> ChatSession | None:
         """Chat-Session nach ID finden; mit ``user_id`` nur wenn sie ihm gehoert"""
         db = self.get_session()
         try:
@@ -371,7 +452,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def list_sessions(self, user_id: Optional[int] = None) -> List[ChatSession]:
+    def list_sessions(self, user_id: int | None = None) -> list[ChatSession]:
         """Sessions auflisten (mit ``user_id`` nur die eigenen)"""
         db = self.get_session()
         try:
@@ -382,7 +463,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def delete_session(self, session_id: str, user_id: Optional[int] = None) -> bool:
+    def delete_session(self, session_id: str, user_id: int | None = None) -> bool:
         """Session löschen (mit ``user_id`` nur eine eigene)"""
         db = self.get_session()
         try:
@@ -395,9 +476,9 @@ class DatabaseService:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
@@ -418,7 +499,9 @@ class DatabaseService:
         finally:
             db.close()
 
-    def set_session_summary(self, session_id: str, summary: str | None, through_id: int | None) -> None:
+    def set_session_summary(
+        self, session_id: str, summary: str | None, through_id: int | None
+    ) -> None:
         """Speichert die Zusammenfassung der Session (``None`` loescht sie)."""
         db = self.get_session()
         try:
@@ -444,9 +527,9 @@ class DatabaseService:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
@@ -466,13 +549,13 @@ class DatabaseService:
             db.commit()
             db.refresh(message)
             return message
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
-    def get_messages(self, session_id: str, limit: int = 100) -> List[Message]:
+    def get_messages(self, session_id: str, limit: int = 100) -> list[Message]:
         """Nachrichten einer Session"""
         db = self.get_session()
         try:
@@ -486,7 +569,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_last_session(self) -> Optional[ChatSession]:
+    def get_last_session(self) -> ChatSession | None:
         """Letzte Session"""
         db = self.get_session()
         try:
@@ -500,10 +583,10 @@ class DatabaseService:
         self,
         document_id: str,
         filename: str,
-        knowledge_id: Optional[int] = None,
-        markdown_path: Optional[str] = None,
-        parser_version: Optional[int] = None,
-        uploaded_by: Optional[int] = None,
+        knowledge_id: int | None = None,
+        markdown_path: str | None = None,
+        parser_version: int | None = None,
+        uploaded_by: int | None = None,
     ) -> UserDocument:
         """Dokument-Zuordnung erstellen"""
         db = self.get_session()
@@ -520,13 +603,13 @@ class DatabaseService:
             db.commit()
             db.refresh(doc)
             return doc
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
-    def get_all_documents(self, knowledge_id: Optional[int] = None) -> List[UserDocument]:
+    def get_all_documents(self, knowledge_id: int | None = None) -> list[UserDocument]:
         """Dokumente auflisten (optional nur eines Knowledge-Bereichs)"""
         db = self.get_session()
         try:
@@ -540,7 +623,7 @@ class DatabaseService:
     # === ChatAttachment Methods ===
 
     def create_attachment(
-        self, session_id: str, filename: str, user_id: Optional[int] = None
+        self, session_id: str, filename: str, user_id: int | None = None
     ) -> ChatAttachment:
         db = self.get_session()
         try:
@@ -561,7 +644,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_attachment(self, attachment_id: str) -> Optional[ChatAttachment]:
+    def get_attachment(self, attachment_id: str) -> ChatAttachment | None:
         db = self.get_session()
         try:
             return db.query(ChatAttachment).filter_by(id=attachment_id).first()
@@ -569,8 +652,8 @@ class DatabaseService:
             db.close()
 
     def list_session_attachments(
-        self, session_id: str, status: Optional[str] = None
-    ) -> List[ChatAttachment]:
+        self, session_id: str, status: str | None = None
+    ) -> list[ChatAttachment]:
         db = self.get_session()
         try:
             q = db.query(ChatAttachment).filter_by(session_id=session_id)
@@ -581,7 +664,7 @@ class DatabaseService:
             db.close()
 
     def set_attachment_status(
-        self, attachment_id: str, status: str, error: Optional[str] = None
+        self, attachment_id: str, status: str, error: str | None = None
     ) -> None:
         db = self.get_session()
         try:
@@ -628,7 +711,7 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_document_by_id(self, doc_id: int) -> Optional[UserDocument]:
+    def get_document_by_id(self, doc_id: int) -> UserDocument | None:
         """Dokument nach ID finden"""
         db = self.get_session()
         try:
@@ -646,16 +729,16 @@ class DatabaseService:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
     # === UserSummaryFile Methods ===
 
     def create_summary_file(
-        self, filename: str, user_id: Optional[int] = None
+        self, filename: str, user_id: int | None = None
     ) -> UserSummaryFile:
         """Neue Summary-Datei-Eintrag erstellen"""
         db = self.get_session()
@@ -665,9 +748,9 @@ class DatabaseService:
             db.commit()
             db.refresh(summary)
             return summary
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
@@ -703,13 +786,15 @@ class DatabaseService:
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 
-    def delete_summary_by_filename(self, filename: str, user_id: Optional[int] = None) -> bool:
+    def delete_summary_by_filename(
+        self, filename: str, user_id: int | None = None
+    ) -> bool:
         """Summary-Datei-Eintrag nach Filename löschen; nur der des angegebenen Nutzers,
         nie der gleichnamige Eintrag eines anderen."""
         db = self.get_session()
@@ -717,16 +802,18 @@ class DatabaseService:
             from app.core.models import UserSummaryFile
 
             summary = (
-                db.query(UserSummaryFile).filter_by(filename=filename, user_id=user_id).first()
+                db.query(UserSummaryFile)
+                .filter_by(filename=filename, user_id=user_id)
+                .first()
             )
             if summary:
                 db.delete(summary)
                 db.commit()
                 return True
             return False
-        except Exception as e:
+        except Exception:
             db.rollback()
-            raise e
+            raise
         finally:
             db.close()
 

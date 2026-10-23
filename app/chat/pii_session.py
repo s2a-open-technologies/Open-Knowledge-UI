@@ -53,15 +53,21 @@ def timeout_for(chars: int, base: float = BASE_TIMEOUT_S) -> float:
 
 
 def join_texts(texts: list[str]) -> str:
-    return "".join(f"\n\n{MARKER.format(i)}\n\n{text}" for i, text in enumerate(texts)).lstrip("\n")
+    return "".join(
+        f"\n\n{MARKER.format(i)}\n\n{text}" for i, text in enumerate(texts)
+    ).lstrip("\n")
 
 
 def split_texts(joined: str, count: int) -> list[str]:
     """Teilt den maskierten Text an den Marken; wirft, wenn sie nicht genau einmal und in Reihenfolge da sind."""
     found = [int(m.group(1)) for m in _MARKER_RE.finditer(joined)]
     if found != list(range(count)):
-        raise PIIFilterUnavailable("der Filter hat die Trennmarken des Verlaufs verändert")
-    parts = _MARKER_RE.split(joined)  # ['', '0', '\n\ntext0\n\n', '1', '\n\ntext1', ...]
+        raise PIIFilterUnavailable(
+            "der Filter hat die Trennmarken des Verlaufs verändert"
+        )
+    parts = _MARKER_RE.split(
+        joined
+    )  # ['', '0', '\n\ntext0\n\n', '1', '\n\ntext1', ...]
     texts = []
     for i in range(count):
         part = parts[2 + 2 * i]
@@ -121,7 +127,9 @@ def split_text(text: str, limit: int) -> list[str]:
     return pieces
 
 
-def mask_conversation(client: PIIFilterClient, texts: list[str]) -> tuple[list[str], object]:
+def mask_conversation(
+    client: PIIFilterClient, texts: list[str]
+) -> tuple[list[str], object]:
     """Maskiert alle ``texts``; was in ein Stueck passt, in EINEM Aufruf, sonst in Stuecken.
 
     Bei Stuecken vergibt der Dienst je Aufruf neu zu zaehlen an: ``merge_masked`` ordnet die Platzhalter
@@ -130,7 +138,11 @@ def mask_conversation(client: PIIFilterClient, texts: list[str]) -> tuple[list[s
     limit = max_chars(client)
     if not texts or len(join_texts(texts)) <= limit:
         return _mask_batch(client, texts)
-    units = [(i, piece) for i, text in enumerate(texts) for piece in split_text(text, limit - 200)]
+    units = [
+        (i, piece)
+        for i, text in enumerate(texts)
+        for piece in split_text(text, limit - 200)
+    ]
     batches, current, size = [], [], 0
     for unit in units:
         if current and size + len(unit[1]) + 40 > limit:
@@ -145,7 +157,9 @@ def mask_conversation(client: PIIFilterClient, texts: list[str]) -> tuple[list[s
         masked, mapping = _mask_batch(client, [piece for _, piece in batch])
         batch_pairs = mapping_pairs(mapping)
         if batch_pairs:
-            masked = split_texts(merge_masked(known, join_texts(masked), batch_pairs), len(masked))
+            masked = split_texts(
+                merge_masked(known, join_texts(masked), batch_pairs), len(masked)
+            )
         pieces.extend(masked)
     out = [""] * len(texts)
     for (i, _), piece in zip(units, pieces):
@@ -169,7 +183,9 @@ def _mask_batch(client: PIIFilterClient, texts: list[str]) -> tuple[list[str], o
         # Dienste, die das Feld nicht kennen, ignorieren es.
         result = client.filter_text(
             joined,
-            timeout=timeout_for(len(joined), getattr(client, "timeout", None) or BASE_TIMEOUT_S),
+            timeout=timeout_for(
+                len(joined), getattr(client, "timeout", None) or BASE_TIMEOUT_S
+            ),
             extra={"reuse_placeholders": True},
         )
     except Exception as e:  # filter_text faengt selbst; Sicherheitsnetz
@@ -187,13 +203,19 @@ def unavailable_message(error) -> str:
     text = str(error)
     if "Timeout" in text or "timed out" in text:
         limit = re.search(r"\(([^)]*)\)", text)
-        return "Der PII-Filter hat nicht rechtzeitig geantwortet (Zeitüberschreitung" + (f" nach {limit.group(1)}" if limit else "") + ")"
-    if text.startswith("HTTP 401") or text.startswith("HTTP 403"):
+        return (
+            "Der PII-Filter hat nicht rechtzeitig geantwortet (Zeitüberschreitung"
+            + (f" nach {limit.group(1)}" if limit else "")
+            + ")"
+        )
+    if text.startswith(("HTTP 401", "HTTP 403")):
         return f"Der PII-Filter lehnt die Anmeldung ab ({text.split(':')[0][:12]}, API-Key prüfen)"
     if text.startswith("HTTP "):
         return f"Der PII-Filter hat mit einem Fehler geantwortet ({text.split(':')[0][:12]})"
     if "Trennmarken" in text:
-        return "Der PII-Filter hat den Text verändert (Trennmarken des Verlaufs verändert)"
+        return (
+            "Der PII-Filter hat den Text verändert (Trennmarken des Verlaufs verändert)"
+        )
     return "Der PII-Filter ist nicht erreichbar"
 
 
@@ -218,7 +240,9 @@ def merge_masked(known: dict, text: str, new_pairs: list[tuple[str, str]]) -> st
     reverse = {original: placeholder for placeholder, original in known.items()}
     taken = {placeholder for placeholder, _ in new_pairs}
     rename: dict[str, str] = {}
-    for placeholder, original in sorted(new_pairs, key=lambda p: len(p[0]), reverse=True):
+    for placeholder, original in sorted(
+        new_pairs, key=lambda p: len(p[0]), reverse=True
+    ):
         if original in reverse:
             target = reverse[original]
         elif known.get(placeholder, original) == original:
@@ -241,7 +265,9 @@ def merge_masked(known: dict, text: str, new_pairs: list[tuple[str, str]]) -> st
         known[target] = original
         reverse[original] = target
     if rename:
-        pattern = re.compile("|".join(re.escape(k) for k in sorted(rename, key=len, reverse=True)))
+        pattern = re.compile(
+            "|".join(re.escape(k) for k in sorted(rename, key=len, reverse=True))
+        )
         text = pattern.sub(lambda m: rename[m.group(0)], text)
     return text
 
@@ -274,7 +300,9 @@ class PIISession:
         if self.client is None or not text:
             return text
         out = []
-        for piece in split_text(text, max_chars(self.client)):  # grosse Ergebnisse stueckweise (siehe max_chars)
+        for piece in split_text(
+            text, max_chars(self.client)
+        ):  # grosse Ergebnisse stueckweise (siehe max_chars)
             masked, mapping = mask_or_fail(self.client, piece)
             (masked,), mapping = keep_years([masked], mapping)
             pairs = mapping_pairs(mapping)
@@ -283,7 +311,6 @@ class PIISession:
                     masked = merge_masked(self._known, masked, pairs)
             out.append(masked)
         return "".join(out)
-
 
     def mask_values(self, values: list) -> list:
         """Maskiert einzelne Datenwerte (Zellen) in EINEM Filteraufruf; Platzhalter sind sitzungsweit eindeutig.
@@ -296,14 +323,20 @@ class PIISession:
         out = list(values)
         if self.client is None:
             return out
-        positions = [i for i, v in enumerate(out) if isinstance(v, str) and v.strip() and not _PLAIN_NUMBER.match(v.strip())]
+        positions = [
+            i
+            for i, v in enumerate(out)
+            if isinstance(v, str) and v.strip() and not _PLAIN_NUMBER.match(v.strip())
+        ]
         if not positions:
             return out
         masked, mapping = mask_conversation(self.client, [out[i] for i in positions])
         pairs = mapping_pairs(mapping)
         if pairs:
             with self._lock:
-                masked = split_texts(merge_masked(self._known, join_texts(masked), pairs), len(masked))
+                masked = split_texts(
+                    merge_masked(self._known, join_texts(masked), pairs), len(masked)
+                )
         for i, text in zip(positions, masked):
             out[i] = text
         return out
@@ -328,7 +361,9 @@ class StreamDemasker:
     def __init__(self, mapping):
         self._session = mapping if isinstance(mapping, PIISession) else None
         self._static = (
-            sorted(mapping_pairs(mapping), key=lambda p: len(p[0]), reverse=True) if self._session is None else []
+            sorted(mapping_pairs(mapping), key=lambda p: len(p[0]), reverse=True)
+            if self._session is None
+            else []
         )
         self._buffer = ""
 

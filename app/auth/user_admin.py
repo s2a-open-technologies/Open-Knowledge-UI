@@ -82,7 +82,9 @@ def list_users() -> list[dict]:
         groups: dict[int, list[int]] = {}
         for m in db.query(GroupMember):
             groups.setdefault(m.user_id, []).append(m.group_id)
-        return [_user_row(u, groups.get(u.id, [])) for u in db.query(User).order_by(User.id)]
+        return [
+            _user_row(u, groups.get(u.id, [])) for u in db.query(User).order_by(User.id)
+        ]
     finally:
         db.close()
 
@@ -112,7 +114,13 @@ def create_user(username: str, display_name: str, password: str, role: str) -> d
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.USER_CREATE, actor_user_id=u.id, object_type="user", object_id=u.id, detail={"rolle": role})
+        audit.record(
+            audit.USER_CREATE,
+            actor_user_id=u.id,
+            object_type="user",
+            object_id=u.id,
+            detail={"rolle": role},
+        )
         return _user_row(u, [])
     except Exception:
         db.rollback()
@@ -138,11 +146,15 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
         if new_role not in ROLES:
             raise AdminError("Ungültige Rolle")
 
-        loses_admin = u.role == "admin" and u.is_active and (
-            new_role != "admin" or not new_active
+        loses_admin = (
+            u.role == "admin"
+            and u.is_active
+            and (new_role != "admin" or not new_active)
         )
         if user_id == actor_id and (new_role != u.role or new_active != u.is_active):
-            raise AdminError("Eigene Rolle und eigenen Status kannst du nicht ändern", 409)
+            raise AdminError(
+                "Eigene Rolle und eigenen Status kannst du nicht ändern", 409
+            )
         if loses_admin and _active_admin_count(db, excluding_id=user_id) == 0:
             raise AdminError("Der letzte aktive Admin kann nicht entfernt werden", 409)
 
@@ -156,8 +168,12 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
             u.display_name = (data["display_name"] or "").strip() or u.username
         if data.get("password"):
             if (u.auth_source or "local") != "local":
-                raise AdminError("Das Passwort externer Konten verwaltet der Anmeldedienst", 400)
-            u.password_hash = generate_password_hash(_validate_password(data["password"]))
+                raise AdminError(
+                    "Das Passwort externer Konten verwaltet der Anmeldedienst", 400
+                )
+            u.password_hash = generate_password_hash(
+                _validate_password(data["password"])
+            )
             changes["passwort"] = True
         db.commit()
         from app.auth import audit
@@ -208,7 +224,13 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.USER_DELETE, actor_user_id=actor_id, object_type="user", object_id=user_id, detail={"name": u.username})
+        audit.record(
+            audit.USER_DELETE,
+            actor_user_id=actor_id,
+            object_type="user",
+            object_id=user_id,
+            detail={"name": u.username},
+        )
     except Exception:
         db.rollback()
         raise
@@ -264,12 +286,19 @@ def _check_group_name(db, name: str, exclude_id: int | None = None) -> str:
 def create_group(name: str, description: str = "") -> dict:
     db = get_db_service().get_session()
     try:
-        g = Group(name=_check_group_name(db, name), description=(description or "").strip())
+        g = Group(
+            name=_check_group_name(db, name), description=(description or "").strip()
+        )
         db.add(g)
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.GROUP_CREATE, object_type="group", object_id=g.id, detail={"name": g.name})
+        audit.record(
+            audit.GROUP_CREATE,
+            object_type="group",
+            object_id=g.id,
+            detail={"name": g.name},
+        )
         return _group_row(g, [])
     except Exception:
         db.rollback()
@@ -291,8 +320,15 @@ def update_group(group_id: int, data: dict) -> dict:
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.GROUP_UPDATE, object_type="group", object_id=g.id, detail={"name": g.name})
-        members = [m.user_id for m in db.query(GroupMember).filter_by(group_id=group_id)]
+        audit.record(
+            audit.GROUP_UPDATE,
+            object_type="group",
+            object_id=g.id,
+            detail={"name": g.name},
+        )
+        members = [
+            m.user_id for m in db.query(GroupMember).filter_by(group_id=group_id)
+        ]
         return _group_row(g, members)
     except Exception:
         db.rollback()
@@ -320,7 +356,12 @@ def set_group_members(group_id: int, user_ids: list[int]) -> dict:
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.GROUP_MEMBERS_SET, object_type="group", object_id=group_id, detail={"mitglieder": sorted(wanted)})
+        audit.record(
+            audit.GROUP_MEMBERS_SET,
+            object_type="group",
+            object_id=group_id,
+            detail={"mitglieder": sorted(wanted)},
+        )
         return _group_row(g, sorted(wanted))
     except Exception:
         db.rollback()
@@ -340,7 +381,12 @@ def delete_group(group_id: int) -> None:
         db.commit()
         from app.auth import audit
 
-        audit.record(audit.GROUP_DELETE, object_type="group", object_id=group_id, detail={"name": g.name})
+        audit.record(
+            audit.GROUP_DELETE,
+            object_type="group",
+            object_id=group_id,
+            detail={"name": g.name},
+        )
     except Exception:
         db.rollback()
         raise

@@ -26,7 +26,9 @@ def upgrade() -> None:
         "audit_log",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.Column("actor_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column(
+            "actor_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True
+        ),
         sa.Column("actor_name", sa.String(80), nullable=True),
         sa.Column("ip", sa.String(64), nullable=True),
         sa.Column("action", sa.String(64), nullable=False),

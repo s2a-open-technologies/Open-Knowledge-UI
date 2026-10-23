@@ -62,7 +62,9 @@ def default_language() -> str:
 
 def knowledge_language(knowledge: dict | None) -> str:
     """Sprache, mit der das Knowledge indexiert wurde (Altbestand: Englisch)."""
-    return ((knowledge or {}).get("bm25_language") or "").strip().lower() or LEGACY_LANGUAGE
+    return (
+        (knowledge or {}).get("bm25_language") or ""
+    ).strip().lower() or LEGACY_LANGUAGE
 
 
 class SparseRouter:
@@ -83,7 +85,9 @@ class SparseRouter:
             if language not in self._by_language:
                 from langchain_qdrant import FastEmbedSparse
 
-                self._by_language[language] = FastEmbedSparse(model_name=MODEL, language=language)
+                self._by_language[language] = FastEmbedSparse(
+                    model_name=MODEL, language=language
+                )
             return self._by_language[language]
 
     def embed_documents(self, texts):

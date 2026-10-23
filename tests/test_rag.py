@@ -29,12 +29,16 @@ class FakeDense:
 
 class FakeSparse:
     def embed_query(self, text):
-        idx = sorted({VOCAB.index(w) for t in tokens(text) for w in VOCAB if t.startswith(w[:6])})
+        idx = sorted(
+            {VOCAB.index(w) for t in tokens(text) for w in VOCAB if t.startswith(w[:6])}
+        )
         return SimpleNamespace(indices=idx or [99], values=[1.0] * (len(idx) or 1))
 
 
 def cfg(**over):
-    base = prof.validate_config({"mmr": {"enabled": False}, "search": {"dense_min_score": None}})
+    base = prof.validate_config(
+        {"mmr": {"enabled": False}, "search": {"dense_min_score": None}}
+    )
     for key, value in over.items():
         if isinstance(value, dict) and isinstance(base.get(key), dict):
             base[key].update(value)
@@ -51,8 +55,18 @@ def add_point(client, collection, pid, text, **payload):
         [
             qm.PointStruct(
                 id=pid,
-                vector={"": dense.embed_query(text), "langchain-sparse": qm.SparseVector(indices=sv.indices, values=sv.values)},
-                payload={"page_content": text, "original_content": text, "filename": "doc.md", **payload},
+                vector={
+                    "": dense.embed_query(text),
+                    "langchain-sparse": qm.SparseVector(
+                        indices=sv.indices, values=sv.values
+                    ),
+                },
+                payload={
+                    "page_content": text,
+                    "original_content": text,
+                    "filename": "doc.md",
+                    **payload,
+                },
             )
         ],
     )
@@ -67,9 +81,27 @@ def client():
 
 @pytest.fixture
 def corpus(client):
-    add_point(client, "kb", 1, "Die Kuendigung hat eine Frist von sieben Monaten", filename="vertrag.md")
-    add_point(client, "kb", 2, "Die Kaution betraegt drei Monatsmieten miete", filename="vertrag.md")
-    add_point(client, "kb", 3, "Das Dach muss im Fruehjahr saniert werden", filename="gutachten.md")
+    add_point(
+        client,
+        "kb",
+        1,
+        "Die Kuendigung hat eine Frist von sieben Monaten",
+        filename="vertrag.md",
+    )
+    add_point(
+        client,
+        "kb",
+        2,
+        "Die Kaution betraegt drei Monatsmieten miete",
+        filename="vertrag.md",
+    )
+    add_point(
+        client,
+        "kb",
+        3,
+        "Das Dach muss im Fruehjahr saniert werden",
+        filename="gutachten.md",
+    )
     add_point(client, "kb", 4, "Strom Abrechnung jaehrlich", filename="strom.md")
     return client
 
@@ -77,7 +109,14 @@ def corpus(client):
 def search(client, question, config=None, collections=("kb",), **kw):
     trace = pipeline.Trace()
     hits = pipeline.run(
-        question, list(collections), config or cfg(), client=client, dense=FakeDense(), sparse=FakeSparse(), trace=trace, **kw
+        question,
+        list(collections),
+        config or cfg(),
+        client=client,
+        dense=FakeDense(),
+        sparse=FakeSparse(),
+        trace=trace,
+        **kw,
     )
     return hits, trace
 
@@ -102,7 +141,9 @@ def test_all_search_modes_work(corpus, mode):
 
 
 def test_dense_min_score_filters_weak_matches(corpus):
-    hits, _ = search(corpus, "Dach", cfg(search={"mode": "dense", "dense_min_score": 0.9}))
+    hits, _ = search(
+        corpus, "Dach", cfg(search={"mode": "dense", "dense_min_score": 0.9})
+    )
     assert files(hits) == ["gutachten.md"]
 
 
@@ -114,8 +155,12 @@ def test_fusion_weights_decide_between_dense_and_sparse_preferences(client):
     dense_first, _ = search(client, question, cfg(search={"mode": "dense"}))
     sparse_first, _ = search(client, question, cfg(search={"mode": "sparse"}))
     assert dense_first and sparse_first
-    heavy_dense, _ = search(client, question, cfg(search={"dense_weight": 10, "sparse_weight": 0.1}))
-    heavy_sparse, _ = search(client, question, cfg(search={"dense_weight": 0.1, "sparse_weight": 10}))
+    heavy_dense, _ = search(
+        client, question, cfg(search={"dense_weight": 10, "sparse_weight": 0.1})
+    )
+    heavy_sparse, _ = search(
+        client, question, cfg(search={"dense_weight": 0.1, "sparse_weight": 10})
+    )
     assert heavy_dense[0].filename == dense_first[0].filename
     assert heavy_sparse[0].filename == sparse_first[0].filename
 
@@ -148,14 +193,27 @@ QE = {"mode": "multi_query", "n_queries": 2}
 
 
 def test_parse_questions_cleans_dedupes_and_limits():
-    raw = "<think>egal</think>\n1. Erste Frage?\n- Zweite Frage?\n* \"Dritte Frage?\"\n\nerste frage?\n" + "x" * 400
-    assert queries.parse_questions(raw, "Original?", 2) == ["Erste Frage?", "Zweite Frage?"]
+    raw = (
+        '<think>egal</think>\n1. Erste Frage?\n- Zweite Frage?\n* "Dritte Frage?"\n\nerste frage?\n'
+        + "x" * 400
+    )
+    assert queries.parse_questions(raw, "Original?", 2) == [
+        "Erste Frage?",
+        "Zweite Frage?",
+    ]
     assert queries.parse_questions("Original?\n original? ", "Original?", 5) == []
 
 
 def test_prompt_placeholders_are_replaced_without_str_format():
-    c = prof.validate_config({"query_enhancement": {"mode": "multi_query", "n_queries": 4,
-        "prompt": 'JSON {"a": 1}: {anzahl} Fragen zu {frage}'}})["query_enhancement"]
+    c = prof.validate_config(
+        {
+            "query_enhancement": {
+                "mode": "multi_query",
+                "n_queries": 4,
+                "prompt": 'JSON {"a": 1}: {anzahl} Fragen zu {frage}',
+            }
+        }
+    )["query_enhancement"]
     assert queries.build_prompt("Was?", c) == 'JSON {"a": 1}: 4 Fragen zu Was?'
 
 
@@ -166,8 +224,15 @@ def test_multi_query_finds_documents_the_original_question_misses(corpus):
         seen.append(prompt)
         return "Kaution Hoehe\nDach Sanierung"
 
-    plain, _ = search(corpus, "Kuendigung", cfg(final_k=10, search={"dense_min_score": 0.5}))
-    enhanced, trace = search(corpus, "Kuendigung", cfg(final_k=10, search={"dense_min_score": 0.5}, query_enhancement=QE), helper=helper)
+    plain, _ = search(
+        corpus, "Kuendigung", cfg(final_k=10, search={"dense_min_score": 0.5})
+    )
+    enhanced, trace = search(
+        corpus,
+        "Kuendigung",
+        cfg(final_k=10, search={"dense_min_score": 0.5}, query_enhancement=QE),
+        helper=helper,
+    )
 
     assert "gutachten.md" not in files(plain)
     assert {"vertrag.md", "gutachten.md"} <= set(files(enhanced))
@@ -178,7 +243,12 @@ def test_multi_query_finds_documents_the_original_question_misses(corpus):
 
 
 def test_include_original_can_be_switched_off(corpus):
-    hits, trace = search(corpus, "Kuendigung", cfg(query_enhancement={**QE, "include_original": False}), helper=lambda p, q: "Dach Sanierung")
+    hits, trace = search(
+        corpus,
+        "Kuendigung",
+        cfg(query_enhancement={**QE, "include_original": False}),
+        helper=lambda p, q: "Dach Sanierung",
+    )
     assert trace.stages[0]["queries"] == ["Dach Sanierung"]
     assert hits[0].filename == "gutachten.md"
 
@@ -189,14 +259,23 @@ def test_failing_or_missing_helper_falls_back_to_the_original_question(corpus):
 
     hits, trace = search(corpus, "Dach", cfg(query_enhancement=QE), helper=boom)
     assert hits[0].filename == "gutachten.md"
-    assert "TimeoutError" in trace.stages[0]["error"] and trace.stages[0]["queries"] == ["Dach"]
+    assert "TimeoutError" in trace.stages[0]["error"] and trace.stages[0][
+        "queries"
+    ] == ["Dach"]
 
     hits, trace = search(corpus, "Dach", cfg(query_enhancement=QE), helper=None)
     assert hits and "Kein Helfer-LLM" in trace.stages[0]["skipped"]
 
 
 def test_empty_helper_answer_keeps_the_original_question(corpus):
-    _, trace = search(corpus, "Dach", cfg(query_enhancement=QE, ), helper=lambda p, q: "  \n ")
+    _, trace = search(
+        corpus,
+        "Dach",
+        cfg(
+            query_enhancement=QE,
+        ),
+        helper=lambda p, q: "  \n ",
+    )
     assert trace.stages[0]["queries"] == ["Dach"]
 
 
@@ -211,23 +290,38 @@ def test_rerank_orders_by_cross_encoder_score_against_the_original_question(corp
         return [10.0 if "Kaution" in t else 1.0 for t in texts]
 
     hits, trace = search(
-        corpus, "kuendigung kaution", cfg(final_k=3, rerank={"enabled": True, "model": "m-x"}), rerank_fn=fake_rerank
+        corpus,
+        "kuendigung kaution",
+        cfg(final_k=3, rerank={"enabled": True, "model": "m-x"}),
+        rerank_fn=fake_rerank,
     )
     assert hits[0].text.startswith("Die Kaution") and hits[0].score == 10.0
-    assert captured == {"model": "default", "question": "kuendigung kaution"}  # Profil-Modell ist global
+    assert captured == {
+        "model": "default",
+        "question": "kuendigung kaution",
+    }  # Profil-Modell ist global
     assert "rerank" in [s["stage"] for s in trace.stages]
 
 
 def test_rerank_uses_the_original_question_even_with_query_enhancement(corpus):
     questions = []
-    search(corpus, "Kuendigung", cfg(query_enhancement=QE, rerank={"enabled": True}),
-           helper=lambda p, q: "Dach Sanierung", rerank_fn=lambda m, q, t: questions.append(q) or [1.0] * len(t))
+    search(
+        corpus,
+        "Kuendigung",
+        cfg(query_enhancement=QE, rerank={"enabled": True}),
+        helper=lambda p, q: "Dach Sanierung",
+        rerank_fn=lambda m, q, t: questions.append(q) or [1.0] * len(t),
+    )
     assert questions == ["Kuendigung"]
 
 
 def test_rerank_min_score_drops_weak_candidates(corpus):
-    hits, _ = search(corpus, "kuendigung kaution dach", cfg(final_k=5, rerank={"enabled": True, "min_score": 5.0}),
-                     rerank_fn=lambda m, q, t: [9.0 if "Dach" in x else 1.0 for x in t])
+    hits, _ = search(
+        corpus,
+        "kuendigung kaution dach",
+        cfg(final_k=5, rerank={"enabled": True, "min_score": 5.0}),
+        rerank_fn=lambda m, q, t: [9.0 if "Dach" in x else 1.0 for x in t],
+    )
     assert [h.filename for h in hits] == ["gutachten.md"]
 
 
@@ -246,14 +340,20 @@ def test_rerank_failure_falls_back_to_the_unranked_order(corpus):
 
 def test_mmr_prefers_diverse_results_over_near_duplicates(client):
     for i in range(3):
-        add_point(client, "kb", i + 1, "kuendigung frist kuendigung", filename=f"dup{i}.md")
+        add_point(
+            client, "kb", i + 1, "kuendigung frist kuendigung", filename=f"dup{i}.md"
+        )
     # weniger relevant (Cosine ca. 0.45), aber inhaltlich anders als die Duplikate
     add_point(client, "kb", 10, "kuendigung kaution miete strom", filename="anders.md")
 
     # Dense-Modus: die Fake-Sparse-Vektoren kennen keine Termgewichte (Gleichstand).
     dense = {"mode": "dense"}
     plain, _ = search(client, "kuendigung", cfg(final_k=2, search=dense))
-    diverse, trace = search(client, "kuendigung", cfg(final_k=2, search=dense, mmr={"enabled": True, "lambda_mult": 0.1}))
+    diverse, trace = search(
+        client,
+        "kuendigung",
+        cfg(final_k=2, search=dense, mmr={"enabled": True, "lambda_mult": 0.1}),
+    )
 
     assert "anders.md" not in files(plain)
     assert "anders.md" in files(diverse)
@@ -265,14 +365,30 @@ def test_mmr_prefers_diverse_results_over_near_duplicates(client):
 
 @pytest.fixture
 def chunked(client):
-    texts = ["Einleitung", "Abschnitt eins", "Abschnitt zwei dach", "Abschnitt drei", "Abschnitt vier", "Schluss"]
+    texts = [
+        "Einleitung",
+        "Abschnitt eins",
+        "Abschnitt zwei dach",
+        "Abschnitt drei",
+        "Abschnitt vier",
+        "Schluss",
+    ]
     for i, t in enumerate(texts):
-        add_point(client, "kb", 100 + i, t, filename="lang.md", file_group_id="fg-1", chunk_index=i, chunk_total=len(texts))
+        add_point(
+            client,
+            "kb",
+            100 + i,
+            t,
+            filename="lang.md",
+            file_group_id="fg-1",
+            chunk_index=i,
+            chunk_total=len(texts),
+        )
     return client
 
 
 def test_neighbors_are_added_in_document_order(chunked):
-    hits, trace = search(chunked, "dach", cfg(final_k=1, neighbors=1))
+    hits, _trace = search(chunked, "dach", cfg(final_k=1, neighbors=1))
     assert len(hits) == 1
     assert hits[0].text == "Abschnitt eins\n\nAbschnitt zwei dach\n\nAbschnitt drei"
     assert hits[0].payload["_chunks"] == [1, 3]
@@ -280,15 +396,30 @@ def test_neighbors_are_added_in_document_order(chunked):
 
 
 def test_neighbors_respect_document_boundaries(chunked):
-    add_point(chunked, "kb", 200, "Ende kuendigung", filename="lang.md", file_group_id="fg-1", chunk_index=6, chunk_total=7)
-    hits, _ = search(chunked, "Einleitung", cfg(final_k=1, neighbors=2, search={"mode": "sparse"}))
+    add_point(
+        chunked,
+        "kb",
+        200,
+        "Ende kuendigung",
+        filename="lang.md",
+        file_group_id="fg-1",
+        chunk_index=6,
+        chunk_total=7,
+    )
+    hits, _ = search(
+        chunked, "Einleitung", cfg(final_k=1, neighbors=2, search={"mode": "sparse"})
+    )
     assert not hits or all(c >= 0 for c in (hits[0].payload.get("_chunks") or [0]))
-    first, _ = search(chunked, "Schluss", cfg(final_k=1, neighbors=3, search={"mode": "dense"}))
+    first, _ = search(
+        chunked, "Schluss", cfg(final_k=1, neighbors=3, search={"mode": "dense"})
+    )
     assert first == [] or first[0].payload["_chunks"][1] <= 6
 
 
 def test_adjacent_hits_merge_into_one_passage(chunked):
-    hits, _ = search(chunked, "abschnitt", cfg(final_k=2, neighbors=1, search={"mode": "dense"}))
+    hits, _ = search(
+        chunked, "abschnitt", cfg(final_k=2, neighbors=1, search={"mode": "dense"})
+    )
     assert len(hits) >= 1
     merged = hits[0]
     start, end = merged.payload["_chunks"]
@@ -302,12 +433,26 @@ def re_find(text):
 def test_hits_without_chunk_index_pass_through_unchanged(corpus):
     hits, trace = search(corpus, "Dach", cfg(final_k=1, neighbors=2))
     assert hits[0].text == "Das Dach muss im Fruehjahr saniert werden"
-    assert next(s for s in trace.stages if s["stage"] == "neighbors")["without_chunk_index"] == 1
+    assert (
+        next(s for s in trace.stages if s["stage"] == "neighbors")[
+            "without_chunk_index"
+        ]
+        == 1
+    )
 
 
 def test_missing_neighbor_chunks_do_not_break_the_passage(client):
     for i in (0, 2):  # Chunk 1 fehlt
-        add_point(client, "kb", i + 1, f"Teil {i} dach", filename="loch.md", file_group_id="fg", chunk_index=i, chunk_total=3)
+        add_point(
+            client,
+            "kb",
+            i + 1,
+            f"Teil {i} dach",
+            filename="loch.md",
+            file_group_id="fg",
+            chunk_index=i,
+            chunk_total=3,
+        )
     hits, _ = search(client, "dach", cfg(final_k=2, neighbors=1))
     assert sorted(h.payload["_chunks"] for h in hits) == [[0, 0], [2, 2]]
 
@@ -319,8 +464,12 @@ def test_format_hits_names_the_source():
     from langchain_core.documents import Document
 
     docs = [
-        Document(page_content=" Text A ", metadata={"filename": "a.pdf", "chunk_index": 2}),
-        Document(page_content="Text B", metadata={"filename": "b.md", "chunks": [1, 3]}),
+        Document(
+            page_content=" Text A ", metadata={"filename": "a.pdf", "chunk_index": 2}
+        ),
+        Document(
+            page_content="Text B", metadata={"filename": "b.md", "chunks": [1, 3]}
+        ),
         Document(page_content="Text C", metadata={}),
     ]
     out = rag_format.format_hits(docs)
@@ -335,7 +484,9 @@ def test_format_hits_names_the_source():
 
 @pytest.fixture
 def retriever(db, client):
-    return MultiCollectionRetriever(client=client, dense_embeddings=FakeDense(), sparse_embeddings=FakeSparse())
+    return MultiCollectionRetriever(
+        client=client, dense_embeddings=FakeDense(), sparse_embeddings=FakeSparse()
+    )
 
 
 def with_scope(scope):
@@ -353,7 +504,13 @@ def test_each_collection_searches_with_its_own_profile(db, retriever, client):
     add_point(client, "kb2", 1, "Dach Reparatur", filename="zwei.md")
     add_point(client, "kb2", 2, "Dach Garantie", filename="drei.md")
 
-    with_scope(RetrievalScope(("kb", "kb2"), None, profiles=(("kb", cfg(final_k=1)), ("kb2", cfg(final_k=3)))))
+    with_scope(
+        RetrievalScope(
+            ("kb", "kb2"),
+            None,
+            profiles=(("kb", cfg(final_k=1)), ("kb2", cfg(final_k=3))),
+        )
+    )
     docs = retriever.invoke("Dach")
 
     by_collection = [d.metadata["collection"] for d in docs]
@@ -362,25 +519,49 @@ def test_each_collection_searches_with_its_own_profile(db, retriever, client):
     assert by_collection[:2] == ["kb", "kb2"]  # Round-Robin
 
 
-def test_collections_with_equal_profiles_share_one_pipeline_run(db, retriever, client, monkeypatch):
+def test_collections_with_equal_profiles_share_one_pipeline_run(
+    db, retriever, client, monkeypatch
+):
     ensure_collection(client, "kb2", 7)
     calls = []
     real = pipeline.run
-    monkeypatch.setattr(pipeline, "run", lambda q, colls, c, **kw: calls.append(list(colls)) or real(q, colls, c, **kw))
-    with_scope(RetrievalScope(("kb", "kb2"), None, profiles=(("kb", cfg()), ("kb2", cfg()))))
+    monkeypatch.setattr(
+        pipeline,
+        "run",
+        lambda q, colls, c, **kw: calls.append(list(colls)) or real(q, colls, c, **kw),
+    )
+    with_scope(
+        RetrievalScope(("kb", "kb2"), None, profiles=(("kb", cfg()), ("kb2", cfg())))
+    )
     retriever.invoke("Dach")
     assert calls == [["kb", "kb2"]]
 
 
 def test_attachments_come_first_and_only_from_this_session(db, retriever, client):
     ensure_collection(client, "user_uploads", 7)
-    add_point(client, "user_uploads", 1, "Anhang Dach A", filename="anhang.pdf", session_id="s-1")
-    add_point(client, "user_uploads", 2, "Anhang Dach B", filename="fremd.pdf", session_id="s-2")
+    add_point(
+        client,
+        "user_uploads",
+        1,
+        "Anhang Dach A",
+        filename="anhang.pdf",
+        session_id="s-1",
+    )
+    add_point(
+        client,
+        "user_uploads",
+        2,
+        "Anhang Dach B",
+        filename="fremd.pdf",
+        session_id="s-2",
+    )
     add_point(client, "kb", 1, "Wissen Dach", filename="wissen.md")
 
     with_scope(RetrievalScope(("kb",), "s-1", profiles=(("kb", cfg()),)))
     names = [d.metadata["filename"] for d in retriever.invoke("Dach")]
-    assert names[0] == "anhang.pdf" and "fremd.pdf" not in names and "wissen.md" in names
+    assert (
+        names[0] == "anhang.pdf" and "fremd.pdf" not in names and "wissen.md" in names
+    )
 
 
 def test_nothing_selected_and_no_session_returns_nothing(db, retriever):
@@ -392,14 +573,27 @@ def test_helper_in_scope_reaches_the_pipeline(db, retriever, client):
     add_point(client, "kb", 1, "Dach Sanierung", filename="eins.md")
     add_point(client, "kb", 2, "Kaution Hoehe", filename="zwei.md")
     c = cfg(final_k=5, search={"dense_min_score": 0.5}, query_enhancement=QE)
-    with_scope(RetrievalScope(("kb",), None, profiles=(("kb", c),), helper=lambda p, q: "Kaution Hoehe"))
-    assert {d.metadata["filename"] for d in retriever.invoke("Dach")} == {"eins.md", "zwei.md"}
+    with_scope(
+        RetrievalScope(
+            ("kb",), None, profiles=(("kb", c),), helper=lambda p, q: "Kaution Hoehe"
+        )
+    )
+    assert {d.metadata["filename"] for d in retriever.invoke("Dach")} == {
+        "eins.md",
+        "zwei.md",
+    }
 
 
 def test_tool_output_contains_sources_end_to_end(db, retriever, client):
     from app.tools.custom_tools import CustomTools
 
-    add_point(client, "kb", 1, "Die Kuendigungsfrist betraegt sieben Monate", filename="vertrag.md")
+    add_point(
+        client,
+        "kb",
+        1,
+        "Die Kuendigungsfrist betraegt sieben Monate",
+        filename="vertrag.md",
+    )
     with_scope(RetrievalScope(("kb",), None, profiles=(("kb", cfg()),)))
     tools = CustomTools(llm=None, retriever=retriever).get_tools()
     search_tool = next(t for t in tools if t.name == "document_search_tool")
@@ -410,7 +604,9 @@ def test_tool_output_contains_sources_end_to_end(db, retriever, client):
 def test_search_records_sources_with_score_for_the_chat(db, retriever, client):
     from app.rag.format import record_sources
 
-    add_point(client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.md")
+    add_point(
+        client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.md"
+    )
     scope = RetrievalScope(("kb",), None, profiles=(("kb", cfg()),))
     with_scope(scope)
     docs = retriever.invoke("Kaution")
@@ -422,11 +618,22 @@ def test_search_records_sources_with_score_for_the_chat(db, retriever, client):
     assert "Kaution" in entry["snippet"]
 
 
-def test_source_numbers_are_stable_across_searches_and_appear_in_the_tool_output(db, retriever, client):
+def test_source_numbers_are_stable_across_searches_and_appear_in_the_tool_output(
+    db, retriever, client
+):
     from app.rag.format import format_hits, record_sources
 
-    add_point(client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.md")
-    add_point(client, "kb", 2, "Die Kuendigungsfrist betraegt drei Monate", filename="frist.md", chunk_index=1)
+    add_point(
+        client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.md"
+    )
+    add_point(
+        client,
+        "kb",
+        2,
+        "Die Kuendigungsfrist betraegt drei Monate",
+        filename="frist.md",
+        chunk_index=1,
+    )
     scope = RetrievalScope(("kb",), None, profiles=(("kb", cfg()),))
     with_scope(scope)
     first = retriever.invoke("Kaution")
@@ -444,7 +651,15 @@ def test_source_numbers_are_stable_across_searches_and_appear_in_the_tool_output
 def test_pages_reach_the_model_output_and_the_source_list(db, retriever, client):
     from app.rag.format import format_hits, record_sources
 
-    add_point(client, "kb", 1, "Die Kaution betraegt drei Monatsmieten", filename="vertrag.pdf", page_start=3, page_end=4)
+    add_point(
+        client,
+        "kb",
+        1,
+        "Die Kaution betraegt drei Monatsmieten",
+        filename="vertrag.pdf",
+        page_start=3,
+        page_end=4,
+    )
     scope = RetrievalScope(("kb",), None, profiles=(("kb", cfg()),))
     with_scope(scope)
     docs = retriever.invoke("Kaution")

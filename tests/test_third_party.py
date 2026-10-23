@@ -8,7 +8,8 @@ def _load():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "third_party", Path(__file__).resolve().parent.parent / "scripts" / "third_party.py"
+        "third_party",
+        Path(__file__).resolve().parent.parent / "scripts" / "third_party.py",
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules["third_party"] = module

@@ -47,7 +47,10 @@ def test_default_is_german_and_unknown_values_fall_back(db):
     assert sparse_lang.default_language() == "english"
     set_language(db, "klingonisch")
     assert sparse_lang.default_language() == "german"
-    assert "german" in sparse_lang.supported_languages() and "english" in sparse_lang.supported_languages()
+    assert (
+        "german" in sparse_lang.supported_languages()
+        and "english" in sparse_lang.supported_languages()
+    )
 
 
 def test_legacy_knowledge_counts_as_english(db):
@@ -68,11 +71,15 @@ def test_the_german_encoder_matches_word_forms_the_english_one_does_not():
         german, english = router.for_language("german"), router.for_language("english")
     except Exception as e:  # Modell nicht verfuegbar (kein Netz)
         pytest.skip(f"BM25-Modell nicht ladbar: {e}")
+
     def tokens(enc, text):
         return set(enc.embed_documents([text])[0].indices)
+
     assert tokens(german, "Kündigungsfristen") == tokens(german, "Kündigungsfrist")
     assert tokens(english, "Kündigungsfristen") != tokens(english, "Kündigungsfrist")
-    assert not tokens(german, "und") and tokens(english, "und")  # deutsches Stoppwort entfaellt nur im deutschen Encoder
+    assert not tokens(german, "und") and tokens(
+        english, "und"
+    )  # deutsches Stoppwort entfaellt nur im deutschen Encoder
     assert german is router.for_language("german")  # je Sprache einmal geladen
 
 
@@ -88,7 +95,9 @@ def test_new_and_reindexed_knowledge_get_the_current_language(db):
     assert not model_settings.is_stale(knowledge.get_knowledge(kb["id"]))
 
 
-def test_existing_knowledge_without_a_language_is_english_and_stale_under_the_german_default(db):
+def test_existing_knowledge_without_a_language_is_english_and_stale_under_the_german_default(
+    db,
+):
     kb = knowledge.get_knowledge(None)
     s = db.get_session()
     from app.core.models import Knowledge
@@ -103,15 +112,30 @@ def test_existing_knowledge_without_a_language_is_english_and_stale_under_the_ge
     assert not model_settings.is_stale(legacy)
 
 
-def test_each_collection_is_searched_in_the_language_it_was_indexed_with(db, monkeypatch):
+def test_each_collection_is_searched_in_the_language_it_was_indexed_with(
+    db, monkeypatch
+):
     seen = []
-    monkeypatch.setattr(pipeline, "run", lambda q, collections, cfg, **kw: seen.append((tuple(collections), kw["sparse"].language)) or [])
+    monkeypatch.setattr(
+        pipeline,
+        "run",
+        lambda q, collections, cfg, **kw: (
+            seen.append((tuple(collections), kw["sparse"].language)) or []
+        ),
+    )
     router = FakeRouter()
-    retriever = MultiCollectionRetriever(client=QdrantClient(":memory:"), dense_embeddings=object(), sparse_embeddings=router)
+    retriever = MultiCollectionRetriever(
+        client=QdrantClient(":memory:"),
+        dense_embeddings=object(),
+        sparse_embeddings=router,
+    )
     set_scope(
         RetrievalScope(
             collections=("alt", "neu", "neu2"),
-            sparse_langs=(("neu", "german"), ("neu2", "german")),  # "alt" fehlt: Altbestand = Englisch
+            sparse_langs=(
+                ("neu", "german"),
+                ("neu2", "german"),
+            ),  # "alt" fehlt: Altbestand = Englisch
         )
     )
     try:
@@ -125,33 +149,50 @@ def test_documents_are_indexed_in_the_knowledge_language_attachments_in_the_defa
     from app.vector.ingestion import DocumentIngestion
 
     router = FakeRouter()
-    german_kb = SimpleNamespace(knowledge={"bm25_language": "german"}, track_documents=True)
+    german_kb = SimpleNamespace(
+        knowledge={"bm25_language": "german"}, track_documents=True
+    )
     legacy_kb = SimpleNamespace(knowledge={"bm25_language": None}, track_documents=True)
-    attachment = SimpleNamespace(knowledge={"bm25_language": None}, track_documents=False)
+    attachment = SimpleNamespace(
+        knowledge={"bm25_language": None}, track_documents=False
+    )
     set_language(db, "german")
     assert DocumentIngestion._sparse_for_index(german_kb, router).language == "german"
     assert DocumentIngestion._sparse_for_index(legacy_kb, router).language == "english"
-    assert DocumentIngestion._sparse_for_index(attachment, router).language == "german"  # Anhaenge: Standardsprache
+    assert (
+        DocumentIngestion._sparse_for_index(attachment, router).language == "german"
+    )  # Anhaenge: Standardsprache
 
 
 def test_admin_can_choose_the_language_and_unknown_ones_are_rejected(app, db):
     admin = client_for(app, ADMIN)
     overview = admin.get("/api/admin/embedding").json
-    assert overview["ingest"]["bm25_language"] == "german" and "german" in overview["bm25_languages"]
+    assert (
+        overview["ingest"]["bm25_language"] == "german"
+        and "german" in overview["bm25_languages"]
+    )
     ingest = {k: v for k, v in overview["ingest"].items()}
-    res = admin.put("/api/admin/embedding", json={"ingest": {**ingest, "bm25_language": "english"}})
+    res = admin.put(
+        "/api/admin/embedding", json={"ingest": {**ingest, "bm25_language": "english"}}
+    )
     assert res.status_code == 200 and res.json["ingest"]["bm25_language"] == "english"
-    res = admin.put("/api/admin/embedding", json={"ingest": {"bm25_language": "klingonisch"}})
+    res = admin.put(
+        "/api/admin/embedding", json={"ingest": {"bm25_language": "klingonisch"}}
+    )
     assert res.status_code == 400 and "unbekannte Sprache" in res.json["error"]
 
 
 def test_migration_0034_runs_up_down_up(tmp_path):
-    spec = importlib.util.spec_from_file_location("m0034", Path("alembic/versions/0034_bm25_language.py"))
+    spec = importlib.util.spec_from_file_location(
+        "m0034", Path("alembic/versions/0034_bm25_language.py")
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.SETTING[1] == sparse_lang.DEFAULT_LANGUAGE
     env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path / 'm.db'}"}
-    run = lambda *a: subprocess.run([sys.executable, "-m", "alembic", *a], env=env, check=True, capture_output=True)  # noqa: E731
+    run = lambda *a: subprocess.run(
+        [sys.executable, "-m", "alembic", *a], env=env, check=True, capture_output=True
+    )
     run("upgrade", "head")
     run("downgrade", "0033")
     run("upgrade", "head")
@@ -174,13 +215,30 @@ def test_end_to_end_a_german_index_finds_other_word_forms(db, qd, no_enrichment)
         "a.md": "# Mietvertrag\n\nDie Kündigungsfrist beträgt drei Monate zum Monatsende.",
         "b.md": "# Wartung\n\nDie Heizungsanlage wird jährlich gewartet und geprüft.",
     }
-    ing = make_ingestion(client, knowledge=kb, collection_name="kb_t", sparse_embeddings=router, embeddings=FakeDense())
+    ing = make_ingestion(
+        client,
+        knowledge=kb,
+        collection_name="kb_t",
+        sparse_embeddings=router,
+        embeddings=FakeDense(),
+    )
     for i, (name, text) in enumerate(docs.items()):
         ing.index_markdown(text, name, f"g{i}", router)
     cfg = {**__import__("app.rag.profiles", fromlist=["x"]).default_config()}
-    cfg = {**cfg, "search": {**cfg["search"], "mode": "sparse"}, "rerank": {**cfg["rerank"], "enabled": False}, "mmr": {**cfg["mmr"], "enabled": False}, "neighbors": 0}
+    cfg = {
+        **cfg,
+        "search": {**cfg["search"], "mode": "sparse"},
+        "rerank": {**cfg["rerank"], "enabled": False},
+        "mmr": {**cfg["mmr"], "enabled": False},
+        "neighbors": 0,
+    }
     hits = pipeline.run(
-        "Wie lang sind die Kündigungsfristen?", ["kb_t"], cfg, client=client, dense=FakeDense(),
-        sparse=sparse_lang.resolve(router, "german"), rerank_fn=lambda *a: [],
+        "Wie lang sind die Kündigungsfristen?",
+        ["kb_t"],
+        cfg,
+        client=client,
+        dense=FakeDense(),
+        sparse=sparse_lang.resolve(router, "german"),
+        rerank_fn=lambda *a: [],
     )
     assert hits and hits[0].payload["filename"] == "a.md"

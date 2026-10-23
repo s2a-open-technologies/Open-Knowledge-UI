@@ -36,11 +36,15 @@ def upgrade() -> None:
         if "embedding_spec" not in cols:
             batch_op.add_column(sa.Column("embedding_spec", sa.Text, nullable=True))
         if "index_signature" not in cols:
-            batch_op.add_column(sa.Column("index_signature", sa.String(32), nullable=True))
+            batch_op.add_column(
+                sa.Column("index_signature", sa.String(32), nullable=True)
+            )
         if "last_reindex_error" not in cols:
             batch_op.add_column(sa.Column("last_reindex_error", sa.Text, nullable=True))
 
-    settings = {r[0]: r[1] for r in bind.execute(sa.text("SELECT key, value FROM settings"))}
+    settings = {
+        r[0]: r[1] for r in bind.execute(sa.text("SELECT key, value FROM settings"))
+    }
     legacy = "EMBEDDING_MODEL" in settings  # Datenbank einer bestehenden Installation
     model = settings.get("EMBEDDING_MODEL") or LEGACY_MODEL
 
@@ -55,23 +59,33 @@ def upgrade() -> None:
                         "INSERT INTO settings (key, value, default_value, category, is_sensitive, description) "
                         "VALUES (:k, :v, :v, 'embedding', 0, :d)"
                     ),
-                    {"k": key, "v": json.dumps(spec), "d": "Modell (JSON), Verwaltung unter Admin > Einlesen & Modelle"},
+                    {
+                        "k": key,
+                        "v": json.dumps(spec),
+                        "d": "Modell (JSON), Verwaltung unter Admin > Einlesen & Modelle",
+                    },
                 )
         bind.execute(
-            sa.text("UPDATE knowledge SET embedding_spec = :s, embedding_model = COALESCE(embedding_model, :m) "
-                    "WHERE embedding_spec IS NULL"),
+            sa.text(
+                "UPDATE knowledge SET embedding_spec = :s, embedding_model = COALESCE(embedding_model, :m) "
+                "WHERE embedding_spec IS NULL"
+            ),
             {"s": json.dumps({"source": "fastembed", "model": model}), "m": model},
         )
 
     tables = sa.inspect(bind).get_table_names()
     if "retrieval_profiles" in tables:
-        for pid, raw in bind.execute(sa.text("SELECT id, config FROM retrieval_profiles")).fetchall():
+        for pid, raw in bind.execute(
+            sa.text("SELECT id, config FROM retrieval_profiles")
+        ).fetchall():
             try:
                 cfg = json.loads(raw)
                 if cfg.get("rerank", {}).get("model") not in (None, "default"):
                     cfg["rerank"]["model"] = "default"
                     bind.execute(
-                        sa.text("UPDATE retrieval_profiles SET config = :c WHERE id = :i"),
+                        sa.text(
+                            "UPDATE retrieval_profiles SET config = :c WHERE id = :i"
+                        ),
                         {"c": json.dumps(cfg), "i": pid},
                     )
             except (ValueError, AttributeError):

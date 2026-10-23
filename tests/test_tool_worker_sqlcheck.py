@@ -12,9 +12,21 @@ ALLOWED = {"items", "t", "u"}
         ("select a from t limit 5", "mysql", "SELECT a FROM t LIMIT 5"),
         ("select a from t limit 5000", "postgresql", "SELECT a FROM t LIMIT 50"),
         ("select top 3 a from t", "mssql", "SELECT TOP 3 a FROM t"),
-        ("with x as (select a from t) select a from x", "postgresql", "WITH x AS (SELECT a FROM t) SELECT a FROM x LIMIT 50"),
-        ("select a from t union select a from u", "sqlite", "SELECT a FROM t UNION SELECT a FROM u"),
-        ("SELECT count(*) FROM t WHERE a LIKE '%x%'", "postgresql", "SELECT COUNT(*) FROM t WHERE a LIKE '%x%' LIMIT 50"),
+        (
+            "with x as (select a from t) select a from x",
+            "postgresql",
+            "WITH x AS (SELECT a FROM t) SELECT a FROM x LIMIT 50",
+        ),
+        (
+            "select a from t union select a from u",
+            "sqlite",
+            "SELECT a FROM t UNION SELECT a FROM u",
+        ),
+        (
+            "SELECT count(*) FROM t WHERE a LIKE '%x%'",
+            "postgresql",
+            "SELECT COUNT(*) FROM t WHERE a LIKE '%x%' LIMIT 50",
+        ),
     ],
 )
 def test_plain_selects_pass_and_get_a_row_limit(sql, dialect, expected):
@@ -73,13 +85,16 @@ def test_blocked_columns_cannot_be_read_in_any_form(sql):
 
 
 def test_other_columns_of_the_same_table_are_fine():
-    assert validate_select("select name, email from items", "postgresql", {"items"}, BLOCKED) == (
-        "SELECT name, email FROM items LIMIT 50"
-    )
+    assert validate_select(
+        "select name, email from items", "postgresql", {"items"}, BLOCKED
+    ) == ("SELECT name, email FROM items LIMIT 50")
 
 
 def test_all_tables_allowed_when_no_list_is_given():
-    assert validate_select("select a from anything", "sqlite") == "SELECT a FROM anything LIMIT 50"
+    assert (
+        validate_select("select a from anything", "sqlite")
+        == "SELECT a FROM anything LIMIT 50"
+    )
 
 
 def test_unknown_dialect_is_rejected():
@@ -113,9 +128,18 @@ def test_whole_row_references_cannot_smuggle_blocked_columns(sql):
 
 
 def test_count_star_and_ordinary_columns_stay_usable_with_blocked_columns():
-    assert "COUNT(*)" in validate_select("select count(*) from items", "postgresql", {"items"}, BLOCKED)
-    assert validate_select("select name, category from items i where i.name = 'x'", "postgresql", {"items"}, BLOCKED)
+    assert "COUNT(*)" in validate_select(
+        "select count(*) from items", "postgresql", {"items"}, BLOCKED
+    )
+    assert validate_select(
+        "select name, category from items i where i.name = 'x'",
+        "postgresql",
+        {"items"},
+        BLOCKED,
+    )
 
 
 def test_whole_row_of_tables_without_blocked_columns_is_fine():
-    assert validate_select("select o from orders o", "postgresql", {"items", "orders"}, BLOCKED)
+    assert validate_select(
+        "select o from orders o", "postgresql", {"items", "orders"}, BLOCKED
+    )

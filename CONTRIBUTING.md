@@ -61,6 +61,10 @@ python3 scripts/release.py publish --yes           # Branch + Tag pushen
 - Keine Secrets, API-Keys oder privaten IPs in Code committen.
 - Default-Passwörter nur als Fallback, nie hartkodiert für Production.
 
-## Lizenz
+## Lizenz / CLA
 
-Durch das Einreichen eines Beitrags stimmst du zu, dass dieser unter der [AGPL-3.0-or-later](./LICENSE) Lizenz steht.
+Bevor ein Beitrag übernommen wird, muss die [Contributor License Agreement (CLA)](./CLA.md) angenommen werden. Sie überträgt der S2A Open Technologies gGmbH alle übertragbaren ausschließlichen Nutzungs- und Verwertungsrechte am Beitrag; das Urheberrecht selbst bleibt nach § 29 UrhG beim Contributor. Die Beiträge stehen der Allgemeinheit weiterhin unter der [AGPL-3.0-or-later](./LICENSE) zur Verfügung.
+
+- **Einzelpersonen:** die CLA (Teil A) unterschreiben und einreichen oder ihr im Pull Request ausdrücklich zustimmen („Ich habe die CLA gelesen und stimme ihr zu.“).
+- **Unternehmen / Beschäftigte:** die Corporate CLA (Teil B) unterschreiben und die beitragenden Personen im Anhang benennen.
+- Ohne angenommene CLA kann ein Beitrag nicht übernommen werden. Bereits erteilte Lizenzen (AGPL-3.0-or-later) bleiben unberührt.

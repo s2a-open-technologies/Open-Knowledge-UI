@@ -24,7 +24,9 @@ def upgrade() -> None:
     cols = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("connections")}
     if "kind" not in cols:
         with op.batch_alter_table("connections") as batch_op:
-            batch_op.add_column(sa.Column("kind", sa.String(20), nullable=False, server_default="llm"))
+            batch_op.add_column(
+                sa.Column("kind", sa.String(20), nullable=False, server_default="llm")
+            )
 
 
 def downgrade() -> None:

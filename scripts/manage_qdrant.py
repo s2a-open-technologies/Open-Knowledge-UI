@@ -44,18 +44,17 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from qdrant_client import QdrantClient  # noqa: E402
-from qdrant_client.http import models as qdrant_models  # noqa: E402
-from tqdm import tqdm  # noqa: E402
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qdrant_models
+from tqdm import tqdm
 
 
 def create_remote_client(
-    host: str, port: int, api_key: Optional[str] = None
+    host: str, port: int, api_key: str | None = None
 ) -> QdrantClient:
     """Erstellt Client fuer einen Qdrant Server."""
     if api_key:
@@ -69,10 +68,10 @@ def test_connection(client: QdrantClient, name: str) -> tuple[bool, str]:
         collections = client.get_collections()
         return True, f"Verbunden. {len(collections.collections)} Collection(s)"
     except Exception as e:
-        return False, f"Fehler: {str(e)}"
+        return False, f"Fehler: {e!s}"
 
 
-def get_collection_info(client: QdrantClient, collection_name: str) -> Optional[dict]:
+def get_collection_info(client: QdrantClient, collection_name: str) -> dict | None:
     """Holt Informationen ueber eine Collection."""
     try:
         collection = client.get_collection(collection_name)

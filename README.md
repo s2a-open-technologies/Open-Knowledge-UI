@@ -181,4 +181,5 @@ Selbstauskunft mit Fundstellen und ehrlich benannten Lücken (keine Zertifizieru
 ## Autor und Rechteinhaber
 
 Rechteinhaber ist die **S2A Open Technologies gGmbH**; Urheber ist Christopher Abanilla.
-Siehe [`AUTHORS.md`](./AUTHORS.md).
+Siehe [`AUTHORS.md`](./AUTHORS.md). Beiträge setzen die Annahme der
+[Contributor License Agreement (CLA)](./CLA.md) voraus.

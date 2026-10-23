@@ -88,7 +88,9 @@ TYPE_TO_SECTION = {
     "build": "chore",
     "style": "chore",
 }
-COMMIT_RE = re.compile(r"^(?P<type>\w+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?:\s*(?P<text>.+)$")
+COMMIT_RE = re.compile(
+    r"^(?P<type>\w+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?:\s*(?P<text>.+)$"
+)
 
 
 class ReleaseError(Exception):
@@ -127,22 +129,25 @@ def _patterns(old: str | None = None) -> list[tuple[str, re.Pattern]]:
     return [
         (
             "pyproject.toml",
-            re.compile(rf'(\[project\][^\[]*?^version\s*=\s*")({v})(")', re.M | re.S),
+            re.compile(
+                rf'(\[project\][^\[]*?^version\s*=\s*")({v})(")',
+                re.MULTILINE | re.DOTALL,
+            ),
         ),
         (
             "frontend/package.json",
-            re.compile(rf'^(\s*"version"\s*:\s*")({v})(")', re.M),
+            re.compile(rf'^(\s*"version"\s*:\s*")({v})(")', re.MULTILINE),
         ),
         # Zwei Stellen: Wurzel und packages[""]
         (
             "frontend/package-lock.json",
-            re.compile(rf'^(\s*"version"\s*:\s*")({v})(")', re.M),
+            re.compile(rf'^(\s*"version"\s*:\s*")({v})(")', re.MULTILINE),
         ),
         (
             "frontend/package-lock.json#packages",
             re.compile(
                 rf'("packages"\s*:\s*\{{\s*""\s*:\s*\{{[^}}]*?"version"\s*:\s*")({v})(")',
-                re.S,
+                re.DOTALL,
             ),
         ),
         (
@@ -204,13 +209,15 @@ def git(root: Path, *args: str, check: bool = True) -> str:
         ["git", *args], cwd=root, capture_output=True, text=True, check=False
     )
     if check and proc.returncode != 0:
-        raise ReleaseError(f"git {' '.join(args)} fehlgeschlagen: {proc.stderr.strip()}")
+        raise ReleaseError(
+            f"git {' '.join(args)} fehlgeschlagen: {proc.stderr.strip()}"
+        )
     return proc.stdout.strip()
 
 
 def release_tags(root: Path) -> list[str]:
     out = git(root, "tag", "--list", f"{TAG_PREFIX}*", "--sort=-v:refname")
-    return [t for t in out.splitlines() if SEMVER.match(t[len(TAG_PREFIX):])]
+    return [t for t in out.splitlines() if SEMVER.match(t[len(TAG_PREFIX) :])]
 
 
 def repo_url(root: Path) -> str | None:
@@ -266,16 +273,16 @@ def render_notes(commits: list[dict]) -> str:
     return "\n".join(lines).strip()
 
 
-_LINKDEF = re.compile(r"^\[[^\]]+\]:\s+\S+", re.M)
+_LINKDEF = re.compile(r"^\[[^\]]+\]:\s+\S+", re.MULTILINE)
 
 
 def changelog_section(text: str, version: str) -> str:
     """Inhalt des Abschnitts ``## [version]`` (leer, wenn nicht vorhanden)."""
-    m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n", text, re.M)
+    m = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n", text, re.MULTILINE)
     if not m:
         return ""
-    rest = text[m.end():]
-    end = re.search(r"^## \[|^\[[^\]]+\]:\s+\S+", rest, re.M)
+    rest = text[m.end() :]
+    end = re.search(r"^## \[|^\[[^\]]+\]:\s+\S+", rest, re.MULTILINE)
     return (rest[: end.start()] if end else rest).strip()
 
 
@@ -295,18 +302,20 @@ def update_changelog(
     if not text.strip():
         text = CHANGELOG_HEADER + UNRELEASED + "\n"
     if UNRELEASED not in text:
-        head_end = re.search(r"^## \[", text, re.M)
+        head_end = re.search(r"^## \[", text, re.MULTILINE)
         pos = head_end.start() if head_end else len(text)
         text = text[:pos] + UNRELEASED + "\n\n" + text[pos:]
 
-    if re.search(rf"^## \[{re.escape(version)}\]", text, re.M):
-        raise ReleaseError(f"CHANGELOG.md enthält bereits einen Abschnitt für {version}")
+    if re.search(rf"^## \[{re.escape(version)}\]", text, re.MULTILINE):
+        raise ReleaseError(
+            f"CHANGELOG.md enthält bereits einen Abschnitt für {version}"
+        )
 
     start = text.index(UNRELEASED) + len(UNRELEASED)
     rest = text[start:]
-    end = re.search(r"^## \[|^\[[^\]]+\]:\s+\S+", rest, re.M)
+    end = re.search(r"^## \[|^\[[^\]]+\]:\s+\S+", rest, re.MULTILINE)
     body = (rest[: end.start()] if end else rest).strip()
-    tail = rest[end.start():] if end else ""
+    tail = rest[end.start() :] if end else ""
 
     body = body or generated_notes or "- Keine Änderungen erfasst."
     new_text = (
@@ -317,12 +326,14 @@ def update_changelog(
     return _update_links(new_text.rstrip() + "\n", version, previous, url)
 
 
-def _update_links(text: str, version: str, previous: str | None, url: str | None) -> str:
+def _update_links(
+    text: str, version: str, previous: str | None, url: str | None
+) -> str:
     if not url:
         return text
     links = {
         m.group(1): m.group(0)
-        for m in re.finditer(r"^\[([^\]]+)\]:\s+\S+.*$", text, re.M)
+        for m in re.finditer(r"^\[([^\]]+)\]:\s+\S+.*$", text, re.MULTILINE)
     }
     links["Unreleased"] = f"[Unreleased]: {url}/compare/{TAG_PREFIX}{version}...HEAD"
     links[version] = (
@@ -333,7 +344,11 @@ def _update_links(text: str, version: str, previous: str | None, url: str | None
     body = _LINKDEF.sub("", text).rstrip()
 
     def order(name: str) -> tuple:
-        return (0, ()) if name == "Unreleased" else (1, tuple(-n for n in parse_version(name)))
+        return (
+            (0, ())
+            if name == "Unreleased"
+            else (1, tuple(-n for n in parse_version(name)))
+        )
 
     ordered = sorted(links, key=order)
     return body + "\n\n" + "\n".join(links[n] for n in ordered) + "\n"
@@ -368,7 +383,11 @@ def cmd_check(root: Path, args) -> int:
 def cmd_notes(root: Path, args) -> int:
     if args.version:
         path = root / CHANGELOG
-        section = changelog_section(path.read_text(encoding="utf-8"), args.version) if path.exists() else ""
+        section = (
+            changelog_section(path.read_text(encoding="utf-8"), args.version)
+            if path.exists()
+            else ""
+        )
         if not section:
             raise ReleaseError(f"CHANGELOG.md hat keinen Abschnitt für {args.version}")
         print(section)
@@ -406,9 +425,11 @@ def cmd_bump(root: Path, args) -> int:
     if problems and not args.dry_run:
         raise ReleaseError(" ".join(problems))
 
-    previous = tags[0][len(TAG_PREFIX):] if tags else None
+    previous = tags[0][len(TAG_PREFIX) :] if tags else None
     changelog_path = root / CHANGELOG
-    old_text = changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+    old_text = (
+        changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+    )
     generated = render_notes(commits_since(root, tags[0] if tags else None))
     new_text = update_changelog(
         old_text,
@@ -453,7 +474,9 @@ def cmd_publish(root: Path, args) -> int:
     for c in commands:
         print("git " + " ".join(c))
     if not args.yes:
-        print("\nNur Anzeige. Mit --yes wirklich pushen; danach erstellt die Action das Release.")
+        print(
+            "\nNur Anzeige. Mit --yes wirklich pushen; danach erstellt die Action das Release."
+        )
         return 0
     if args.dry_run:
         return 0
@@ -464,11 +487,15 @@ def cmd_publish(root: Path, args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Release-Werkzeug (Version, Changelog, Tag)")
+    p = argparse.ArgumentParser(
+        description="Release-Werkzeug (Version, Changelog, Tag)"
+    )
     p.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     sub = p.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("current", help="Aktuelle Version anzeigen").set_defaults(func=cmd_current)
+    sub.add_parser("current", help="Aktuelle Version anzeigen").set_defaults(
+        func=cmd_current
+    )
 
     c = sub.add_parser("check", help="Versionen und Changelog prüfen")
     c.add_argument("--tag", help="Erwarteter Tag, z. B. v0.2.0")
@@ -481,7 +508,9 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--to", default="HEAD")
     n.set_defaults(func=cmd_notes)
 
-    b = sub.add_parser("bump", help="Version erhöhen, Changelog pflegen, committen, taggen")
+    b = sub.add_parser(
+        "bump", help="Version erhöhen, Changelog pflegen, committen, taggen"
+    )
     b.add_argument("kind", help="patch | minor | major | X.Y.Z")
     b.add_argument("--dry-run", action="store_true")
     b.add_argument("--allow-dirty", action="store_true")
@@ -489,7 +518,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--no-tag", action="store_true")
     b.set_defaults(func=cmd_bump)
 
-    pub = sub.add_parser("publish", help="Branch und Tag pushen (Release erstellt die Action)")
+    pub = sub.add_parser(
+        "publish", help="Branch und Tag pushen (Release erstellt die Action)"
+    )
     pub.add_argument("--yes", action="store_true", help="wirklich pushen")
     pub.add_argument("--dry-run", action="store_true")
     pub.set_defaults(func=cmd_publish)

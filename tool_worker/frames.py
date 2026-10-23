@@ -18,7 +18,7 @@ def detect_encoding(path: str) -> str:
         with open(path, "rb") as fh:
             best = from_bytes(fh.read(50000)).best()
         return best.encoding if best and best.encoding else "cp1252"
-    except Exception:
+    except UnicodeEncodeError:
         return "cp1252"
 
 

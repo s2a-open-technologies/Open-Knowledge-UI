@@ -14,14 +14,23 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool
-
 from sqlglot import exp
 
 from tool_worker.sqlcheck import DIALECTS, SqlRejected, validate_select
 
 DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "mssql": 1433}
-SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast", "sys", "mysql", "performance_schema"}
-WRITE_RE = re.compile(r"\b(ALL PRIVILEGES|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b", re.I)
+SYSTEM_SCHEMAS = {
+    "information_schema",
+    "pg_catalog",
+    "pg_toast",
+    "sys",
+    "mysql",
+    "performance_schema",
+}
+WRITE_RE = re.compile(
+    r"\b(ALL PRIVILEGES|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE)\b",
+    re.IGNORECASE,
+)
 MAX_TABLES = 500
 
 
@@ -56,23 +65,28 @@ def make_engine(conn: dict, *, sqlite_dir: str, timeout_s: float) -> sa.Engine:
     if dialect == "sqlite":
         path = _sqlite_path(conn, sqlite_dir)
         engine = sa.create_engine(
-            URL.create("sqlite", database=f"file:{path}?mode=ro", query={"uri": "true"}), poolclass=NullPool
+            URL.create(
+                "sqlite", database=f"file:{path}?mode=ro", query={"uri": "true"}
+            ),
+            poolclass=NullPool,
         )
         deadline = time.monotonic() + timeout_s
 
         @event.listens_for(engine, "connect")
         def _setup(dbapi, _record):
             dbapi.execute("PRAGMA query_only=ON")
-            dbapi.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10000)
+            dbapi.set_progress_handler(
+                lambda: 1 if time.monotonic() > deadline else 0, 10000
+            )
 
         return engine
-    common = dict(
-        username=conn.get("user") or None,
-        password=conn.get("password") or None,
-        host=conn.get("host") or None,
-        port=int(conn.get("port") or DEFAULT_PORTS.get(dialect, 0)) or None,
-        database=conn.get("database") or None,
-    )
+    common = {
+        "username": conn.get("user") or None,
+        "password": conn.get("password") or None,
+        "host": conn.get("host") or None,
+        "port": int(conn.get("port") or DEFAULT_PORTS.get(dialect, 0)) or None,
+        "database": conn.get("database") or None,
+    }
     if dialect == "postgresql":
         return sa.create_engine(
             URL.create("postgresql+psycopg", **common),
@@ -87,7 +101,10 @@ def make_engine(conn: dict, *, sqlite_dir: str, timeout_s: float) -> sa.Engine:
             URL.create("mysql+pymysql", query={"charset": "utf8mb4"}, **common),
             poolclass=NullPool,
             # read_timeout ist nur der Notnagel auf Socket-Ebene; die Abfrage selbst bricht der Server ab
-            connect_args={"connect_timeout": 10, "read_timeout": max(1, int(timeout_s)) + 5},
+            connect_args={
+                "connect_timeout": 10,
+                "read_timeout": max(1, int(timeout_s)) + 5,
+            },
         )
 
         @event.listens_for(engine, "connect")
@@ -125,7 +142,9 @@ def _connect(engine: sa.Engine, detailed: bool = False):
     try:
         return engine.connect()
     except Exception as e:  # noqa: BLE001
-        raise SqlError(_short(e) if detailed else "Verbindung zur Datenbank fehlgeschlagen") from None
+        raise SqlError(
+            _short(e) if detailed else "Verbindung zur Datenbank fehlgeschlagen"
+        ) from None
 
 
 def _cell(value, limit: int):
@@ -155,7 +174,9 @@ def run_query(
     max_cell_chars: int,
 ) -> dict:
     # eine Zeile mehr als das Limit: so erkennt fetchmany, dass gekuerzt wurde
-    checked = validate_select(sql, conn.get("dialect", ""), allowed_tables, blocked_columns, row_limit + 1)
+    checked = validate_select(
+        sql, conn.get("dialect", ""), allowed_tables, blocked_columns, row_limit + 1
+    )
     engine = make_engine(conn, sqlite_dir=sqlite_dir, timeout_s=timeout_s)
     try:
         with _connect(engine) as c:
@@ -176,12 +197,23 @@ def run_query(
     }
 
 
-def read_schema(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns, timeout_s: float, detailed: bool = False) -> list[dict]:
+def read_schema(
+    conn: dict,
+    *,
+    sqlite_dir: str,
+    allowed_tables,
+    blocked_columns,
+    timeout_s: float,
+    detailed: bool = False,
+) -> list[dict]:
     schema = (conn.get("schema") or "").strip() or None
     if schema and schema.lower() in SYSTEM_SCHEMAS:
         raise SqlError("Dieses Schema ist nicht erlaubt")
     allowed = {t.lower() for t in allowed_tables} if allowed_tables else None
-    blocked = {t.lower(): {c.lower() for c in cols} for t, cols in (blocked_columns or {}).items()}
+    blocked = {
+        t.lower(): {c.lower() for c in cols}
+        for t, cols in (blocked_columns or {}).items()
+    }
     engine = make_engine(conn, sqlite_dir=sqlite_dir, timeout_s=timeout_s)
     try:
         with _connect(engine, detailed):
@@ -195,7 +227,12 @@ def read_schema(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns,
                 if allowed is not None and name.lower() not in allowed:
                     continue
                 hidden = blocked.get(name.lower(), set())
-                pk = set(insp.get_pk_constraint(name, schema=schema).get("constrained_columns") or [])
+                pk = set(
+                    insp.get_pk_constraint(name, schema=schema).get(
+                        "constrained_columns"
+                    )
+                    or []
+                )
                 cols = [
                     {
                         "name": c["name"],
@@ -208,15 +245,31 @@ def read_schema(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns,
                     if c["name"].lower() not in hidden
                 ]
                 fks = [
-                    {"columns": fk["constrained_columns"], "ref_table": fk["referred_table"], "ref_columns": fk["referred_columns"]}
+                    {
+                        "columns": fk["constrained_columns"],
+                        "ref_table": fk["referred_table"],
+                        "ref_columns": fk["referred_columns"],
+                    }
                     for fk in insp.get_foreign_keys(name, schema=schema)
-                    if not hidden.intersection(c.lower() for c in fk["constrained_columns"])
+                    if not hidden.intersection(
+                        c.lower() for c in fk["constrained_columns"]
+                    )
                 ]
                 try:
-                    comment = (insp.get_table_comment(name, schema=schema) or {}).get("text") or ""
+                    comment = (insp.get_table_comment(name, schema=schema) or {}).get(
+                        "text"
+                    ) or ""
                 except NotImplementedError:
                     comment = ""
-                out.append({"name": name, "kind": kind, "comment": comment, "columns": cols, "foreign_keys": fks})
+                out.append(
+                    {
+                        "name": name,
+                        "kind": kind,
+                        "comment": comment,
+                        "columns": cols,
+                        "foreign_keys": fks,
+                    }
+                )
             return out
         except SqlError:
             raise
@@ -245,11 +298,16 @@ def _write_privilege(c, conn: dict) -> bool | None:
                 )
             )
         if dialect == "mysql":
-            grants = [str(r[0]) for r in c.execute(sa.text("SHOW GRANTS FOR CURRENT_USER()"))]
+            grants = [
+                str(r[0]) for r in c.execute(sa.text("SHOW GRANTS FOR CURRENT_USER()"))
+            ]
             return any(WRITE_RE.search(g.split(" ON ")[0]) for g in grants)
         if dialect == "mssql":
             return bool(
-                _scalar(c, "select case when is_srvrolemember('sysadmin')=1 or is_member('db_owner')=1 or is_member('db_datawriter')=1 then 1 else 0 end")
+                _scalar(
+                    c,
+                    "select case when is_srvrolemember('sysadmin')=1 or is_member('db_owner')=1 or is_member('db_datawriter')=1 then 1 else 0 end",
+                )
             )
     except Exception:  # noqa: BLE001
         return None
@@ -275,10 +333,20 @@ def check_connection(conn: dict, *, sqlite_dir: str, timeout_s: float = 10) -> d
             privilege = _write_privilege(c, conn)
     finally:
         engine.dispose()
-    tables = read_schema(conn, sqlite_dir=sqlite_dir, allowed_tables=None, blocked_columns=None, timeout_s=timeout_s, detailed=True)
+    tables = read_schema(
+        conn,
+        sqlite_dir=sqlite_dir,
+        allowed_tables=None,
+        blocked_columns=None,
+        timeout_s=timeout_s,
+        detailed=True,
+    )
     return {
         "version": version.splitlines()[0][:200],
-        "tables": [{"name": t["name"], "columns": [c["name"] for c in t["columns"]]} for t in tables],
+        "tables": [
+            {"name": t["name"], "columns": [c["name"] for c in t["columns"]]}
+            for t in tables
+        ],
         "write_privilege": privilege,
     }
 
@@ -298,12 +366,24 @@ def _ident(conn: dict, name: str) -> str:
 
 def _qualified(conn: dict, table: str) -> str:
     schema = (conn.get("schema") or "").strip()
-    return f"{_ident(conn, schema)}.{_ident(conn, table)}" if schema else _ident(conn, table)
+    return (
+        f"{_ident(conn, schema)}.{_ident(conn, table)}"
+        if schema
+        else _ident(conn, table)
+    )
 
 
 def distinct_values(
-    conn: dict, *, sqlite_dir: str, table: str, column: str, allowed_tables, blocked_columns, max_distinct: int,
-    timeout_s: float, max_cell_chars: int,
+    conn: dict,
+    *,
+    sqlite_dir: str,
+    table: str,
+    column: str,
+    allowed_tables,
+    blocked_columns,
+    max_distinct: int,
+    timeout_s: float,
+    max_cell_chars: int,
 ) -> dict:
     """Die verschiedenen Werte einer Spalte mit Haeufigkeit (haeufigste zuerst, ohne NULL).
 
@@ -312,23 +392,44 @@ def distinct_values(
     c, t = _ident(conn, column), _qualified(conn, table)
     sql = f"SELECT {c} AS v, COUNT(*) AS n FROM {t} WHERE {c} IS NOT NULL GROUP BY {c} ORDER BY n DESC"
     out = run_query(
-        conn, sql, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns,
-        row_limit=max_distinct + 1, timeout_s=timeout_s, max_cell_chars=max_cell_chars,
+        conn,
+        sql,
+        sqlite_dir=sqlite_dir,
+        allowed_tables=allowed_tables,
+        blocked_columns=blocked_columns,
+        row_limit=max_distinct + 1,
+        timeout_s=timeout_s,
+        max_cell_chars=max_cell_chars,
     )
     if len(out["rows"]) > max_distinct:
         return {"values": [], "too_many": True}
-    return {"values": [[str(v), int(n)] for v, n in out["rows"] if v is not None and str(v).strip()], "too_many": False}
+    return {
+        "values": [
+            [str(v), int(n)] for v, n in out["rows"] if v is not None and str(v).strip()
+        ],
+        "too_many": False,
+    }
 
 
-def profile_columns(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns, timeout_s: float) -> list[dict]:
+def profile_columns(
+    conn: dict, *, sqlite_dir: str, allowed_tables, blocked_columns, timeout_s: float
+) -> list[dict]:
     """Textspalten der freigegebenen Tabellen mit Zeilen-, Nicht-NULL- und Distinct-Zahl (fuer den Vorschlag)."""
     tables = read_schema(
-        conn, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns, timeout_s=timeout_s
+        conn,
+        sqlite_dir=sqlite_dir,
+        allowed_tables=allowed_tables,
+        blocked_columns=blocked_columns,
+        timeout_s=timeout_s,
     )[:MAX_PROFILE_TABLES]
     result: list[dict] = []
     budget = MAX_PROFILE_COLUMNS
     for tbl in tables:
-        cols = [c for c in tbl["columns"] if any(m in c["type"].lower() for m in TEXT_TYPE_MARKERS)][:budget]
+        cols = [
+            c
+            for c in tbl["columns"]
+            if any(m in c["type"].lower() for m in TEXT_TYPE_MARKERS)
+        ][:budget]
         if not cols:
             continue
         budget -= len(cols)
@@ -339,8 +440,14 @@ def profile_columns(conn: dict, *, sqlite_dir: str, allowed_tables, blocked_colu
         sql = f"SELECT {', '.join(parts)} FROM {_qualified(conn, tbl['name'])}"
         try:
             row = run_query(
-                conn, sql, sqlite_dir=sqlite_dir, allowed_tables=allowed_tables, blocked_columns=blocked_columns,
-                row_limit=1, timeout_s=timeout_s, max_cell_chars=50,
+                conn,
+                sql,
+                sqlite_dir=sqlite_dir,
+                allowed_tables=allowed_tables,
+                blocked_columns=blocked_columns,
+                row_limit=1,
+                timeout_s=timeout_s,
+                max_cell_chars=50,
             )["rows"][0]
         except (SqlRejected, SqlError):
             continue  # eine Tabelle, die nicht zaehlbar ist, fehlt im Vorschlag

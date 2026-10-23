@@ -5,7 +5,9 @@ import pytest
 
 yaml = pytest.importorskip("yaml")
 
-WORKFLOWS = sorted((Path(__file__).resolve().parent.parent / ".github" / "workflows").glob("*.yml"))
+WORKFLOWS = sorted(
+    (Path(__file__).resolve().parent.parent / ".github" / "workflows").glob("*.yml")
+)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -28,7 +30,9 @@ def test_workflows_exist():
 def test_every_action_is_pinned_to_a_full_commit_sha(path):
     for ref in uses_refs(load(path)):
         name, _, version = ref.partition("@")
-        assert FULL_SHA.match(version), f"{name} ist nicht auf eine Commit-SHA gepinnt: @{version}"
+        assert FULL_SHA.match(version), (
+            f"{name} ist nicht auf eine Commit-SHA gepinnt: @{version}"
+        )
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
@@ -42,10 +46,18 @@ def test_checkouts_do_not_leave_credentials_behind(path):
 def test_only_the_final_release_job_may_write():
     wf = load(next(p for p in WORKFLOWS if p.name == "release.yml"))
     assert wf["permissions"] == {"contents": "read"}
-    writers = [n for n, j in wf["jobs"].items() if j.get("permissions", {}).get("contents") == "write"]
+    writers = [
+        n
+        for n, j in wf["jobs"].items()
+        if j.get("permissions", {}).get("contents") == "write"
+    ]
     assert writers == ["release"]
     # Es werden keine Fremd-Actions im Job mit Schreibrechten ausgefuehrt (nur eigener Code und gh).
-    external = [u for u in (s.get("uses", "") for s in wf["jobs"]["release"]["steps"]) if u and not u.startswith("actions/")]
+    external = [
+        u
+        for u in (s.get("uses", "") for s in wf["jobs"]["release"]["steps"])
+        if u and not u.startswith("actions/")
+    ]
     assert external == []
     assert wf["jobs"]["release"]["needs"] == "verify"
 

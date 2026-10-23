@@ -8,6 +8,22 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Neu
 
+- **Contributor License Agreement (CLA).** [`CLA.md`](./CLA.md) regelt die Rechte an Beiträgen: Einzelpersonen und Unternehmen übertragen der S2A Open Technologies gGmbH alle übertragbaren ausschließlichen Nutzungs- und Verwertungsrechte; das Urheberrecht selbst bleibt nach § 29 UrhG beim Contributor, die Beiträge bleiben unter AGPL-3.0-or-later verfügbar. Die Annahme ist Voraussetzung für die Übernahme eines Beitrags und ist in `CONTRIBUTING.md`, `AUTHORS.md`, `README.md` und im PR-Template verlinkt.
+
+### Sicherheit
+
+- **Pillow 13.0.0 behebt 39 Sicherheitslücken.** Pillow 13.0.0 (16.10.2026) schließt 39 CVEs, darunter die kritischen JPEG-Decoder-Überläufe (CVE-2026-96639) sowie Speicherfehler in TIFF-, PDF- und GIF-Pfaden bis hin zur Ghostscript-Argument-Injection (CVE-2026-112900). `fastembed 0.9.0` deklariert noch `pillow<13` (für Python >=3.14 sogar `>=12,<13`), obwohl es Pillow nur in den hier ungenutzten Bild-/Multimodal-Modulen importiert — der Resolver hätte den Fix sonst nie zugelassen. Jetzt erzwingt `[tool.uv] override-dependencies` `pillow>=13.0.0,<14.0.0`; das Dockerfile gibt dieselbe Grenze per `uv-overrides.txt` und `--override` mit, weil das pip-Interface `tool.uv` nicht liest. Die Obergrenze `<14` entspricht docling und verhindert ein stilles Major-Upgrade. `gradio` (ebenfalls `pillow<13`, im Repo nie importiert) ist entfallen. Kein Neu-Einlesen nötig: die Vektor- und Markdown-Pipeline bleibt unverändert.
+
+### Geändert
+
+- **Python 3.14 für die Entwicklung.** `.python-version` und die lokale venv nutzen 3.14; `requires-python` bleibt `>=3.12`, das App-Image nutzt weiterhin `python:3.12-slim`, der universale Lock deckt beide ab. Klassifizierer um 3.13/3.14 ergänzt.
+- **Vite 8.3.5 und `@vitejs/plugin-react` 6.1.2.** Frontend-Build auf den aktuellen Major gehoben (Node 22 in Docker und CI unverändert); `npm run test` und `npm run build` laufen damit.
+- **Ladepaket `app/loaders` statt `app/components`.** Die PDF-/DOCX-Loader und Preprocess-Klassen liegen jetzt unter `app/loaders`; die Loader importieren ihre Preprocess-Klasse direkt aus dem jeweiligen Modul, damit ein alphabetischer Import-Sortierer keinen Zirkelimport mehr erzeugen kann.
+
+## [0.2.6] - 2026-10-21
+
+### Neu
+
 - **Protokoll sicherheitsrelevanter Ereignisse.** Neue Tabelle `audit_log` (Migration `0036`) und Modul `app/auth/audit.py`: erfolgreiche und fehlgeschlagene Anmeldungen (lokal, LDAP/OIDC, gesperrt), Abmeldungen, Passwortwechsel, Kontoverwaltung (Anlegen, Rolle/Status/Passwort, Löschen), Gruppen und Freigaben sowie der persönliche Datenexport werden mit Konto, IP, Objekt und Details protokolliert. Das Schreiben ist best-effort: Fehlgeschlagene Protokolleinträge brechen den eigentlichen Vorgang nie ab. Admins sehen das Protokoll unter *Administration › Protokoll* (`GET /api/admin/audit`, filterbar nach Aktion, seitenweise).
 - **Persönlicher Datenexport (Auskunft/Übertragbarkeit).** *Mein Konto › Daten exportieren* lädt `GET /api/me/export` als JSON: Profil, eigene Chats samt Nachrichten und Compaction-Zusammenfassung, gespeicherte Analysen mit Markdown-Inhalt, eigene Dokument- und Chat-Anhang-Referenzen. Fremde Chats sind nie enthalten.
 - **Sicherheits-Header auf allen Antworten.** CSP (Skripte/Verbindungen nur gleiche Herkunft, Theme-Bootstrap bleibt inline), `X-Frame-Options: DENY`, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`; `Strict-Transport-Security` nur bei HTTPS-Bereitstellung (`SESSION_COOKIE_SECURE`). Mit `SECURITY_HEADERS=off` abschaltbar, wenn ein Reverse Proxy die Header selbst setzt. Fremde Bilder im Chat-Markdown bleiben erlaubt.

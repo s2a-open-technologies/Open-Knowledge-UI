@@ -68,7 +68,10 @@ class SqlConfig:
 
     def public(self) -> dict:
         """Fuer Antworten an die Oberflaeche: nie das Passwort."""
-        return {**self.to_dict(with_password=False), "has_password": bool(self.password)}
+        return {
+            **self.to_dict(with_password=False),
+            "has_password": bool(self.password),
+        }
 
     def connection(self) -> dict:
         return {
@@ -118,7 +121,9 @@ def parse_config(raw: dict | str | None) -> SqlConfig:
         password=str(raw.get("password") or ""),
         schema=str(raw.get("schema") or "").strip(),
         instance=str(raw.get("instance") or "").strip(),
-        tables=tuple(str(t).strip() for t in (raw.get("tables") or []) if str(t).strip()),
+        tables=tuple(
+            str(t).strip() for t in (raw.get("tables") or []) if str(t).strip()
+        ),
         blocked_columns=blocked,
     )
 
@@ -131,7 +136,9 @@ def validate(cfg: SqlConfig) -> None:
     if cfg.dialect == "sqlite":
         parts = cfg.database.replace("\\", "/").split("/")
         if cfg.database.startswith("/") or ".." in parts or "\x00" in cfg.database:
-            raise SqlConfigError("SQLite: nur ein relativer Dateiname im freigegebenen Ordner ist erlaubt.")
+            raise SqlConfigError(
+                "SQLite: nur ein relativer Dateiname im freigegebenen Ordner ist erlaubt."
+            )
     else:
         if not cfg.host or not HOST_RE.match(cfg.host):
             raise SqlConfigError("Der Host fehlt oder enthält unerlaubte Zeichen.")
@@ -161,7 +168,7 @@ def validate(cfg: SqlConfig) -> None:
 
 
 def same_target(a: SqlConfig, b: SqlConfig) -> bool:
-    key = lambda c: (c.dialect, c.host, c.instance, c.port, c.database, c.user)  # noqa: E731
+    key = lambda c: (c.dialect, c.host, c.instance, c.port, c.database, c.user)
     return key(a) == key(b)
 
 

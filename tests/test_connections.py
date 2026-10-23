@@ -51,7 +51,12 @@ def test_sanitize_params_drops_empty_and_validates():
     assert store.sanitize_params(
         {"temperature": "0.7", "top_k": "", "max_tokens": None, "thinking": "high"}
     ) == {"temperature": 0.7, "thinking": "high"}
-    for bad in ({"temperature": 5}, {"top_p": "x"}, {"thinking": "irgendwie"}, {"foo": 1}):
+    for bad in (
+        {"temperature": 5},
+        {"top_p": "x"},
+        {"thinking": "irgendwie"},
+        {"foo": 1},
+    ):
         with pytest.raises(ValueError):
             store.sanitize_params(bad)
 
@@ -86,7 +91,8 @@ def test_base_model_config_is_created_on_save_and_reset_by_delete(conn):
 def test_clone_copies_config_and_is_independent(conn):
     base = store.make_base_ref(conn["id"], "qwen")
     store.save_model_config(
-        base, {"system_prompt": "Juristisch", "params": {"top_p": 0.5}, "knowledge_ids": [3]}
+        base,
+        {"system_prompt": "Juristisch", "params": {"top_p": 0.5}, "knowledge_ids": [3]},
     )
     clone = store.clone_model(base, "Qwen Recht")
 
@@ -98,7 +104,9 @@ def test_clone_copies_config_and_is_independent(conn):
         [3],
     )
 
-    store.save_model_config(clone["ref"], {"system_prompt": "Nur Klon", "name": "Umbenannt"})
+    store.save_model_config(
+        clone["ref"], {"system_prompt": "Nur Klon", "name": "Umbenannt"}
+    )
     assert store.get_model_config(base)["system_prompt"] == "Juristisch"
     assert store.get_model_config(clone["ref"])["name"] == "Umbenannt"
 
@@ -136,15 +144,21 @@ def test_remove_knowledge_from_models(conn):
 def test_base_model_alias_is_saved_shown_and_clearable(conn, monkeypatch):
     from app.llm import registry
 
-    monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["qwen-122b"])
+    monkeypatch.setattr(
+        registry, "fetch_remote_models", lambda c, force=False: ["qwen-122b"]
+    )
     ref = store.make_base_ref(conn["id"], "qwen-122b")
 
     store.save_model_config(ref, {"name": "  Hausmodell  "})
     listed = {m["ref"]: m for m in registry.list_models()["models"]}
-    assert listed[ref]["name"] == "Hausmodell" and listed[ref]["model_id"] == "qwen-122b"
+    assert (
+        listed[ref]["name"] == "Hausmodell" and listed[ref]["model_id"] == "qwen-122b"
+    )
     assert listed[ref]["customized"] is True
     assert registry.resolve_model(ref).display_name == "Hausmodell"
-    assert registry.resolve_model(ref).model_id == "qwen-122b"  # an den Endpoint geht die Original-ID
+    assert (
+        registry.resolve_model(ref).model_id == "qwen-122b"
+    )  # an den Endpoint geht die Original-ID
 
     store.save_model_config(ref, {"name": ""})  # Alias entfernen
     assert registry.list_models()["models"][0]["name"] == "qwen-122b"

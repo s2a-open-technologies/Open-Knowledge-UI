@@ -9,3 +9,4 @@
 - [ ] `CHANGELOG.md` (Abschnitt Unreleased) ergänzt
 - [ ] Keine Geheimnisse, keine Zugangsdaten im Code oder in den Logs
 - [ ] Sicherheitsrelevantes (Rechte, Eingaben, externe Aufrufe) bedacht, siehe `SECURITY.md`
+- [ ] CLA angenommen (`CLA.md`; bei Beschäftigten inkl. Corporate CLA) oder im PR bestätigt

@@ -43,11 +43,18 @@ ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
 def test_parse_response_reads_the_documented_format():
     data = {"filtered": "Hallo [NAME_1]", "mapping": {"[NAME_1]": "Max"}}
-    assert parse_response(data, "Hallo Max") == ("Hallo Max", "Hallo [NAME_1]", {"[NAME_1]": "Max"})
+    assert parse_response(data, "Hallo Max") == (
+        "Hallo Max",
+        "Hallo [NAME_1]",
+        {"[NAME_1]": "Max"},
+    )
 
 
 def test_parse_response_accepts_the_compatible_alternatives():
-    data = {"sanitized_text": "Hi [P1]", "entities": [{"placeholder": "[P1]", "original": "Anna"}]}
+    data = {
+        "sanitized_text": "Hi [P1]",
+        "entities": [{"placeholder": "[P1]", "original": "Anna"}],
+    }
     _o, filtered, mapping = parse_response(data, "Hi Anna")
     assert filtered == "Hi [P1]" and mapping_pairs(mapping) == [("[P1]", "Anna")]
 
@@ -60,7 +67,10 @@ def test_an_empty_filtered_text_is_a_valid_answer_and_never_falls_back_to_the_or
 def test_parse_response_without_mapping_and_with_junk():
     assert parse_response({"filtered": "x"}, "y")[2] == {}
     assert parse_response("nicht json-objekt", "y") == ("y", "y", {})
-    assert mapping_pairs(None) == [] and mapping_pairs([{"placeholder": "", "original": "a"}]) == []
+    assert (
+        mapping_pairs(None) == []
+        and mapping_pairs([{"placeholder": "", "original": "a"}]) == []
+    )
 
 
 def test_demask_uses_both_mapping_shapes():
@@ -97,12 +107,25 @@ class Sanitizer(BaseHTTPRequestHandler):
             return
         if mode == "unchanged":
             return self._send(200, {"filtered": text, "mapping": {}})
-        masked = text.replace("Max Mustermann", "[NAME_1]").replace("max.mustermann@example.com", "[EMAIL_1]")
+        masked = text.replace("Max Mustermann", "[NAME_1]").replace(
+            "max.mustermann@example.com", "[EMAIL_1]"
+        )
         if mode == "no_mapping":
             return self._send(200, {"filtered": masked})
         if mode == "bad_mapping":
-            return self._send(200, {"filtered": masked, "mapping": {"[NAME_1]": "Falsch"}})
-        self._send(200, {"filtered": masked, "mapping": {"[NAME_1]": "Max Mustermann", "[EMAIL_1]": "max.mustermann@example.com"}})
+            return self._send(
+                200, {"filtered": masked, "mapping": {"[NAME_1]": "Falsch"}}
+            )
+        self._send(
+            200,
+            {
+                "filtered": masked,
+                "mapping": {
+                    "[NAME_1]": "Max Mustermann",
+                    "[EMAIL_1]": "max.mustermann@example.com",
+                },
+            },
+        )
 
     def _send(self, status, payload):
         raw = json.dumps(payload).encode()
@@ -130,7 +153,9 @@ class SearX(BaseHTTPRequestHandler):
 
     def do_GET(self):
         SearX.queries.append(parse_qs(urlparse(self.path).query).get("q", [""])[0])
-        raw = json.dumps({"results": [{"title": "T", "url": "http://e.test", "content": "C"}]}).encode()
+        raw = json.dumps(
+            {"results": [{"title": "T", "url": "http://e.test", "content": "C"}]}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
@@ -167,14 +192,23 @@ def set_settings(db, **values):
 
 
 def run_test(app, url, key=""):
-    return client_for(app, ADMIN).post("/api/admin/tools/test", json={"kind": "pii", "values": {"url": url, "api_key": key}})
+    return client_for(app, ADMIN).post(
+        "/api/admin/tools/test",
+        json={"kind": "pii", "values": {"url": url, "api_key": key}},
+    )
 
 
 def test_the_test_button_verifies_masking_mapping_and_demasking(app, db, sanitizer):
     r = run_test(app, sanitizer, "k1")
     assert r.status_code == 200 and "vertragsgemäß" in r.json["message"]
-    assert "Text wird maskiert" in r.json["details"] and "Demaskierung stimmt" in r.json["details"]
-    assert Sanitizer.seen[0]["auth"] == "Bearer k1" and "Max Mustermann" in Sanitizer.seen[0]["text"]
+    assert (
+        "Text wird maskiert" in r.json["details"]
+        and "Demaskierung stimmt" in r.json["details"]
+    )
+    assert (
+        Sanitizer.seen[0]["auth"] == "Bearer k1"
+        and "Max Mustermann" in Sanitizer.seen[0]["text"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -186,19 +220,30 @@ def test_the_test_button_verifies_masking_mapping_and_demasking(app, db, sanitiz
         ("html", 502, "kein JSON"),
     ],
 )
-def test_the_test_button_names_the_exact_problem(app, db, sanitizer, behavior, status, needle):
+def test_the_test_button_names_the_exact_problem(
+    app, db, sanitizer, behavior, status, needle
+):
     Sanitizer.behavior = behavior
     r = run_test(app, sanitizer)
     assert r.status_code == status and needle in (r.json.get("error") or "")
 
 
-def test_the_test_button_warns_about_missing_mapping_and_wrong_demasking(app, db, sanitizer):
+def test_the_test_button_warns_about_missing_mapping_and_wrong_demasking(
+    app, db, sanitizer
+):
     Sanitizer.behavior = "no_mapping"
     r = run_test(app, sanitizer)
-    assert r.status_code == 200 and "mit Hinweisen" in r.json["message"] and "Kein Mapping" in r.json["details"]
+    assert (
+        r.status_code == 200
+        and "mit Hinweisen" in r.json["message"]
+        and "Kein Mapping" in r.json["details"]
+    )
     Sanitizer.behavior = "bad_mapping"
     r = run_test(app, sanitizer)
-    assert r.status_code == 200 and "Demaskierung ergibt nicht den Originaltext" in r.json["details"]
+    assert (
+        r.status_code == 200
+        and "Demaskierung ergibt nicht den Originaltext" in r.json["details"]
+    )
 
 
 def test_the_test_button_refuses_link_local_targets(app, db):
@@ -213,17 +258,24 @@ def search(searx_url, query, pii_url=None, behavior=None):
     return tool.invoke({"query": query})
 
 
-def test_web_search_availability_depends_on_masking_or_the_explicit_release(db, searx, sanitizer):
+def test_web_search_availability_depends_on_masking_or_the_explicit_release(
+    db, searx, sanitizer
+):
     assert web_access.web_search_available() is False  # nichts eingerichtet
     set_settings(db, SEARCH_SEARXNG_URL=searx)
-    assert web_access.web_search_available() is False  # ohne Filter und ohne Freigabe: wie bisher gesperrt
+    assert (
+        web_access.web_search_available() is False
+    )  # ohne Filter und ohne Freigabe: wie bisher gesperrt
     assert web_access.build_web_search_tool() is None
     set_settings(db, PII_FILTER_URL=sanitizer, PII_FILTER_ENABLED="true")
     assert web_access.web_search_available() and web_access.web_search_masked()
     set_settings(db, PII_FILTER_ENABLED="false")
     assert web_access.web_search_available() is False
     set_settings(db, SEARCH_ALLOW_UNMASKED="true")
-    assert web_access.web_search_available() is True and web_access.web_search_masked() is False
+    assert (
+        web_access.web_search_available() is True
+        and web_access.web_search_masked() is False
+    )
 
 
 def test_web_search_without_sanitizer_sends_the_query_unchanged(db, searx):
@@ -238,7 +290,9 @@ def test_web_search_with_sanitizer_removes_personal_data(db, searx, sanitizer):
     assert SearX.queries == ["Kontakt Hotel Lissabon"]
 
 
-def test_web_search_uses_the_filtered_text_when_the_service_has_no_mapping(db, searx, sanitizer):
+def test_web_search_uses_the_filtered_text_when_the_service_has_no_mapping(
+    db, searx, sanitizer
+):
     Sanitizer.behavior = "no_mapping"
     set_settings(db, SEARCH_SEARXNG_URL=searx, PII_FILTER_URL=sanitizer)
     search(searx, "Hotel für Max Mustermann")
@@ -246,14 +300,18 @@ def test_web_search_uses_the_filtered_text_when_the_service_has_no_mapping(db, s
 
 
 @pytest.mark.parametrize("behavior", ["500", "401", "html"])
-def test_web_search_fails_closed_when_the_sanitizer_is_configured_but_fails(db, searx, sanitizer, behavior):
+def test_web_search_fails_closed_when_the_sanitizer_is_configured_but_fails(
+    db, searx, sanitizer, behavior
+):
     Sanitizer.behavior = behavior
     set_settings(db, SEARCH_SEARXNG_URL=searx, PII_FILTER_URL=sanitizer)
     out = search(searx, "Hotel für Max Mustermann")
     assert "abgebrochen" in out and SearX.queries == []  # nichts ging an SearXNG
 
 
-def test_web_search_sends_nothing_when_the_query_was_only_personal_data(db, searx, sanitizer):
+def test_web_search_sends_nothing_when_the_query_was_only_personal_data(
+    db, searx, sanitizer
+):
     set_settings(db, SEARCH_SEARXNG_URL=searx, PII_FILTER_URL=sanitizer)
     out = search(searx, "Max Mustermann")
     assert "nur aus personenbezogenen" in out and SearX.queries == []
@@ -262,30 +320,52 @@ def test_web_search_sends_nothing_when_the_query_was_only_personal_data(db, sear
 # --- Modelle und Oberflaeche ---------------------------------------------------------------
 
 
-def test_model_config_allows_web_search_only_when_available(app, db, searx, monkeypatch):
+def test_model_config_allows_web_search_only_when_available(
+    app, db, searx, monkeypatch
+):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     ref = store.make_base_ref(conn["id"], "m1")
     admin = client_for(app, ADMIN)
     set_settings(db, SEARCH_SEARXNG_URL=searx)
     blocked = admin.put("/api/models/config", json={"ref": ref, "web_search": True})
-    assert blocked.status_code == 400 and "Auch ohne PII-Filter erlauben" in blocked.json["error"]
+    assert (
+        blocked.status_code == 400
+        and "Auch ohne PII-Filter erlauben" in blocked.json["error"]
+    )
     models = admin.get("/api/models").json
-    assert models["web_search_available"] is False and models["web_search_masked"] is False
-    admin.put("/api/admin/tools", json={"search": {"url": searx, "allow_unmasked": True}})
+    assert (
+        models["web_search_available"] is False and models["web_search_masked"] is False
+    )
+    admin.put(
+        "/api/admin/tools", json={"search": {"url": searx, "allow_unmasked": True}}
+    )
     ok = admin.put("/api/models/config", json={"ref": ref, "web_search": True})
     assert ok.status_code == 200 and ok.json["web_search"] is True
     models = admin.get("/api/models").json
-    assert models["web_search_available"] is True and models["web_search_masked"] is False
+    assert (
+        models["web_search_available"] is True and models["web_search_masked"] is False
+    )
 
 
 def test_tools_api_exposes_and_saves_the_release(app, db, searx):
     admin = client_for(app, ADMIN)
     assert admin.get("/api/admin/tools").json["search"]["allow_unmasked"] is False
-    got = admin.put("/api/admin/tools", json={"search": {"url": searx, "allow_unmasked": True}}).json
-    assert got["search"]["allow_unmasked"] is True and got["web_search_available"] is True and got["web_search_masked"] is False
+    got = admin.put(
+        "/api/admin/tools", json={"search": {"url": searx, "allow_unmasked": True}}
+    ).json
+    assert (
+        got["search"]["allow_unmasked"] is True
+        and got["web_search_available"] is True
+        and got["web_search_masked"] is False
+    )
     ed = client_for(app, add_user(db, "ed", "editor"))
-    assert ed.put("/api/admin/tools", json={"search": {"allow_unmasked": True}}).status_code == 403
+    assert (
+        ed.put(
+            "/api/admin/tools", json={"search": {"allow_unmasked": True}}
+        ).status_code
+        == 403
+    )
 
 
 # --- Chat: fail-closed --------------------------------------------------------------------
@@ -296,14 +376,22 @@ def test_mask_or_fail_masks_and_raises_on_errors(sanitizer):
 
     client = PIIFilterClient(sanitizer)
     text, mapping = mask_or_fail(client, "Hallo Max Mustermann")
-    assert text == "Hallo [NAME_1]" and mapping == {"[NAME_1]": "Max Mustermann", "[EMAIL_1]": "max.mustermann@example.com"}
-    assert mask_or_fail(client, "Hallo Welt") == ("Hallo Welt", [])  # nichts erkannt: unveraendert
+    assert text == "Hallo [NAME_1]" and mapping == {
+        "[NAME_1]": "Max Mustermann",
+        "[EMAIL_1]": "max.mustermann@example.com",
+    }
+    assert mask_or_fail(client, "Hallo Welt") == (
+        "Hallo Welt",
+        [],
+    )  # nichts erkannt: unveraendert
     for behavior in ("500", "401"):
         Sanitizer.behavior = behavior
         with pytest.raises(PIIFilterUnavailable):
             mask_or_fail(client, "Hallo Max Mustermann")
     with pytest.raises(PIIFilterUnavailable):
-        mask_or_fail(PIIFilterClient("http://127.0.0.1:9/x"), "Hallo")  # nicht erreichbar
+        mask_or_fail(
+            PIIFilterClient("http://127.0.0.1:9/x"), "Hallo"
+        )  # nicht erreichbar
 
 
 class FakeAgent:
@@ -316,7 +404,12 @@ class FakeAgent:
     async def astream_events(self, input_data, version="v2"):
         self.inputs.append(input_data)
         for text in self.chunks:
-            yield {"event": "on_chat_model_stream", "data": {"chunk": type("C", (), {"content": text, "additional_kwargs": {}})()}}
+            yield {
+                "event": "on_chat_model_stream",
+                "data": {
+                    "chunk": type("C", (), {"content": text, "additional_kwargs": {}})()
+                },
+            }
 
 
 def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
@@ -324,18 +417,31 @@ def chat_setup(app, db, monkeypatch, pii_url, chunks=("Antwort",)):
     monkeypatch.setattr("app.web.routes.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
-    set_settings(db, PII_FILTER_URL=pii_url, PII_FILTER_ENABLED="true", INGEST_INDEX_ENABLED="false")
+    set_settings(
+        db,
+        PII_FILTER_URL=pii_url,
+        PII_FILTER_ENABLED="true",
+        INGEST_INDEX_ENABLED="false",
+    )
     app.extensions["agent_tools"] = []
     agent = FakeAgent(chunks)
     monkeypatch.setattr("app.web.routes.get_agent", lambda *a, **k: agent)
     return agent
 
 
-def test_chat_shows_an_error_and_sends_nothing_when_the_filter_is_unreachable(app, db, monkeypatch):
+def test_chat_shows_an_error_and_sends_nothing_when_the_filter_is_unreachable(
+    app, db, monkeypatch
+):
     agent = chat_setup(app, db, monkeypatch, "http://127.0.0.1:9/sanitize")
-    r = client_for(app, add_user(db, "ed", "editor")).post("/chat", json={"message": "Schreibe an Max Mustermann"})
+    r = client_for(app, add_user(db, "ed", "editor")).post(
+        "/chat", json={"message": "Schreibe an Max Mustermann"}
+    )
     body = r.get_data(as_text=True)
-    assert r.mimetype == "text/event-stream" and "PII-Filter ist nicht erreichbar" in body and "nicht gesendet" in body
+    assert (
+        r.mimetype == "text/event-stream"
+        and "PII-Filter ist nicht erreichbar" in body
+        and "nicht gesendet" in body
+    )
     assert agent.inputs == []  # nichts ging an das Modell
     s = db.get_session()
     from app.core.models import Message
@@ -344,14 +450,24 @@ def test_chat_shows_an_error_and_sends_nothing_when_the_filter_is_unreachable(ap
     s.close()
 
 
-def test_chat_also_fails_closed_when_the_filter_answers_with_an_error(app, db, monkeypatch, sanitizer):
+def test_chat_also_fails_closed_when_the_filter_answers_with_an_error(
+    app, db, monkeypatch, sanitizer
+):
     Sanitizer.behavior = "500"
     agent = chat_setup(app, db, monkeypatch, sanitizer)
-    r = client_for(app, add_user(db, "ed", "editor")).post("/chat", json={"message": "Schreibe an Max Mustermann"})
+    r = client_for(app, add_user(db, "ed", "editor")).post(
+        "/chat", json={"message": "Schreibe an Max Mustermann"}
+    )
     assert "HTTP 500" in r.get_data(as_text=True) and agent.inputs == []
 
 
-def test_chat_without_a_configured_filter_is_not_blocked_by_the_filter_logic(app, db, monkeypatch):
+def test_chat_without_a_configured_filter_is_not_blocked_by_the_filter_logic(
+    app, db, monkeypatch
+):
     agent = chat_setup(app, db, monkeypatch, "")
-    client_for(app, add_user(db, "ed", "editor")).post("/chat", json={"message": "Hallo Max Mustermann"}).get_data()
-    assert agent.inputs[0]["messages"][-1]["content"] == "Hallo Max Mustermann"  # ohne Filter unveraendert
+    client_for(app, add_user(db, "ed", "editor")).post(
+        "/chat", json={"message": "Hallo Max Mustermann"}
+    ).get_data()
+    assert (
+        agent.inputs[0]["messages"][-1]["content"] == "Hallo Max Mustermann"
+    )  # ohne Filter unveraendert

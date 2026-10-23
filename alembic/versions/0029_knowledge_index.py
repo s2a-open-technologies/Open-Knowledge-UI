@@ -28,7 +28,9 @@ def upgrade() -> None:
         if "index_md" not in cols:
             batch_op.add_column(sa.Column("index_md", sa.Text, nullable=True))
         if "index_updated_at" not in cols:
-            batch_op.add_column(sa.Column("index_updated_at", sa.DateTime, nullable=True))
+            batch_op.add_column(
+                sa.Column("index_updated_at", sa.DateTime, nullable=True)
+            )
 
 
 def downgrade() -> None:

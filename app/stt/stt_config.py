@@ -147,7 +147,12 @@ class TranscriptionError(Exception):
     """Transkription fehlgeschlagen (lesbare Meldung ohne interne Details)."""
 
 
-def transcribe(cfg: SttConfig, audio: bytes, filename: str = "recording.webm", timeout: float = 120.0) -> str:
+def transcribe(
+    cfg: SttConfig,
+    audio: bytes,
+    filename: str = "recording.webm",
+    timeout: float = 120.0,
+) -> str:
     """Schickt Audio an ``<base>/audio/transcriptions`` (OpenAI-Standard) und liefert den Text."""
     import openai
 
@@ -165,16 +170,27 @@ def transcribe(cfg: SttConfig, audio: bytes, filename: str = "recording.webm", t
     if cfg.model:
         kwargs["model"] = cfg.model
     else:
-        kwargs["model"] = "whisper-1"  # Pflichtfeld des Standards, viele Server ignorieren es
-    client = openai.OpenAI(base_url=cfg.base_url, api_key=cfg.api_key or "none", timeout=timeout, max_retries=0)
+        kwargs["model"] = (
+            "whisper-1"  # Pflichtfeld des Standards, viele Server ignorieren es
+        )
+    client = openai.OpenAI(
+        base_url=cfg.base_url,
+        api_key=cfg.api_key or "none",
+        timeout=timeout,
+        max_retries=0,
+    )
     try:
         result = client.audio.transcriptions.create(**kwargs)
     except openai.APIStatusError as e:
         logger.warning("STT: HTTP %s von %s", e.status_code, cfg.base_url)
-        raise TranscriptionError(f"Der Spracherkennungs-Dienst antwortete mit HTTP {e.status_code}") from None
+        raise TranscriptionError(
+            f"Der Spracherkennungs-Dienst antwortete mit HTTP {e.status_code}"
+        ) from None
     except openai.APIConnectionError:
         logger.warning("STT: %s nicht erreichbar", cfg.base_url)
-        raise TranscriptionError("Der Spracherkennungs-Dienst ist nicht erreichbar") from None
+        raise TranscriptionError(
+            "Der Spracherkennungs-Dienst ist nicht erreichbar"
+        ) from None
     except Exception as e:
         logger.warning("STT: Transkription fehlgeschlagen: %s", type(e).__name__)
         raise TranscriptionError("Die Transkription ist fehlgeschlagen") from None

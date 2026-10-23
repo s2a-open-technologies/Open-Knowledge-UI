@@ -56,7 +56,9 @@ def table_geometry(item, doc) -> Geometry | None:
     if page is None:
         return None
     box = prov.bbox.to_top_left_origin(page_height=page.size.height)
-    return Geometry(prov.page_no, box.t, box.b, box.l, box.r, page.size.height, page.size.width)
+    return Geometry(
+        prov.page_no, box.t, box.b, box.l, box.r, page.size.height, page.size.width
+    )
 
 
 def _norm(value) -> str:
@@ -91,26 +93,40 @@ def _looks_like_row_of(columns, frame) -> bool:
     if frame.shape[0] < 1:
         return False
     last = list(frame.iloc[-1])
-    pairs = [(a, b) for a, b in zip(columns, last, strict=False) if _kind(a) != "leer" and _kind(b) != "leer"]
+    pairs = [
+        (a, b)
+        for a, b in zip(columns, last, strict=False)
+        if _kind(a) != "leer" and _kind(b) != "leer"
+    ]
     if not pairs:
         return False
     same = sum(1 for a, b in pairs if _kind(a) == _kind(b))
     return same / len(pairs) >= 0.75
 
 
-def is_continuation(prev_frame, prev_geo: Geometry | None, next_frame, next_geo: Geometry | None) -> bool:
+def is_continuation(
+    prev_frame, prev_geo: Geometry | None, next_frame, next_geo: Geometry | None
+) -> bool:
     if prev_geo is None or next_geo is None or next_geo.page != prev_geo.page + 1:
         return False
     if prev_frame.shape[1] != next_frame.shape[1]:
         return False
-    if prev_geo.bottom < prev_geo.page_height * (1 - EDGE_ZONE) or next_geo.top > next_geo.page_height * EDGE_ZONE:
+    if (
+        prev_geo.bottom < prev_geo.page_height * (1 - EDGE_ZONE)
+        or next_geo.top > next_geo.page_height * EDGE_ZONE
+    ):
         return False
     tol = prev_geo.page_width * X_TOLERANCE
-    if abs(prev_geo.left - next_geo.left) > tol or abs(prev_geo.right - next_geo.right) > tol:
+    if (
+        abs(prev_geo.left - next_geo.left) > tol
+        or abs(prev_geo.right - next_geo.right) > tol
+    ):
         return False
     if header_of(next_frame) == header_of(prev_frame):
         return True
-    return not _unnamed(next_frame) and _looks_like_row_of(list(next_frame.columns), prev_frame)
+    return not _unnamed(next_frame) and _looks_like_row_of(
+        list(next_frame.columns), prev_frame
+    )
 
 
 def merge_frames(frames: list):
@@ -126,6 +142,8 @@ def merge_frames(frames: list):
             if _unnamed(frame) and rows:
                 rows = rows[1:]  # die erste Zeile ist die wiederholte Kopfzeile
         else:
-            rows = [tuple(frame.columns)] + rows  # Docling hat die erste Datenzeile als Kopf gelesen
+            rows = [
+                tuple(frame.columns)
+            ] + rows  # Docling hat die erste Datenzeile als Kopf gelesen
         parts.append(pd.DataFrame(rows, columns=first.columns))
     return pd.concat(parts, ignore_index=True)

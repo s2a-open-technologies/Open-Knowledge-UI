@@ -61,7 +61,9 @@ def build_ocr_options() -> tuple[bool, object | None]:
     """
     engine = (os.getenv("OCR_ENGINE") or "tesseract").strip().lower()
     raw = (os.getenv("OCR_LANGUAGES") or DEFAULT_LANGUAGES).strip()
-    langs = [p.strip() for p in raw.split(",") if p.strip()] or DEFAULT_LANGUAGES.split(",")
+    langs = [p.strip() for p in raw.split(",") if p.strip()] or DEFAULT_LANGUAGES.split(
+        ","
+    )
 
     try:
         if engine == "off":

@@ -177,7 +177,9 @@ def authenticate(
 
         source = (u.auth_source or "local") if u else None
         if u is None or source == "local":
-            ok = check_password_hash(u.password_hash if u else _DUMMY_HASH, password or "")
+            ok = check_password_hash(
+                u.password_hash if u else _DUMMY_HASH, password or ""
+            )
             if u and ok and u.is_active:
                 with _failures_lock:
                     _failures.pop(account_key, None)
@@ -213,6 +215,7 @@ def _try_ldap(username: str, password: str) -> dict | None:
     """LDAP-Anmeldung, falls eingerichtet. Fehler des Verzeichnisses gelten als nicht angemeldet."""
     try:
         from app.auth import auth_external, auth_ldap
+
         cfg = auth_external.load_config()
         if not cfg["ldap"]["enabled"] or not username or not password:
             return None
@@ -220,7 +223,11 @@ def _try_ldap(username: str, password: str) -> dict | None:
         if found is None:
             return None
         return auth_external.login_external_user(
-            "ldap", found["external_id"], found["username"], found["display_name"], found["groups"]
+            "ldap",
+            found["external_id"],
+            found["username"],
+            found["display_name"],
+            found["groups"],
         )
     except Exception as e:  # LdapError, ExternalLoginError, ...
         logger.warning(f"LDAP-Anmeldung fehlgeschlagen: {type(e).__name__}: {e}")

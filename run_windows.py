@@ -28,13 +28,13 @@ Usage:
     python run_windows.py --no-qdrant # Nur Flask (Qdrant manuell/docker)
 """
 
+import atexit
+import signal
 import subprocess
 import sys
 import time
-import signal
-import atexit
-from pathlib import Path
 import urllib.request
+from pathlib import Path
 
 _qdrant_process = None
 
@@ -67,9 +67,8 @@ def start_qdrant():
     """Startet qdrant.exe auf localhost (keine Firewall-Abfrage)"""
     qdrant_exe = Path("qdrant.exe")
 
-    if not qdrant_exe.exists():
-        if not download_qdrant():
-            return None
+    if not qdrant_exe.exists() and not download_qdrant():
+        return None
 
     try:
         # WICHTIG: --uri für localhost-only (keine Firewall-Abfrage)
@@ -145,6 +144,7 @@ def main():
 
     # Import app nach Alembic (wegen DB-Initialisierung)
     from app import create_app
+
     app = create_app()
 
     print("=" * 50)

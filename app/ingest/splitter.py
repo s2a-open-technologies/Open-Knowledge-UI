@@ -31,7 +31,10 @@ gelten bestehende Indizes als veraltet.
 import re
 from dataclasses import dataclass, field
 
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from langchain_text_splitters import (
+    MarkdownHeaderTextSplitter,
+    RecursiveCharacterTextSplitter,
+)
 
 SPLITTER_VERSION = 1
 
@@ -42,7 +45,7 @@ _HEADING_LINE = re.compile(r"^\s{0,3}#{1,6}\s+")
 # Seitenmarker aus dem PDF-Parser (``<!--p:3-->`` in einer eigenen Zeile); sie bleiben beim
 # Zerlegen im Text und werden danach in ``Chunk.page_start/page_end`` ueberfuehrt.
 PAGE_MARK = "<!--p:{}-->"
-_PAGE_MARK = re.compile(r"^[ \t]*<!--p:(\d+)-->[ \t]*$", re.M)
+_PAGE_MARK = re.compile(r"^[ \t]*<!--p:(\d+)-->[ \t]*$", re.MULTILINE)
 
 
 @dataclass
@@ -106,7 +109,9 @@ def _split_section(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     """
     lines = text.split("\n")
     n_heading = 0
-    while n_heading < len(lines) and (not lines[n_heading].strip() or _HEADING_LINE.match(lines[n_heading])):
+    while n_heading < len(lines) and (
+        not lines[n_heading].strip() or _HEADING_LINE.match(lines[n_heading])
+    ):
         n_heading += 1
     prefix = "\n".join(lines[:n_heading]).strip()
     body = "\n".join(lines[n_heading:]).strip()
@@ -151,7 +156,9 @@ def _common_prefix(a: list[str], b: list[str]) -> list[str]:
 
 def _has_body(text: str) -> bool:
     """Mehr als nur Ueberschriftszeilen?"""
-    return any(line.strip() and not _HEADING_LINE.match(line) for line in text.split("\n"))
+    return any(
+        line.strip() and not _HEADING_LINE.match(line) for line in text.split("\n")
+    )
 
 
 _KEY_TOKENS = 6
@@ -186,7 +193,9 @@ def _find(tokens: list[str], needle: list[str], start: int) -> int:
     return -1
 
 
-def _assign_pages(chunks: list[Chunk], tokens: list[str], pages: list[int | None]) -> list[Chunk]:
+def _assign_pages(
+    chunks: list[Chunk], tokens: list[str], pages: list[int | None]
+) -> list[Chunk]:
     """Setzt ``page_start/page_end`` je Chunk, indem seine Woerter im Dokument gesucht werden.
 
     Wiederholte Tabellenkoepfe oder nicht auffindbare Stellen erben den Stand des Vorgaengers.
@@ -204,7 +213,11 @@ def _assign_pages(chunks: list[Chunk], tokens: list[str], pages: list[int | None
             continue
         tail = words[-_KEY_TOKENS:]
         end = _find(tokens, tail, pos)
-        end_idx = (end + len(tail) - 1) if end >= 0 else min(pos + len(words) - 1, len(tokens) - 1)
+        end_idx = (
+            (end + len(tail) - 1)
+            if end >= 0
+            else min(pos + len(words) - 1, len(tokens) - 1)
+        )
         chunk.page_start = pages[pos]
         chunk.page_end = pages[end_idx] if pages[end_idx] is not None else pages[pos]
         last_end = chunk.page_end
@@ -234,9 +247,9 @@ def split_markdown(
     chunk_overlap = min(chunk_overlap, max(chunk_size // 2, 0))
     min_size = chunk_size // 3 if min_size is None else min_size
 
-    sections = MarkdownHeaderTextSplitter(headers_to_split_on=HEADERS, strip_headers=False).split_text(
-        markdown
-    )
+    sections = MarkdownHeaderTextSplitter(
+        headers_to_split_on=HEADERS, strip_headers=False
+    ).split_text(markdown)
 
     chunks: list[Chunk] = []
     for section in sections:
@@ -245,11 +258,20 @@ def split_markdown(
         text = re.sub(r" +\n", "\n", section.page_content).strip()
         if not text or not _has_body(text):
             continue  # reine Ueberschrift: steht im Pfad der Unterabschnitte
-        pieces = [text] if len(text) <= chunk_size else _split_section(text, chunk_size, chunk_overlap)
+        pieces = (
+            [text]
+            if len(text) <= chunk_size
+            else _split_section(text, chunk_size, chunk_overlap)
+        )
         for i, piece in enumerate(pieces):
             if piece.strip():
                 chunks.append(
-                    Chunk(piece.strip(), headers, headers[-1] if headers else filename, continuation=i > 0)
+                    Chunk(
+                        piece.strip(),
+                        headers,
+                        headers[-1] if headers else filename,
+                        continuation=i > 0,
+                    )
                 )
 
     # Kleine Abschnitte mit dem nachfolgenden zusammenfassen.
@@ -267,7 +289,9 @@ def split_markdown(
             prev.headers = _common_prefix(prev.headers, chunk.headers)
             prev.title = prev.headers[-1] if prev.headers else filename
         else:
-            merged.append(Chunk(chunk.text, list(chunk.headers), chunk.title, chunk.continuation))
+            merged.append(
+                Chunk(chunk.text, list(chunk.headers), chunk.title, chunk.continuation)
+            )
     return _assign_pages(merged, tokens, token_pages)
 
 

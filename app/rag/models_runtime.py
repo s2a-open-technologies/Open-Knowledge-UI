@@ -39,13 +39,15 @@ import time
 from dataclasses import dataclass
 from logging import getLogger
 
-
 from app.utils.device import onnx_providers, torch_device
 
 logger = getLogger(__name__)
 
 SOURCES = ("hf", "endpoint", "fastembed")
-DEFAULT_EMBEDDING = {"source": "hf", "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"}
+DEFAULT_EMBEDDING = {
+    "source": "hf",
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+}
 DEFAULT_RERANKER = {"source": "hf", "model": "BAAI/bge-reranker-base"}
 EMBED_BATCH = 32
 HTTP_TIMEOUT = 120
@@ -125,16 +127,23 @@ class HFEmbedder(_Embedder):
         self.spec = spec
         self._lock = threading.Lock()
         self._model = SentenceTransformer(spec.model, device=torch_device())
-        get_dim = getattr(self._model, "get_embedding_dimension", None) or self._model.get_sentence_embedding_dimension
+        get_dim = (
+            getattr(self._model, "get_embedding_dimension", None)
+            or self._model.get_sentence_embedding_dimension
+        )
         dim = get_dim()
         self._dimension = int(dim) if dim else None
 
     def _encode(self, texts: list[str], query: bool) -> list[list[float]]:
         # encode_query/encode_document wenden die Prompts des Modells an (z. B. "query: " bei e5).
         name = "encode_query" if query else "encode_document"
-        fn = getattr(self._model, name, None) or self._model.encode  # aeltere Versionen: nur encode
+        fn = (
+            getattr(self._model, name, None) or self._model.encode
+        )  # aeltere Versionen: nur encode
         with self._lock:  # Inferenz serialisieren (gunicorn --threads 4)
-            vectors = fn(texts, batch_size=16, normalize_embeddings=True, show_progress_bar=False)
+            vectors = fn(
+                texts, batch_size=16, normalize_embeddings=True, show_progress_bar=False
+            )
         return [list(map(float, v)) for v in vectors]
 
     def embed_query(self, text):
@@ -224,7 +233,9 @@ class HFReranker(_Reranker):
             return []
         pairs = [(query, t[:MAX_RERANK_CHARS]) for t in texts]
         with self._lock:
-            return [float(s) for s in self._model.predict(pairs, show_progress_bar=False)]
+            return [
+                float(s) for s in self._model.predict(pairs, show_progress_bar=False)
+            ]
 
 
 class FastEmbedReranker(_Reranker):
@@ -244,7 +255,12 @@ class FastEmbedReranker(_Reranker):
         if not texts:
             return []
         with self._lock:
-            return [float(s) for s in self._model.rerank(query, [t[:MAX_RERANK_CHARS] for t in texts])]
+            return [
+                float(s)
+                for s in self._model.rerank(
+                    query, [t[:MAX_RERANK_CHARS] for t in texts]
+                )
+            ]
 
 
 class EndpointReranker(_Reranker):
@@ -268,8 +284,16 @@ class EndpointReranker(_Reranker):
 # Cache und Status
 # --------------------------------------------------------------------------
 
-_EMBEDDER_CLASSES = {"hf": HFEmbedder, "fastembed": FastEmbedEmbedder, "endpoint": EndpointEmbedder}
-_RERANKER_CLASSES = {"hf": HFReranker, "fastembed": FastEmbedReranker, "endpoint": EndpointReranker}
+_EMBEDDER_CLASSES = {
+    "hf": HFEmbedder,
+    "fastembed": FastEmbedEmbedder,
+    "endpoint": EndpointEmbedder,
+}
+_RERANKER_CLASSES = {
+    "hf": HFReranker,
+    "fastembed": FastEmbedReranker,
+    "endpoint": EndpointReranker,
+}
 
 _lock = threading.RLock()
 _loaded: dict[tuple[str, str], object] = {}
@@ -289,9 +313,17 @@ def _load(kind: str, spec: ModelSpec):
             if key in _loaded:
                 return _loaded[key]
             prev = _status.get(key)
-            if prev and prev.get("state") == "error" and time.time() - prev["at"] < RETRY_AFTER_SECONDS:
+            if (
+                prev
+                and prev.get("state") == "error"
+                and time.time() - prev["at"] < RETRY_AFTER_SECONDS
+            ):
                 raise ModelLoadError(prev["error"])
-            _status[key] = {"state": "loading", "at": time.time(), "spec": spec.to_dict()}
+            _status[key] = {
+                "state": "loading",
+                "at": time.time(),
+                "spec": spec.to_dict(),
+            }
         started = time.time()
         try:
             obj = classes[spec.source](spec)
@@ -301,13 +333,20 @@ def _load(kind: str, spec: ModelSpec):
             raise
         except Exception as e:
             message = f"{type(e).__name__}: {e}"[:300]
-            _fail(key, spec, f"Modell „{spec.model}“ konnte nicht geladen werden: {message}")
+            _fail(
+                key,
+                spec,
+                f"Modell „{spec.model}“ konnte nicht geladen werden: {message}",
+            )
             raise ModelLoadError(_status[key]["error"]) from e
         with _lock:
             _loaded[key] = obj
             _status[key] = {
-                "state": "ready", "at": time.time(), "spec": spec.to_dict(),
-                "seconds": round(time.time() - started, 1), "dimension": dimension,
+                "state": "ready",
+                "at": time.time(),
+                "spec": spec.to_dict(),
+                "seconds": round(time.time() - started, 1),
+                "dimension": dimension,
             }
         logger.info(f"Modell geladen: {spec.key} ({_status[key]['seconds']} s)")
         return obj
@@ -315,7 +354,12 @@ def _load(kind: str, spec: ModelSpec):
 
 def _fail(key, spec, message):
     with _lock:
-        _status[key] = {"state": "error", "at": time.time(), "spec": spec.to_dict(), "error": message}
+        _status[key] = {
+            "state": "error",
+            "at": time.time(),
+            "spec": spec.to_dict(),
+            "error": message,
+        }
     logger.warning(message)
 
 
@@ -329,6 +373,7 @@ def get_reranker(spec: ModelSpec) -> _Reranker:
 
 def load_in_background(kind: str, spec: ModelSpec) -> None:
     """Laedt (und laedt ggf. herunter) das Modell, ohne den Aufrufer warten zu lassen."""
+
     def run():
         try:
             _load(kind, spec)
@@ -366,10 +411,16 @@ def reset_for_tests() -> None:
 # --------------------------------------------------------------------------
 
 
-def index_signature(embedding: ModelSpec | dict, chunk_size: int, chunk_overlap: int, *versions: int) -> str:
+def index_signature(
+    embedding: ModelSpec | dict, chunk_size: int, chunk_overlap: int, *versions: int
+) -> str:
     """Kennzeichnet, womit ein Index erzeugt wurde. Weicht sie von der aktuellen
     Konfiguration ab, gilt der Index als veraltet (Neu indexieren empfohlen)."""
-    spec = embedding if isinstance(embedding, ModelSpec) else ModelSpec.from_dict(embedding)
+    spec = (
+        embedding
+        if isinstance(embedding, ModelSpec)
+        else ModelSpec.from_dict(embedding)
+    )
     raw = json.dumps([spec.key, chunk_size, chunk_overlap, *versions])
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 

@@ -57,11 +57,16 @@ def ensure_worker_token() -> None:
     text = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
     for line in text.splitlines():
         if line.startswith("TOOL_WORKER_TOKEN=") and line.split("=", 1)[1].strip():
-            os.environ.setdefault("TOOL_WORKER_TOKEN", line.split("=", 1)[1].strip().strip("\"'"))
+            os.environ.setdefault(
+                "TOOL_WORKER_TOKEN", line.split("=", 1)[1].strip().strip("\"'")
+            )
             return
     token = os.environ.get("TOOL_WORKER_TOKEN") or secrets.token_hex(32)
     with env_file.open("a", encoding="utf-8") as fh:
-        fh.write(("" if text.endswith("\n") or not text else "\n") + f"TOOL_WORKER_TOKEN={token}\n")
+        fh.write(
+            ("" if text.endswith("\n") or not text else "\n")
+            + f"TOOL_WORKER_TOKEN={token}\n"
+        )
     os.environ["TOOL_WORKER_TOKEN"] = token
     print("🔑 TOOL_WORKER_TOKEN erzeugt und in .env gespeichert")
 
@@ -82,16 +87,30 @@ def point_workers_to_localhost() -> None:
         "        st.set(key, local)\n"
         "s.commit()\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
     if result.returncode != 0:
-        print(f"⚠️  Worker-Adressen konnten nicht gesetzt werden:\n{result.stderr[-400:]}")
+        print(
+            f"⚠️  Worker-Adressen konnten nicht gesetzt werden:\n{result.stderr[-400:]}"
+        )
 
 
 def wait_for_postgres(timeout: int = 60) -> bool:
     """Wartet, bis die Datenbank Verbindungen annimmt (sonst scheitert die Migration)."""
     for _ in range(timeout):
         ready = subprocess.run(
-            ["docker", "compose", "-f", COMPOSE_FILE, "exec", "-T", "postgres", "pg_isready", "-q"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                COMPOSE_FILE,
+                "exec",
+                "-T",
+                "postgres",
+                "pg_isready",
+                "-q",
+            ],
             capture_output=True,
         )
         if ready.returncode == 0:
@@ -103,11 +122,15 @@ def wait_for_postgres(timeout: int = 60) -> bool:
 
 
 def start_services() -> bool:
-    print("🐳 Starte Hilfsdienste (Postgres, Qdrant, SearXNG, entityguard, Parakeet, Tool-Worker) in Docker...")
+    print(
+        "🐳 Starte Hilfsdienste (Postgres, Qdrant, SearXNG, entityguard, Parakeet, Tool-Worker) in Docker..."
+    )
     try:
         result = subprocess.run(["docker", "compose", "-f", COMPOSE_FILE, "up", "-d"])
     except FileNotFoundError:
-        print("❌ Docker nicht gefunden. Docker Desktop installieren oder --no-docker nutzen.")
+        print(
+            "❌ Docker nicht gefunden. Docker Desktop installieren oder --no-docker nutzen."
+        )
         return False
     if result.returncode != 0:
         print("❌ docker compose ist fehlgeschlagen (siehe oben).")
@@ -126,8 +149,14 @@ def main():
         sys.exit(1)
 
     print("📊 Alembic Migration...")
-    result = subprocess.run(["alembic", "upgrade", "head"], capture_output=True, text=True)
-    print("✅ Migration erfolgreich" if result.returncode == 0 else f"⚠️  Migration Fehler:\n{result.stderr}")
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"], capture_output=True, text=True
+    )
+    print(
+        "✅ Migration erfolgreich"
+        if result.returncode == 0
+        else f"⚠️  Migration Fehler:\n{result.stderr}"
+    )
     point_workers_to_localhost()
 
     print("🚀 Starte Gunicorn auf http://127.0.0.1:5000")

@@ -8,6 +8,14 @@ import { Message, type SourceInfo, type ToolCall, type ToolResult } from "@/comp
 import { useSessions } from "@/context/SessionsContext";
 import { useStt, type SttMode } from "@/hooks/useStt";
 import { api, ApiError, csrfHeaders, errorMessage } from "@/lib/api";
+import {
+  MODELS_CHANGED,
+  readChosenModel,
+  readSeenDefault,
+  reconcileChosenModel,
+  writeChosenModel,
+  writeSeenDefault,
+} from "@/lib/modelChoice";
 import { consumeChatStream, type ChatStreamEvent } from "@/lib/sse";
 import type {
   ChatAttachment,
@@ -33,7 +41,6 @@ interface LiveMessage {
 }
 
 const KNOWLEDGE_KEY = "rag.selectedKnowledge";
-const MODEL_KEY = "rag.model";
 const POLL_MS = 1500;
 
 // Ohne gespeicherte Auswahl ist kein Knowledge gewählt; "all" steht für „alle“ (null).
@@ -125,13 +132,7 @@ export function ChatPage() {
 
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
-  const [chosenModel, setChosenModel] = useState<string>(() => {
-    try {
-      return localStorage.getItem(MODEL_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
+  const [chosenModel, setChosenModel] = useState<string>(readChosenModel);
   // Gewähltes Modell, sonst Standardmodell. Bewusst kein Fallback auf ein
   // beliebiges Modell: Daten sollen nicht unbemerkt an einen anderen Endpunkt gehen.
   const selectedModel =
@@ -177,23 +178,47 @@ export function ChatPage() {
       .catch((e) => console.error(e));
   }, []);
 
+  // Modellliste und Standardmodell: beim Öffnen, nach Änderungen im Admin-Dialog
+  // (die Seite bleibt dahinter gemountet) und wenn das Fenster wieder Fokus bekommt.
   useEffect(() => {
-    api
-      .get<ModelsResponse>("/api/models?visible=1")
-      .then((res) => {
-        setModels(res.models);
-        setDefaultModel(res.default);
-      })
-      .catch((e) => console.error(e));
+    const load = () => {
+      api
+        .get<ModelsResponse>("/api/models?visible=1")
+        .then((res) => {
+          setModels(res.models);
+          setDefaultModel(res.default);
+          // Neuer Standard des Admins gewinnt gegen eine früher gespeicherte Auswahl.
+          const next = reconcileChosenModel(
+            readChosenModel(),
+            res.default,
+            readSeenDefault(),
+          );
+          writeSeenDefault(next.seenDefault);
+          setChosenModel((prev) => {
+            if (next.chosen === prev) return prev;
+            writeChosenModel(next.chosen);
+            return next.chosen;
+          });
+        })
+        .catch((e) => console.error(e));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    load();
+    window.addEventListener(MODELS_CHANGED, load);
+    window.addEventListener("focus", load);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(MODELS_CHANGED, load);
+      window.removeEventListener("focus", load);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   const changeModel = (ref: string) => {
     setChosenModel(ref);
-    try {
-      localStorage.setItem(MODEL_KEY, ref);
-    } catch {
-      // localStorage nicht verfügbar: Auswahl gilt nur für diese Sitzung.
-    }
+    writeChosenModel(ref);
   };
 
   const changeKnowledge = (ids: number[] | null) => {

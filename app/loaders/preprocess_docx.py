@@ -43,7 +43,7 @@ from docling.document_converter import (
 )
 
 # Custom imports
-from app.components.preprocess_base import PreprocessBase
+from app.loaders.preprocess_base import PreprocessBase
 
 
 class PreprocessDOCX(PreprocessBase):

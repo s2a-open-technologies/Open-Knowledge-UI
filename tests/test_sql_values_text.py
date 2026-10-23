@@ -5,15 +5,74 @@ import pytest
 from app.sqlsource import values as v
 
 VALUES = [
-    "Stuhl", "Bürostuhl", "Drehstuhl", "Esszimmerstuhl", "Gartenstühle", "Stühle", "Klappstuhl", "Tisch", "Schreibtisch",
-    "Esstisch", "Tische", "Couchtisch", "Lampe", "Stehlampe", "Schreibtischlampe", "Schrank", "Kleiderschrank", "Schränke",
-    "Regal", "Bücherregal", "Regale", "Sofa", "Couch", "Sessel", "Bett", "Doppelbett", "Straße", "Hauptstraße", "Bahnhofstraße",
-    "Strasse", "München", "Köln", "Nürnberg", "Düsseldorf", "Hamburg", "Berlin", "Arzt", "Ärzte", "Ärztin", "Anwalt",
-    "Anwältin", "Hund", "Katze", "Maus", "Mäuse", "Haus", "Häuser", "Lagerhalle", "Halle", "Stahlträger", "Träger",
-    "Schraube", "Schrauben", "Mutter", "Muttern", "Dichtung", "Dichtungen",
+    "Stuhl",
+    "Bürostuhl",
+    "Drehstuhl",
+    "Esszimmerstuhl",
+    "Gartenstühle",
+    "Stühle",
+    "Klappstuhl",
+    "Tisch",
+    "Schreibtisch",
+    "Esstisch",
+    "Tische",
+    "Couchtisch",
+    "Lampe",
+    "Stehlampe",
+    "Schreibtischlampe",
+    "Schrank",
+    "Kleiderschrank",
+    "Schränke",
+    "Regal",
+    "Bücherregal",
+    "Regale",
+    "Sofa",
+    "Couch",
+    "Sessel",
+    "Bett",
+    "Doppelbett",
+    "Straße",
+    "Hauptstraße",
+    "Bahnhofstraße",
+    "Strasse",
+    "München",
+    "Köln",
+    "Nürnberg",
+    "Düsseldorf",
+    "Hamburg",
+    "Berlin",
+    "Arzt",
+    "Ärzte",
+    "Ärztin",
+    "Anwalt",
+    "Anwältin",
+    "Hund",
+    "Katze",
+    "Maus",
+    "Mäuse",
+    "Haus",
+    "Häuser",
+    "Lagerhalle",
+    "Halle",
+    "Stahlträger",
+    "Träger",
+    "Schraube",
+    "Schrauben",
+    "Mutter",
+    "Muttern",
+    "Dichtung",
+    "Dichtungen",
 ]
 ENTRIES = [v.entry("items", "name", value, 1) for value in VALUES]
-STUHL = {"Stuhl", "Bürostuhl", "Drehstuhl", "Esszimmerstuhl", "Gartenstühle", "Stühle", "Klappstuhl"}
+STUHL = {
+    "Stuhl",
+    "Bürostuhl",
+    "Drehstuhl",
+    "Esszimmerstuhl",
+    "Gartenstühle",
+    "Stühle",
+    "Klappstuhl",
+}
 QUERIES = {
     "Stühle": STUHL,
     "Stuhl": STUHL,
@@ -51,7 +110,11 @@ def test_overall_precision_and_recall_hold_the_measured_level():
     tp = fp = fn = 0
     for term, expected in QUERIES.items():
         got = found(term)
-        tp, fp, fn = tp + len(got & expected), fp + len(got - expected), fn + len(expected - got)
+        tp, fp, fn = (
+            tp + len(got & expected),
+            fp + len(got - expected),
+            fn + len(expected - got),
+        )
     assert tp / (tp + fn) >= 0.98  # Recall (gemessen 1.00)
     assert tp / (tp + fp) >= 0.95  # Praezision (gemessen 0.98)
 
@@ -59,7 +122,9 @@ def test_overall_precision_and_recall_hold_the_measured_level():
 def test_exact_matches_rank_before_stems_before_compounds():
     ranked = [e["value"] for e, _ in v.rank("Stuhl", ENTRIES, limit=10)]
     assert ranked[0] == "Stuhl"
-    assert ranked.index("Stühle") < ranked.index("Bürostuhl")  # gleicher Stamm vor Kompositum
+    assert ranked.index("Stühle") < ranked.index(
+        "Bürostuhl"
+    )  # gleicher Stamm vor Kompositum
 
 
 def test_unrelated_words_do_not_match_and_short_stems_do_not_explode():
@@ -70,9 +135,12 @@ def test_unrelated_words_do_not_match_and_short_stems_do_not_explode():
 
 def test_ties_prefer_the_more_frequent_value():
     entries = [v.entry("t", "c", "Stuhl", 3), v.entry("t", "c", "Stühle", 40)]
-    assert [e["value"] for e, _ in v.rank("Stuhl", entries)][:2] == ["Stuhl", "Stühle"]  # exakt zuerst
+    assert [e["value"] for e, _ in v.rank("Stuhl", entries)][:2] == [
+        "Stuhl",
+        "Stühle",
+    ]  # exakt zuerst
     entries = [v.entry("t", "c", "Stuhl A", 3), v.entry("t", "c", "Stuhl B", 40)]
-    assert [e["value"] for e, _ in v.rank("Stuhl", entries)][0] == "Stuhl B"
+    assert next(e["value"] for e, _ in v.rank("Stuhl", entries)) == "Stuhl B"
 
 
 def test_multi_word_terms_and_umlaut_spellings():

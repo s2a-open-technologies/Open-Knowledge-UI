@@ -41,3 +41,6 @@ graphify-out/
 
 # OpenCode-Arbeitsdateien (Pläne etc.) — niemals ins Repo
 .opencode/
+
+# Interne Planungsnotizen
+docs/v0.3.md

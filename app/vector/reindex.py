@@ -81,7 +81,9 @@ def is_locked(knowledge_id: int | None) -> bool:
         if not _state["running"]:
             return False
         current = _state["current"]
-        return knowledge_id in _state["queue"] or bool(current and current["id"] == knowledge_id)
+        return knowledge_id in _state["queue"] or bool(
+            current and current["id"] == knowledge_id
+        )
 
 
 def start(knowledge_ids: list[int], client, sparse, wait: bool = False) -> None:
@@ -94,7 +96,11 @@ def start(knowledge_ids: list[int], client, sparse, wait: bool = False) -> None:
         if _state["running"]:
             raise ReindexBusy("Es läuft bereits ein Neu-Indexieren")
         _state.update(
-            running=True, queue=list(knowledge_ids), current=None, results=[], started_at=time.time()
+            running=True,
+            queue=list(knowledge_ids),
+            current=None,
+            results=[],
+            started_at=time.time(),
         )
     thread = threading.Thread(
         target=_run, args=(client, sparse), name="reindex", daemon=True
@@ -116,7 +122,12 @@ def _run(client, sparse) -> None:
                 _finish(kid, "?", False, "Knowledge nicht gefunden")
                 continue
             with _lock:
-                _state["current"] = {"id": kid, "name": k["name"], "done": 0, "total": 0}
+                _state["current"] = {
+                    "id": kid,
+                    "name": k["name"],
+                    "done": 0,
+                    "total": 0,
+                }
             try:
                 reindex_knowledge(k, client, sparse, _progress)
                 _finish(kid, k["name"], True, None)
@@ -150,15 +161,21 @@ def next_collection_name(client, current: str) -> str:
     return f"{base}_g{n}"
 
 
-def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None) -> None:
+def reindex_knowledge(
+    k: dict, client, sparse, progress=lambda done, total: None
+) -> None:
     """Baut ein Knowledge mit dem aktuellen globalen Modell und den aktuellen Einstellungen neu auf."""
     from app.rag import sparse as sparse_lang
     from app.vector.ingestion import DocumentIngestion, index_data_references
 
     spec = model_settings.embedding_spec()
-    language = sparse_lang.default_language()  # der neue Index nutzt die aktuelle BM25-Sprache
+    language = (
+        sparse_lang.default_language()
+    )  # der neue Index nutzt die aktuelle BM25-Sprache
     k = {**k, "bm25_language": language}
-    embedder = models_runtime.get_embedder(spec)  # scheitert frueh, bevor etwas angelegt wird
+    embedder = models_runtime.get_embedder(
+        spec
+    )  # scheitert frueh, bevor etwas angelegt wird
     dimension = embedder.dimension
     paths = kb_store.knowledge_paths(k)
     old_collection = k["collection_name"]
@@ -207,7 +224,9 @@ def reindex_knowledge(k: dict, client, sparse, progress=lambda done, total: None
     if old:
         _drop(client, old)
     refresh_index(k["id"])
-    logger.info(f"'{k['name']}' neu indexiert: {len(documents)} Dokumente -> {new_collection}")
+    logger.info(
+        f"'{k['name']}' neu indexiert: {len(documents)} Dokumente -> {new_collection}"
+    )
 
 
 def _drop(client, collection: str) -> None:
@@ -217,7 +236,9 @@ def _drop(client, collection: str) -> None:
         logger.warning(f"Collection '{collection}' konnte nicht gelöscht werden: {e}")
 
 
-def _markdown_for(doc: UserDocument, k, paths, ingest, client, old_collection) -> str | None:
+def _markdown_for(
+    doc: UserDocument, k, paths, ingest, client, old_collection
+) -> str | None:
     """Markdown des Dokuments: gespeichert, sonst aus dem Original, sonst aus den alten Chunks."""
     if doc.markdown_path and Path(doc.markdown_path).is_file():
         return Path(doc.markdown_path).read_text(encoding="utf-8")
@@ -256,7 +277,12 @@ def _markdown_from_chunks(client, collection: str, file_group_id: str) -> str | 
     rows, offset = [], None
     while True:
         points, offset = client.scroll(
-            collection, scroll_filter=flt, limit=256, offset=offset, with_payload=True, with_vectors=False
+            collection,
+            scroll_filter=flt,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
         )
         rows.extend(points)
         if offset is None:

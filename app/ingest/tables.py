@@ -114,10 +114,16 @@ def make_sink(paths, stem: str, file_group_id: str) -> TableSink:
     return sink
 
 
-def render_reference(info: dict, number: int, table_markdown: str, pages: tuple[int, int] | None = None) -> str:
+def render_reference(
+    info: dict, number: int, table_markdown: str, pages: tuple[int, int] | None = None
+) -> str:
     """Ersatztext fuer eine extrahierte Tabelle im Markdown."""
     name, rows, df = info["name"], info["rows"], info["frame"]
-    label = f"TABELLE {number} (Seiten {pages[0]}–{pages[1]})" if pages else f"TABELLE {number}"
+    label = (
+        f"TABELLE {number} (Seiten {pages[0]}–{pages[1]})"
+        if pages
+        else f"TABELLE {number}"
+    )
     # Die Tabelle gehoert zum Dokument und hat keinen eigenen Eintrag in der Vektordatenbank:
     # ueber diesen Verweis wird sie mit dem Dokument gefunden, deshalb stehen die Inhaltshinweise hier.
     try:
@@ -126,7 +132,9 @@ def render_reference(info: dict, number: int, table_markdown: str, pages: tuple[
         hints = ""
     hints = f"\n{hints}" if hints else ""
     if rows <= INLINE_MAX_ROWS and len(table_markdown) <= INLINE_MAX_CHARS:
-        return f"{table_markdown}\n\n[{label}: als Datei `{name}` ({rows} Zeilen)]{hints}"
+        return (
+            f"{table_markdown}\n\n[{label}: als Datei `{name}` ({rows} Zeilen)]{hints}"
+        )
     columns = ", ".join(info["columns"])
     try:
         preview = df.head(PREVIEW_ROWS).to_markdown(index=False)
