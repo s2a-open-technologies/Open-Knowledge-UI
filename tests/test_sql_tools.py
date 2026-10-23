@@ -376,7 +376,7 @@ def run_chat(app, db, monkeypatch, pii_url, answer, who="[NAME_1]"):
         ],
         [answer],
     )
-    monkeypatch.setattr("app.api.routes.get_agent", lambda *a, **k: tool_agent)
+    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: tool_agent)
     res = client_for(app, ed).post(
         "/chat",
         json={

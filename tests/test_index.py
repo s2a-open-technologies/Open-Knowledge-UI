@@ -6,10 +6,7 @@ from flask import Flask
 from werkzeug.security import generate_password_hash
 
 from app.agent.tools.custom_tools import CustomTools
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
-from app.api.users import users_bp
+from app.api import register_blueprints
 from app.auth import access
 from app.core.models import User
 from app.knowledge import index_doc
@@ -207,8 +204,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp, users_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
@@ -327,7 +323,7 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_env(app, db, monkeypatch):
-    from app.api import routes
+    from app.api import chat as routes
     from app.llm import connections as store
 
     CapturingAgent.messages = []

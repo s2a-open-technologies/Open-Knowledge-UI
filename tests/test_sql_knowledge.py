@@ -3,9 +3,7 @@ import sqlite3
 import pytest
 from flask import Flask
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.auth import access
 from app.knowledge import service as knowledge
 from tests.test_access import add_user, client_for
@@ -18,8 +16,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
@@ -64,7 +61,7 @@ def test_the_password_never_leaks_but_is_stored(app, db, shop, monkeypatch):
 
     # Verbindungsprobe ohne echten Server: der Worker-Test wird ersetzt
     monkeypatch.setattr(
-        "app.api.api_routes._sql_probe",
+        "app.api.knowledge._sql_probe",
         lambda cfg: {"version": "x", "tables": [], "write_privilege": False},
     )
     r = create(
@@ -161,7 +158,7 @@ def test_changing_the_source_keeps_the_password_for_the_same_target(
     from app.knowledge.sql import config as sqlcfg
 
     monkeypatch.setattr(
-        "app.api.api_routes._sql_probe",
+        "app.api.knowledge._sql_probe",
         lambda cfg: {"version": "x", "tables": [], "write_privilege": False},
     )
     k = create(

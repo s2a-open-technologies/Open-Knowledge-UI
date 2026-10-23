@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
 
+from app.api import register_blueprints
 from app.core import version
 
 
@@ -25,12 +26,8 @@ def test_falls_back_to_env_then_unknown(tmp_path, monkeypatch):
 def test_version_endpoint_is_public_and_health_reports_it():
     from flask import Flask
 
-    from app.api.api_routes import api_bp
-    from app.api.routes import bp
-
     app = Flask(__name__)
-    app.register_blueprint(api_bp)
-    app.register_blueprint(bp)
+    register_blueprints(app)
     c = app.test_client()
     assert c.get("/api/version").json == {"version": version.get_version()}
     assert c.get("/health").json["version"] == version.get_version()

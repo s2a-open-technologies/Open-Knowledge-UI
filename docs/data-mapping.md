@@ -40,7 +40,7 @@ flowchart TB
 | 2 | Anmeldung LDAP | Benutzername, Passwort | LDAP-Server des Betreibers | `app/auth/ldap.py` |
 | 3 | Anmeldung OIDC | ID-Token-Claims (Name, Gruppen) | OIDC-Anbieter | `app/auth/oidc.py`, `app/auth/external.py` |
 | 4 | Dokument hochladen und einlesen | Datei, Text, Bilder | Dateisystem, Qdrant; Bildbeschreibung und Kontext-Anreicherung ggf. LLM | `app/ingest/`, `app/ingest/pipeline.py` |
-| 5 | Chatfrage | Frage, Anhangsnamen | optional PII-Filter, danach Embedding, Qdrant, LLM | `app/api/routes.py` (Chat-Route), `app/chat/pii_client.py` |
+| 5 | Chatfrage | Frage, Anhangsnamen | optional PII-Filter, danach Embedding, Qdrant, LLM | `app/api/chat.py` (Chat-Route), `app/chat/pii_client.py` |
 | 6 | Websuche (pro Modell zuschaltbar) | Suchanfrage, mit PII-Filter maskiert; ohne Filter nur nach ausdrücklicher Freigabe (`SEARCH_ALLOW_UNMASKED`) unmaskiert | SearXNG, und von dort Suchmaschinen | `app/agent/tools/web_search.py`, `app/agent/tools/web_access.py` |
 | 7 | Compaction | älterer Verlauf | LLM des Chat-Modells; Ergebnis in `sessions.summary` | `app/chat/compaction.py` |
 | 8 | Externe Quelle | Frage-Embedding, Filter (Benutzer/Gruppen) | Fremder Qdrant | `app/knowledge/external.py` |
@@ -59,7 +59,7 @@ flowchart TB
 |---|---|---|---|
 | Chats und Nachrichten | unbegrenzt | Nutzer (`delete_session_route`) oder Admin beim Löschen des Benutzers (`app/auth/user_admin.py:delete_user`) | nein |
 | Chat-Anhänge | mit dem Chat | `app/chat/attachments.py:cleanup_session_attachments` | beim Löschen des Chats |
-| Eigene Dokumente | unbegrenzt | Nutzer (`app/api/api_routes.py:delete_document`: Uploader oder mit Schreibrecht), Chat-Anhänge unter *Meine Uploads* | nein |
+| Eigene Dokumente | unbegrenzt | Nutzer (`app/api/documents.py:delete_document`: Uploader oder mit Schreibrecht), Chat-Anhänge unter *Meine Uploads* | nein |
 | Zusammenfassung des Verlaufs | mit dem Chat | gelöscht mit der Session | beim Löschen |
 | Konten | unbegrenzt | Admin | nein |
 | Backups | betreiberabhängig | Betreiber | - |
@@ -80,5 +80,5 @@ Nur die vom Betreiber konfigurierten: LLM-Verbindungen (*Administration › Verb
 ## Bekannte Lücken
 
 1. Keine automatische Aufbewahrungsfrist: Chats und Ablagen bleiben bis zur manuellen Löschung, das Audit-Log (Migration `0036`, `app/auth/audit.py`) wächst ohne Rotation/Anonymisierung; Fristen legt der Betreiber fest.
-2. Der PII-Filter maskiert nur Nutzereingaben; Dokumentinhalte, die per Suche ins LLM gelangen, werden nicht maskiert. Bei einem Fehler des Filters bricht der **Chat** mit einer Fehlermeldung ab (`app/api/routes.py`, `mask_or_fail`) und die **Websuche** ebenso (`app/agent/tools/web_search.py`); es geht nichts unmaskiert hinaus. Der Chat maskiert den **ganzen Kontext** (Zusammenfassung, Verlauf, neue Frage) in einem Aufruf (`app/chat/pii_session.py`); auch das Zusammenfassungs-Modell der Compaction sieht nur maskierten Text. Gespeichert wird weiterhin Klartext. **Bleibende Lücken:** Dokument-Treffer (Ergebnisse der Dokumentsuche) und Inhalte des Wissens gehen unmaskiert an das Modell; Suchanfragen des Modells enthalten Platzhalter statt Namen. Mit der Freigabe "ohne PII-Filter" verlassen Suchanfragen das System unmaskiert.
+2. Der PII-Filter maskiert nur Nutzereingaben; Dokumentinhalte, die per Suche ins LLM gelangen, werden nicht maskiert. Bei einem Fehler des Filters bricht der **Chat** mit einer Fehlermeldung ab (`app/api/chat.py`, `mask_or_fail`) und die **Websuche** ebenso (`app/agent/tools/web_search.py`); es geht nichts unmaskiert hinaus. Der Chat maskiert den **ganzen Kontext** (Zusammenfassung, Verlauf, neue Frage) in einem Aufruf (`app/chat/pii_session.py`); auch das Zusammenfassungs-Modell der Compaction sieht nur maskierten Text. Gespeichert wird weiterhin Klartext. **Bleibende Lücken:** Dokument-Treffer (Ergebnisse der Dokumentsuche) und Inhalte des Wissens gehen unmaskiert an das Modell; Suchanfragen des Modells enthalten Platzhalter statt Namen. Mit der Freigabe "ohne PII-Filter" verlassen Suchanfragen das System unmaskiert.
 3. `delete_user` (`app/auth/user_admin.py:161`) entfernt Chats, Nachrichten, Gruppenmitgliedschaften, Freigaben und das Konto, die Anhänge der Chats räumt die Route danach auf. Uploads unter *Meine Uploads* und Ablagen des Benutzers werden dort **nicht ausdrücklich** gelöscht (nicht abschließend geprüft, ob sie anderweitig mit entfallen). Vor Produktivbetrieb klären.

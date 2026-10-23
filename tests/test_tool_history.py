@@ -3,7 +3,7 @@
 
 import json
 
-from app.api.routes import MAX_TOOL_BLOCKS, MAX_TOOL_CHARS, tools_block
+from app.api.chat import MAX_TOOL_BLOCKS, MAX_TOOL_CHARS, tools_block
 from app.chat import compaction
 from tests.test_access import add_user, client_for
 from tests.test_pii_session import app, guard, setup_chat, sse_events  # noqa: F401
@@ -105,7 +105,7 @@ def test_tool_calls_are_shown_as_text_with_input_and_stored_masked(
 ):
     setup_chat(app, db, monkeypatch, guard, ["x"])
     agent = ToolAgent()
-    monkeypatch.setattr("app.api.routes.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: agent)
     c = client_for(app, add_user(db, "ed", "editor"))
     events = sse_events(
         c.post("/chat", json={"message": "Max Mustermann bitte suchen"})

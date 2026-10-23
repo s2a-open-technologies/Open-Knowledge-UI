@@ -7,10 +7,7 @@ from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
-from app.api.users import users_bp
+from app.api import register_blueprints
 from app.auth import access
 from app.core.models import User
 from app.core.settings_service import SettingsService
@@ -429,8 +426,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp, users_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
@@ -874,7 +870,7 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
     Path("data/geheim.txt").write_text("nein", encoding="utf-8")
     flask_app = Flask(__name__)
     flask_app.secret_key = "t"
-    flask_app.register_blueprint(api_bp)
+    register_blueprints(flask_app)
     c = client_for(flask_app, ed)
 
     view = c.get("/api/data-files/umsatz.csv")
@@ -913,7 +909,7 @@ def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
         "is_ingesting": False,
         "knowledge_id": None,
     }
-    flask_app.register_blueprint(api_bp)
+    register_blueprints(flask_app)
     import io
 
     r = client_for(flask_app, ed).post(

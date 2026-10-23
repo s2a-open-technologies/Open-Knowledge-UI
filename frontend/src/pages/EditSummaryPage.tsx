@@ -54,7 +54,7 @@ export function EditSummaryPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" size="sm" asChild>
-            <a href={`/user/summaries/${encoded}/download-md`}>
+            <a href={`/api/summaries/${encoded}/download-md`}>
               <Download className="size-4" />
               MD Download
             </a>
@@ -64,7 +64,7 @@ export function EditSummaryPage() {
             className="bg-emerald-600 text-white hover:bg-emerald-700"
             asChild
           >
-            <a href={`/user/summaries/${encoded}/download-docx`}>
+            <a href={`/api/summaries/${encoded}/download-docx`}>
               <Download className="size-4" />
               DOCX Download
             </a>

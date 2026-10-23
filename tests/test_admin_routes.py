@@ -1,7 +1,7 @@
 import pytest
 from flask import Flask
 
-from app.api.admin_routes import admin_bp
+from app.api import register_blueprints
 from app.llm import connections as store
 from app.llm import registry
 
@@ -11,7 +11,7 @@ def client(db):
     # Als geseedeter Admin angemeldet (id 1); es geht um die Key-Weitergabe.
     app = Flask(__name__)
     app.secret_key = "t"
-    app.register_blueprint(admin_bp)
+    register_blueprints(app)
     with app.test_client() as c:
         with c.session_transaction() as s:
             s["user_id"] = 1

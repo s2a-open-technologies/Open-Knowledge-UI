@@ -29,7 +29,7 @@ from app.auth.users import set_password, verify_password
 from app.chat.attachments import cleanup_session_attachments
 from app.llm import connections as models_store
 
-users_bp = Blueprint("users_api", __name__, url_prefix="/api")
+bp = Blueprint("users_api", __name__, url_prefix="/api")
 
 logger = getLogger(__name__)
 
@@ -38,7 +38,7 @@ def _error(message: str, status: int):
     return jsonify({"success": False, "error": message}), status
 
 
-@users_bp.errorhandler(AdminError)
+@bp.errorhandler(AdminError)
 def _admin_error(e: AdminError):
     return _error(e.message, e.status)
 
@@ -48,7 +48,7 @@ def _admin_error(e: AdminError):
 # =============================================================================
 
 
-@users_bp.route("/auth/change-password", methods=["POST"])
+@bp.route("/auth/change-password", methods=["POST"])
 @auth_required_api
 def change_own_password():
     data = request.get_json() or {}
@@ -70,13 +70,13 @@ def change_own_password():
 # =============================================================================
 
 
-@users_bp.route("/users", methods=["GET"])
+@bp.route("/users", methods=["GET"])
 @require_role("admin")
 def users_list():
     return jsonify(user_admin.list_users())
 
 
-@users_bp.route("/users", methods=["POST"])
+@bp.route("/users", methods=["POST"])
 @require_role("admin")
 def users_create():
     data = request.get_json() or {}
@@ -89,7 +89,7 @@ def users_create():
     return jsonify(created), 201
 
 
-@users_bp.route("/users/<int:user_id>", methods=["PATCH"])
+@bp.route("/users/<int:user_id>", methods=["PATCH"])
 @require_role("admin")
 def users_update(user_id):
     return jsonify(
@@ -97,7 +97,7 @@ def users_update(user_id):
     )
 
 
-@users_bp.route("/users/<int:user_id>", methods=["DELETE"])
+@bp.route("/users/<int:user_id>", methods=["DELETE"])
 @require_role("admin")
 def users_delete(user_id):
     session_ids = user_admin.delete_user(user_id, current_user()["id"])
@@ -112,13 +112,13 @@ def users_delete(user_id):
 # =============================================================================
 
 
-@users_bp.route("/groups", methods=["GET"])
+@bp.route("/groups", methods=["GET"])
 @require_role("admin")
 def groups_list():
     return jsonify(user_admin.list_groups())
 
 
-@users_bp.route("/groups", methods=["POST"])
+@bp.route("/groups", methods=["POST"])
 @require_role("admin")
 def groups_create():
     data = request.get_json() or {}
@@ -126,20 +126,20 @@ def groups_create():
     return jsonify(created), 201
 
 
-@users_bp.route("/groups/<int:group_id>", methods=["PATCH"])
+@bp.route("/groups/<int:group_id>", methods=["PATCH"])
 @require_role("admin")
 def groups_update(group_id):
     return jsonify(user_admin.update_group(group_id, request.get_json() or {}))
 
 
-@users_bp.route("/groups/<int:group_id>", methods=["DELETE"])
+@bp.route("/groups/<int:group_id>", methods=["DELETE"])
 @require_role("admin")
 def groups_delete(group_id):
     user_admin.delete_group(group_id)
     return jsonify({"success": True})
 
 
-@users_bp.route("/groups/<int:group_id>/members", methods=["PUT"])
+@bp.route("/groups/<int:group_id>/members", methods=["PUT"])
 @require_role("admin")
 def groups_set_members(group_id):
     data = request.get_json() or {}
@@ -151,7 +151,7 @@ def groups_set_members(group_id):
 # =============================================================================
 
 
-@users_bp.route("/principals", methods=["GET"])
+@bp.route("/principals", methods=["GET"])
 @require_role("editor")
 def principals():
     """Namen aller aktiven Nutzer und Gruppen fuer den Freigabe-Dialog."""
@@ -174,7 +174,7 @@ def _access_payload() -> tuple[bool, list[dict]]:
     return bool(data.get("is_public", False)), data.get("grants") or []
 
 
-@users_bp.route("/knowledge/<int:knowledge_id>/access", methods=["GET"])
+@bp.route("/knowledge/<int:knowledge_id>/access", methods=["GET"])
 @require_role("editor")
 def knowledge_access_get(knowledge_id):
     if not access.can_access_knowledge(current_user(), knowledge_id, "write"):
@@ -182,7 +182,7 @@ def knowledge_access_get(knowledge_id):
     return jsonify(access.get_access("knowledge", knowledge_id))
 
 
-@users_bp.route("/knowledge/<int:knowledge_id>/access", methods=["PUT"])
+@bp.route("/knowledge/<int:knowledge_id>/access", methods=["PUT"])
 @require_role("editor")
 def knowledge_access_set(knowledge_id):
     if not access.can_access_knowledge(current_user(), knowledge_id, "write"):
@@ -200,7 +200,7 @@ def knowledge_access_set(knowledge_id):
     return jsonify(access.get_access("knowledge", knowledge_id))
 
 
-@users_bp.route("/models/access", methods=["GET"])
+@bp.route("/models/access", methods=["GET"])
 @require_role("admin")
 def model_access_get():
     ref = request.args.get("ref", "")
@@ -214,7 +214,7 @@ def model_access_get():
     return jsonify(access.get_access("model", rid))
 
 
-@users_bp.route("/models/access", methods=["PUT"])
+@bp.route("/models/access", methods=["PUT"])
 @require_role("admin")
 def model_access_set():
     ref = (request.get_json() or {}).get("ref", "")

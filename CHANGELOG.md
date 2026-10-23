@@ -16,9 +16,11 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Geändert
 
+- **Neue Paketstruktur in `app/`.** Statt 16 Ordnern gibt es neun fachliche Pakete: `core`, `auth`, `llm`, `ingest`, `knowledge`, `rag`, `agent`, `chat` und `api`. Alle HTTP-Routen liegen in `app/api/`, ein Blueprint je Bereich (Chat, Anmeldung, Benutzer, Knowledge, Dokumente, Ablagen, Modelle, Admin, Retrieval); die bisherigen Sammeldateien mit bis zu 1.870 Zeilen sind aufgeteilt. Die URLs bleiben gleich.
+- **Alte `/user/…`-Routen entfernt.** Die Oberfläche nutzte davon nur noch die Downloads der Ablagen; diese liegen jetzt unter `/api/summaries/<datei>/download-md` und `…/download-docx` und funktionieren damit auch für Nutzer ohne Admin-Rolle (die alten Routen waren Admins vorbehalten).
 - **Python 3.14 für die Entwicklung.** `.python-version` und die lokale venv nutzen 3.14; `requires-python` bleibt `>=3.12`, das App-Image nutzt weiterhin `python:3.12-slim`, der universale Lock deckt beide ab. Klassifizierer um 3.13/3.14 ergänzt.
 - **Vite 8.3.5 und `@vitejs/plugin-react` 6.1.2.** Frontend-Build auf den aktuellen Major gehoben (Node 22 in Docker und CI unverändert); `npm run test` und `npm run build` laufen damit.
-- **Ladepaket `app/loaders` statt `app/components`.** Die PDF-/DOCX-Loader und Preprocess-Klassen liegen jetzt unter `app/loaders`; die Loader importieren ihre Preprocess-Klasse direkt aus dem jeweiligen Modul, damit ein alphabetischer Import-Sortierer keinen Zirkelimport mehr erzeugen kann.
+- **Ladepaket `app/ingest/loaders` statt `app/components`.** Die PDF-/DOCX-Loader und Preprocess-Klassen liegen jetzt unter `app/ingest/loaders`; die Loader importieren ihre Preprocess-Klasse direkt aus dem jeweiligen Modul, damit ein alphabetischer Import-Sortierer keinen Zirkelimport mehr erzeugen kann.
 
 ## [0.2.6] - 2026-10-21
 

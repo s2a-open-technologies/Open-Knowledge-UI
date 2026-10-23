@@ -2,9 +2,7 @@ import pytest
 from flask import Flask
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.auth import users
 from app.core.models import ChatSession, User
 
@@ -36,9 +34,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "test"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    app.register_blueprint(main_bp)
-    app.register_blueprint(api_bp)
-    app.register_blueprint(admin_bp)
+    register_blueprints(app)
     return app
 
 

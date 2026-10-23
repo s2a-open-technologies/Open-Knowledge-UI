@@ -831,5 +831,5 @@ class CustomTools:
         ]
 
         # Die Websuche kommt nicht hierher: sie wird pro Modell zugeschaltet
-        # (app/agent/tools/web_access.py, app/api/routes.py).
+        # (app/agent/tools/web_access.py, app/api/chat.py).
         return tools

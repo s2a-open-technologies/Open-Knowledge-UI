@@ -16,32 +16,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+"""Chat: Stream (/chat), Abbruch, Sitzungen, Verlauf, Anhaenge und Spracheingabe."""
+
 import asyncio
 import json
 import logging
-import os
 import queue
 import threading
 import time
+from logging import getLogger
 
 from flask import (
     Blueprint,
     Response,
     current_app,
-    flash,
     jsonify,
-    redirect,
     request,
-    session,
-    url_for,
 )
 
 from app import resources_ready, wait_for_resources
 from app.agent.document_agent import CONVERSATION_ONLY_HINT, DocumentAgent, select_tools
 from app.agent.tools.web_access import build_web_search_tool, pii_client
-from app.auth.access import accessible_knowledge_ids, can_use_model
+from app.auth.access import (
+    accessible_knowledge_ids,
+    can_use_model,
+)
 from app.auth.auth import auth_required_api, current_user
-from app.auth.users import LoginThrottledError, authenticate, role_at_least
+from app.auth.users import (
+    role_at_least,
+)
 from app.chat import compaction
 from app.chat.pii_client import PIIFilterUnavailable
 from app.chat.pii_session import (
@@ -53,55 +56,24 @@ from app.chat.pii_session import (
 )
 from app.core.database_service import get_db_service
 from app.core.phase_logger import Phase, phase_logger
-from app.core.settings_service import SettingsService
+from app.knowledge.index_doc import ensure_index
+from app.knowledge.service import (
+    knowledge_paths,
+    list_knowledge,
+)
 from app.llm.registry import ModelUnavailableError, get_agent, resolve_model
+from app.rag import model_settings
 from app.rag import sparse as sparse_lang
 from app.rag.retrieval import RetrievalScope, set_scope
 
-bp = Blueprint("main", __name__)
-logger = logging.getLogger(__name__)
-
-_STATIC_DIR = None
-
-
-def serve_spa():
-    """Liefert die gebaute React-SPA (app/static/index.html).
-
-    Der Vite-Build schreibt direkt nach ``app/static/`` (siehe
-    ``frontend/vite.config.ts``); Flask serviert dieses Verzeichnis unter
-    ``/static/...``. Fällt mit einer klaren Meldung zurück, falls das Frontend
-    noch nicht gebaut wurde (``cd frontend && npm run build``)."""
-    global _STATIC_DIR
-    if _STATIC_DIR is None:
-        _STATIC_DIR = os.path.join(current_app.root_path, "static")
-
-    index_path = os.path.join(_STATIC_DIR, "index.html")
-    if not os.path.isfile(index_path):
-        return (
-            (
-                "<h1>Frontend nicht gebaut</h1>"
-                "<p>Bitte zuerst ausführen: <code>cd frontend &amp;&amp; npm install "
-                "&amp;&amp; npm run build</code></p>"
-            ),
-            503,
-        )
-
-    # Server-seitigen Theme-Default (UI_THEME) in die SPA-Index einbetten,
-    # damit index.html vor dem ersten Paint den richtigen Fallback hat.
-    try:
-        settings = SettingsService(get_db_service().get_session())
-        ui_theme = settings.get("UI_THEME", "system") or "system"
-    except Exception:
-        ui_theme = "system"
-
-    with open(index_path, encoding="utf-8") as fh:
-        html = fh.read()
-    html = html.replace("__RAG_UI_THEME__", ui_theme)
-    return Response(html, mimetype="text/html")
+bp = Blueprint("chat", __name__)
+logger = getLogger(__name__)
 
 
 # Globale Cancel-Events für laufende Chat-Streams, keyed by session_id.
 _cancel_events = {}
+
+
 _cancel_events_lock = threading.Lock()
 
 
@@ -128,9 +100,6 @@ def _clear_cancelled(session_id):
         event = _cancel_events.get(session_id)
         if event is not None:
             event.clear()
-
-
-# === Session Management API ===
 
 
 @bp.route("/api/sessions", methods=["GET"])
@@ -225,64 +194,6 @@ def delete_session_route(session_id):
     return jsonify({"success": True})
 
 
-@bp.route("/health", methods=["GET"])
-def health():
-    """Health check endpoint for Docker (Liveness). ready=False waehrend
-    die Embedding-Modelle im Hintergrund geladen werden."""
-    from app.core.version import get_version
-
-    return {
-        "status": "healthy",
-        "ready": resources_ready(),
-        "version": get_version(),
-    }, 200
-
-
-@bp.route("/api/ingestion-status", methods=["GET"])
-@auth_required_api
-def ingestion_status():
-    """Geteilter Ingestion-Status fuer den Navbar-Indikator per Polling."""
-    return jsonify(current_app.extensions["ingestion_status"])
-
-
-@bp.route("/", methods=["GET"])
-def index():
-    # Die React-SPA übernimmt das Routing (Chat unter '/'). Der Login-Status
-    # wird clientseitig über /api/auth/me geprüft.
-    return serve_spa()
-
-
-@bp.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        try:
-            user = authenticate(
-                request.form.get("username", ""),
-                request.form.get("password", ""),
-                client_ip=request.remote_addr,
-            )
-        except LoginThrottledError:
-            user = None
-            flash("Zu viele Fehlversuche. Bitte später erneut versuchen.")
-        if user:
-            session.clear()
-            session["user_id"] = user["id"]
-            return redirect(url_for("main.index"))
-
-        flash("Benutzername oder Passwort falsch")
-
-    return serve_spa()
-
-
-@bp.route("/logout", methods=["GET"])
-def logout():
-    from app.auth import audit
-
-    audit.record(audit.LOGOUT)
-    session.clear()
-    return redirect(url_for("main.login"))
-
-
 @bp.route("/history/<session_id>", methods=["GET"])
 @auth_required_api
 def history(session_id):
@@ -308,6 +219,8 @@ def history(session_id):
 
 
 MAX_TOOL_BLOCKS = 20
+
+
 MAX_TOOL_CHARS = 2000
 
 
@@ -471,7 +384,6 @@ def chat():
 
     # Durchsuchte Collections dieses Requests: gewaehlte Knowledge-Bereiche plus
     # (falls vorhanden) die Anhaenge dieser Session.
-    from app.knowledge.service import list_knowledge
 
     all_knowledge = list_knowledge()
     # Nie Collections aus dem Request ungeprueft uebernehmen.
@@ -499,9 +411,7 @@ def chat():
     sql_knowledge = [k for k in all_knowledge if k.get("kind") == "sql"]
     all_knowledge = [k for k in all_knowledge if k.get("kind") != "sql"]
     from app.auth.access import user_group_names
-    from app.knowledge.index_doc import ensure_index, inline_hint
-    from app.knowledge.service import knowledge_paths
-    from app.rag import model_settings
+    from app.knowledge.index_doc import inline_hint
     from app.rag.helper import make_helper
     from app.rag.profiles import config_for_knowledge
 
@@ -974,35 +884,71 @@ def stt():
     return jsonify({"text": text})
 
 
-# =============================================================================
-# React-SPA Catch-all
-# =============================================================================
+@bp.route("/api/chat/attachments", methods=["POST"])
+@auth_required_api
+def upload_chat_attachment():
+    from app import resources_ready
+    from app.chat.attachments import is_image, is_supported, start_attachment_ingestion
 
-# Alle nicht von Flask/API/Assets bedienten GET-Pfade sind clientseitige
-# React-Router-Routen und liefern dieselbe index.html aus. Bewusst über einen
-# 404-Handler (echter Catch-all) statt einer Routen-Whitelist: neue SPA-Seiten
-# funktionieren damit automatisch, ohne hier etwas nachzutragen.
-_RESERVED_PREFIXES = ("/api/", "/static/", "/user/", "/ws/")
-_RESERVED_EXACT = {"/health", "/logout"}
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "error": "Keine Datei"}), 400
+    if not is_supported(file.filename):
+        return jsonify(
+            {
+                "success": False,
+                "error": "Dateityp im Chat nicht unterstützt "
+                "(PDF, DOCX, DOC, ODT, MD, Bilder). CSV/Excel bitte über Knowledge hochladen.",
+            }
+        ), 415
+    if is_image(file.filename):
+        from app.ingest.image_text import enabled
+
+        if not enabled():
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Bilder im Chat sind abgeschaltet (Administration › Einlesen & Modelle).",
+                }
+            ), 415
+
+    sparse = current_app.extensions.get("sparse_embeddings")
+    if not resources_ready() or not sparse:
+        return jsonify(
+            {
+                "success": False,
+                "error": "RAG-System wird noch initialisiert. Bitte kurz warten.",
+            }
+        ), 503
+
+    db = get_db_service()
+    session_id = request.form.get("session_id") or None
+    user_id = current_user()["id"]
+    if session_id and not db.get_chat_session(session_id, user_id=user_id):
+        return jsonify({"success": False, "error": "Ungültige Session"}), 404
+    if not session_id:
+        session_id = db.create_session(user_id=user_id).id
+
+    attachment = start_attachment_ingestion(
+        file, session_id, sparse, current_user()["id"]
+    )
+    return jsonify({"success": True, "session_id": session_id, **attachment}), 202
 
 
-@bp.app_errorhandler(404)
-def spa_fallback(error):
-    path = request.path
-
-    # Backend-/API-/Asset-Pfade niemals mit der SPA überschreiben.
-    if (
-        request.method != "GET"
-        or path.startswith(_RESERVED_PREFIXES)
-        or path in _RESERVED_EXACT
-    ):
-        return error.get_response()
-
-    # Nur Navigation (HTML) oder extension-lose Pfade als SPA ausliefern;
-    # fehlende Dateien mit Endung bleiben echte 404s.
-    accepts_html = "text/html" in request.headers.get("Accept", "")
-    looks_like_file = "." in os.path.basename(path)
-    if accepts_html or not looks_like_file:
-        return serve_spa()
-
-    return error.get_response()
+@bp.route("/api/chat/attachments/<attachment_id>", methods=["GET"])
+@auth_required_api
+def chat_attachment_status(attachment_id):
+    db = get_db_service()
+    att = db.get_attachment(attachment_id)
+    # Fremde Anhaenge sind nicht auffindbar (404 statt 403).
+    if not att or not db.get_chat_session(att.session_id, user_id=current_user()["id"]):
+        return jsonify({"error": "Anhang nicht gefunden"}), 404
+    return jsonify(
+        {
+            "id": att.id,
+            "session_id": att.session_id,
+            "filename": att.filename,
+            "status": att.status,
+            "error": att.error,
+        }
+    )

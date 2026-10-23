@@ -239,7 +239,7 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_images(app, db, conn, upload_env, monkeypatch):
-    from app.api import routes
+    from app.api import chat as routes
 
     CapturingAgent.sent = []
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())
@@ -301,7 +301,7 @@ def test_foreign_or_unknown_attachment_ids_are_ignored(app, db, chat_images):
 def test_the_pii_filter_masks_the_text_but_the_image_is_sent_unchanged(
     app, db, chat_images, monkeypatch
 ):
-    from app.api import routes
+    from app.api import chat as routes
 
     store.save_model_config(chat_images, {"vision": True})
 

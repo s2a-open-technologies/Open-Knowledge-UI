@@ -32,7 +32,7 @@ from app.rag import sparse as sparse_lang
 from app.rag.helper import make_helper
 from app.rag.profiles import ProfileError
 
-rag_bp = Blueprint("rag_api", __name__, url_prefix="/api")
+bp = Blueprint("rag_api", __name__, url_prefix="/api")
 
 logger = getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _error(message: str, status: int):
     return jsonify({"success": False, "error": message}), status
 
 
-@rag_bp.errorhandler(ProfileError)
+@bp.errorhandler(ProfileError)
 def _profile_error(e: ProfileError):
     return _error(e.message, e.status)
 
@@ -51,13 +51,13 @@ def _profile_error(e: ProfileError):
 # =============================================================================
 
 
-@rag_bp.route("/retrieval/profiles", methods=["GET"])
+@bp.route("/retrieval/profiles", methods=["GET"])
 @require_role("user")
 def profiles_list():
     return jsonify(profiles.list_profiles())
 
 
-@rag_bp.route("/retrieval/profiles", methods=["POST"])
+@bp.route("/retrieval/profiles", methods=["POST"])
 @require_role("admin")
 def profiles_create():
     data = request.get_json() or {}
@@ -67,21 +67,21 @@ def profiles_create():
     return jsonify(created), 201
 
 
-@rag_bp.route("/retrieval/profiles/<int:profile_id>", methods=["PATCH"])
+@bp.route("/retrieval/profiles/<int:profile_id>", methods=["PATCH"])
 @require_role("admin")
 def profiles_update(profile_id):
     data = request.get_json() or {}
     return jsonify(profiles.update_profile(profile_id, data))
 
 
-@rag_bp.route("/retrieval/profiles/<int:profile_id>", methods=["DELETE"])
+@bp.route("/retrieval/profiles/<int:profile_id>", methods=["DELETE"])
 @require_role("admin")
 def profiles_delete(profile_id):
     profiles.delete_profile(profile_id)
     return jsonify({"success": True})
 
 
-@rag_bp.route("/retrieval/defaults", methods=["GET"])
+@bp.route("/retrieval/defaults", methods=["GET"])
 @require_role("user")
 def profile_defaults():
     """Startwerte fuer ein neues Profil (das Standardprofil) und der Standard-Prompt."""
@@ -95,7 +95,7 @@ def profile_defaults():
 # =============================================================================
 
 
-@rag_bp.route("/knowledge/<int:knowledge_id>/retrieval-profile", methods=["PUT"])
+@bp.route("/knowledge/<int:knowledge_id>/retrieval-profile", methods=["PUT"])
 @require_role("user")
 def knowledge_set_profile(knowledge_id):
     """Wechselt das Profil eines Knowledge (``profile_id: null`` = Standard).
@@ -114,7 +114,7 @@ def knowledge_set_profile(knowledge_id):
 # =============================================================================
 
 
-@rag_bp.route("/retrieval/test", methods=["POST"])
+@bp.route("/retrieval/test", methods=["POST"])
 @require_role("user")
 def retrieval_test():
     """Fuehrt die Pipeline mit einem Profil aus und liefert Treffer plus Ablaufprotokoll.

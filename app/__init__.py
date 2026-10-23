@@ -347,35 +347,9 @@ def create_app(preload=False):
         app
     )  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
 
-    from app.api.routes import bp
+    from app.api import register_blueprints
 
-    app.register_blueprint(bp)
-
-    # JSON-API für die React-SPA (Auth, Settings, Dokumente, VektordB, ...).
-    from app.api.api_routes import api_bp
-
-    app.register_blueprint(api_bp)
-
-    # Connections und Modell-Konfigurationen (Admin-Bereich der SPA).
-    from app.api.admin_routes import admin_bp
-
-    app.register_blueprint(admin_bp)
-
-    # Benutzer, Gruppen, Freigaben und eigenes Passwort.
-    from app.api.users import users_bp
-
-    app.register_blueprint(users_bp)
-
-    # Retrieval-Profile und Pipeline-Test.
-    from app.api.retrieval import rag_bp
-
-    app.register_blueprint(rag_bp)
-
-    # User Routes enthalten jetzt auch die ehemaligen Admin-Funktionen
-    # (Vektordatenbank, Settings, Summaries).
-    from app.api.user_routes import user_bp
-
-    app.register_blueprint(user_bp)
+    register_blueprints(app)
 
     # WebSocket-Proxy fuer Live-STT-Streaming (Browser <-> Parakeet).
     from app.chat.stt_stream import sock

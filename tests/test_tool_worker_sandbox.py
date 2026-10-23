@@ -182,7 +182,7 @@ def run_child_directly(path, code, memory_mb=1024):
         input=job.encode(),
         capture_output=True,
         timeout=30,
-        check=False
+        check=False,
     ).stdout
     return json.loads(out)
 

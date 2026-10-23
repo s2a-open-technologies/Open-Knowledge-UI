@@ -2,11 +2,7 @@ import pytest
 from flask import Flask
 from qdrant_client import QdrantClient
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.retrieval import rag_bp
-from app.api.routes import bp as main_bp
-from app.api.users import users_bp
+from app.api import register_blueprints
 from app.auth import access
 from app.core.models import Group, GroupMember
 from app.knowledge import service as knowledge
@@ -20,8 +16,7 @@ def app(db, monkeypatch):
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
     app.extensions["client"] = QdrantClient(":memory:")
-    for bp in (main_bp, api_bp, admin_bp, users_bp, rag_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
 
     class Emb:
         dimension = 7

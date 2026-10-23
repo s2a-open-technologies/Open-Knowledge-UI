@@ -2,9 +2,7 @@ import pytest
 from flask import Flask
 
 from app.agent.tools import web_access
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.core.settings_service import SettingsService
 from app.llm import connections as store
 from app.llm import registry
@@ -22,8 +20,7 @@ def app(db, monkeypatch):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
@@ -127,12 +124,12 @@ def test_tools_api_is_admin_only_and_validates(app, db):
 def test_tools_test_uses_form_values_and_stored_key_only_for_the_stored_url(
     app, db, monkeypatch
 ):
-    import app.api.user_routes as ur
+    import app.api.tool_checks as ur
 
     seen = []
     monkeypatch.setattr(
         ur,
-        "_test_stt",
+        "check_stt",
         lambda s: (
             seen.append((s.get("STT_BASEURL"), s.get("STT_API_KEY")))
             or {"success": True}

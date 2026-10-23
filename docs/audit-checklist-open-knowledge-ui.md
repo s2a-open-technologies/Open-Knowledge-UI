@@ -35,9 +35,9 @@
 | Art.-32-Maßnahmen | ⚠️ | `SECURITY.md`, diese Liste | Verschlüsselung at rest fehlt (App-Ebene) |
 | Pseudonymisierung | ⚠️ | `app/chat/pii_client.py`, `docs/sanitizer-api.md` | Herstellerneutrale Schnittstelle. Nutzereingaben werden vor dem LLM maskiert, wenn ein Filter eingerichtet ist; bei Filterfehler bricht der Chat mit Fehlermeldung ab (fail-closed), der ganze Kontext inkl. Verlauf und Compaction wird maskiert, die Antwort live zurückübersetzt (`app/chat/pii_session.py`). Lücke: Dokument-Treffer gehen unmaskiert ans Modell. Websuche bricht bei Filterfehler ab und läuft ohne Filter nur nach ausdrücklicher Freigabe |
 | Datenminimierung | ⚠️ | Chat-Anhänge werden mit dem Chat gelöscht (`app/chat/attachments.py:cleanup_session_attachments`) | Keine automatische Aufbewahrungsfrist für Chats |
-| Berichtigung | ✅ | Anzeigename/Passwort (`app/api/user_routes.py`, `app/auth/user_admin.py:119`) | |
-| Löschung | ✅ | Chat (`app/api/routes.py:210`), eigene Dokumente (`app/api/user_routes.py:127`), Benutzer samt Chats (`app/auth/user_admin.py:161`) | Benutzer löschen entfernt Chats, Mitgliedschaften, Freigaben; Uploads/Ablagen des Benutzers nicht ausdrücklich (siehe Data Mapping, Lücke 3). Backups nicht betroffen |
-| Auskunft / Übertragbarkeit | ✅ | `GET /api/me/export` (`app/api/api_routes.py`), Logik `app/chat/data_export.py` (`tests/test_data_export.py`), UI *Mein Konto › Daten exportieren* | JSON mit Profil, eigenen Chats/Ablagen/Dokument- und Anhang-Referenzen; fremde Inhalte nie enthalten |
+| Berichtigung | ✅ | Anzeigename/Passwort (`app/api/auth.py:change_password`, `app/auth/user_admin.py:119`) | |
+| Löschung | ✅ | Chat (`app/api/chat.py:delete_session_route`), eigene Dokumente (`app/api/documents.py:delete_document`), Benutzer samt Chats (`app/auth/user_admin.py:161`) | Benutzer löschen entfernt Chats, Mitgliedschaften, Freigaben; Uploads/Ablagen des Benutzers nicht ausdrücklich (siehe Data Mapping, Lücke 3). Backups nicht betroffen |
+| Auskunft / Übertragbarkeit | ✅ | `GET /api/me/export` (`app/api/auth.py:export_my_data`), Logik `app/chat/data_export.py` (`tests/test_data_export.py`), UI *Mein Konto › Daten exportieren* | JSON mit Profil, eigenen Chats/Ablagen/Dokument- und Anhang-Referenzen; fremde Inhalte nie enthalten |
 | Widerspruch | ⚠️ | Betreiberprozess | |
 | TLS zu externen Endpunkten | ⚠️ | LDAP prüft Zertifikate (`app/auth/ldap.py`); LLM-/Quellen-URLs vom Admin wählbar | `http://` ist erlaubt, Betreiber verantwortlich |
 | Auftragsverarbeiter dokumentiert | ⚠️ | `docs/data-mapping.md` ("Externe Stellen") | Hängt von der Konfiguration ab |
@@ -70,7 +70,7 @@
 | Versionierung und Tags | ✅ | `scripts/release.py`, Tags v0.1.0 bis v0.2.5 | Container-Images via Sigstore keyless signiert (`images.yml`, `cosign sign`, GitHub-OIDC, verifizierbar per `cosign verify`) |
 | Testabdeckung | ⚠️ | Backend: 964 Tests (`pytest tests`: 958 bestanden + 6 übersprungen, Lauf 2026-10-15, SQLite; Postgres-Varianten per `TEST_DATABASE_URL`); Frontend: 64 vitest-Tests (node + jsdom + Testing-Library-Komponententests: Markdown-Sanitizer-Regression, CodeBlock-Falten/Kopieren, TableBlock-CSV, SSE-Parser, Message-Block-Extraktion, API-Fehlerbehandlung, Theme/Draft), Typprüfung + Build im CI | Frontend: keine E2E-/Browser-Interaktionstests |
 | Bus-Faktor | ⚠️ | ein Maintainer | Mitigiert: Codex-/Agentenwissen in `AGENTS.md`/`CLAUDE.md`, automatisierte Releases (`scripts/release.py` + Workflows), dokumentierte Runbooks |
-| Health-Endpunkt | ✅ | `app/api/routes.py:226` (`/health`) | |
+| Health-Endpunkt | ✅ | `app/api/pages.py:health` (`/health`) | |
 | Reproduzierbare Builds | ✅ | Lockfiles (`uv.lock`, `package-lock.json`), CI nutzt `--frozen`; alle Basis-Images auf Manifest-Digest gepinnt (multi-arch; Dependabot zieht Digest + Tag) | Compose-Runtime-Images (qdrant, postgres, searxng) bleiben Tags — Betreiber-Konfiguration |
 
 ## Zusammenfassung

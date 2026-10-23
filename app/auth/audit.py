@@ -22,9 +22,9 @@ Audit-Log: sicherheitsrelevante Ereignisse nachweisen koennen.
 ``record`` ist **best-effort** und darf niemals den eigentlichen Vorgang brechen:
 eine eigene kurze DB-Sitzung, Fehler nur in das Log. Aufgerufen wird von zentralen
 Stellen: Anmeldung (``app/auth/users.authenticate``), externe Anmeldungen
-(``auth_external.login_external_user``), Abmeldung, Kontoverwaltung
+(``external.login_external_user``), Abmeldung, Kontoverwaltung
 (``user_admin``), Freigaben (``access.set_access``), Passwortwechsel und
-Datenexport (``api_routes``).
+Datenexport (``app/api/auth.py``).
 
 ``detail`` wird als JSON-Text gespeichert (kleine, flache Struktur); Namen und
 Rollen liegen schon im Klartext in der Tabelle, Passwoerter werden nie gespeichert.

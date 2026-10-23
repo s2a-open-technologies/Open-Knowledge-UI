@@ -24,9 +24,7 @@ from flask import Flask
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agent import context_guard
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.chat import compaction
 from tests.test_access import add_user, client_for
 
@@ -38,8 +36,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 

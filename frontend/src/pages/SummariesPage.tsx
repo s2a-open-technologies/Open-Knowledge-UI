@@ -86,7 +86,7 @@ export function SummariesPage() {
                 </Button>
                 <Button variant="secondary" size="sm" asChild>
                   <a
-                    href={`/user/summaries/${encodeURIComponent(s.filename)}/download-md`}
+                    href={`/api/summaries/${encodeURIComponent(s.filename)}/download-md`}
                   >
                     <Download className="size-4" />
                     MD
@@ -98,7 +98,7 @@ export function SummariesPage() {
                   asChild
                 >
                   <a
-                    href={`/user/summaries/${encodeURIComponent(s.filename)}/download-docx`}
+                    href={`/api/summaries/${encodeURIComponent(s.filename)}/download-docx`}
                   >
                     <Download className="size-4" />
                     DOCX

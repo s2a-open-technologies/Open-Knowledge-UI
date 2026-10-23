@@ -3,8 +3,7 @@
 import pytest
 from flask import Flask
 
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.core.csrf import COOKIE, HEADER, init_csrf, same_origin
 
 
@@ -14,8 +13,7 @@ def app(db):
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
     init_csrf(app)
-    app.register_blueprint(main_bp)
-    app.register_blueprint(api_bp)
+    register_blueprints(app)
     return app
 
 

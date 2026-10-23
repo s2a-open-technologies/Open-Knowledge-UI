@@ -5,9 +5,7 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.chat import attachments
 from app.core.database_service import get_db_service
 from app.knowledge import service as knowledge
@@ -39,8 +37,7 @@ def app(db, qd):
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
     app.extensions.update(client=qd, sparse_embeddings=FakeSparse())
-    for bp in (main_bp, api_bp, admin_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 

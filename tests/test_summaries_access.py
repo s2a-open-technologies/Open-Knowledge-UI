@@ -4,8 +4,7 @@ import pytest
 from flask import Flask
 
 from app.agent.tools.custom_tools import CustomTools
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.chat import summaries
 from app.rag.retrieval import RetrievalScope, set_scope
 from tests.test_access import add_user, client_for
@@ -16,8 +15,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
@@ -93,3 +91,34 @@ def test_deleting_a_summary_never_touches_another_users_tracking_row(app, db):
     remaining = [(s.filename, s.user_id) for s in db.get_all_summaries()]
     assert remaining == [("gleich.md", alice["id"])]  # Alices Eintrag bleibt
     assert client_for(app, alice).get("/api/summaries/gleich.md").json["content"] == "A"
+
+
+def test_normal_users_download_their_own_summaries_as_md_and_docx(app, db):
+    import io
+
+    from docx import Document
+
+    alice, bob = add_user(db, "alice", "user"), add_user(db, "bob", "user")
+    a, b = client_for(app, alice), client_for(app, bob)
+    a.put(
+        "/api/summaries/bericht.md",
+        json={"content": "# Titel\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- **fett**"},
+    )
+
+    md = a.get("/api/summaries/bericht.md/download-md")
+    assert md.status_code == 200
+    assert "attachment" in md.headers["Content-Disposition"]
+    assert md.data.decode().startswith("# Titel")
+
+    docx = a.get("/api/summaries/bericht.md/download-docx")
+    assert docx.status_code == 200
+    assert "bericht.docx" in docx.headers["Content-Disposition"]
+    doc = Document(io.BytesIO(docx.data))
+    assert doc.paragraphs[0].text == "Titel"
+    assert doc.tables[0].cell(1, 1).text == "2"
+
+    for kind in ("md", "docx"):
+        assert b.get(f"/api/summaries/bericht.md/download-{kind}").status_code == 404
+        assert b.get(
+            f"/api/summaries/../u{alice['id']}/bericht.md/download-{kind}"
+        ).status_code in (400, 404)

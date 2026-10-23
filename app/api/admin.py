@@ -16,268 +16,48 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""JSON-API fuer LLM-Connections und Modell-Konfigurationen (Admin-Bereich)."""
+"""Admin-Einstellungen: Embedding, Werkzeuge, Anmeldung, Compaction, Agent-Verhalten, Tool-Worker, Audit-Log."""
 
 from logging import getLogger
 
-from flask import Blueprint, jsonify, request
+from flask import (
+    Blueprint,
+    jsonify,
+    request,
+)
 
-from app.auth.access import can_use_model
-from app.auth.auth import auth_required_api, current_user, require_role
-from app.auth.users import role_at_least
+from app.api._common import _error
+from app.auth.auth import require_role
+from app.core.database_service import get_db_service
 from app.core.device import torch_device
+from app.core.settings_service import SettingsService
+from app.knowledge.service import (
+    list_knowledge,
+)
 from app.llm import connections as store
 from app.llm import registry
+from app.rag import model_settings
 
-admin_bp = Blueprint("admin_api", __name__, url_prefix="/api")
-
+bp = Blueprint("admin_api", __name__, url_prefix="/api")
 logger = getLogger(__name__)
 
 
-def _error(message: str, status: int):
-    return jsonify({"success": False, "error": message}), status
-
-
-# =============================================================================
-# Connections
-# =============================================================================
-
-
-@admin_bp.route("/connections", methods=["GET"])
+@bp.route("/admin/audit", methods=["GET"])
 @require_role("admin")
-def connections_list():
-    return jsonify(store.list_connections())
+def admin_audit():
+    """Neueste Protokolleinträge (Anmeldungen, Verwaltung, Freigaben)."""
+    from app.auth import audit
 
-
-@admin_bp.route("/connections", methods=["POST"])
-@require_role("admin")
-def connections_create():
-    data = request.get_json() or {}
-    name = (data.get("name") or "").strip()
-    base_url = store.normalize_base_url(data.get("base_url") or "")
-    if not name or not base_url:
-        return _error("Name und Base-URL sind erforderlich", 400)
-    if not base_url.startswith(("http://", "https://")):
-        return _error("Base-URL muss mit http:// oder https:// beginnen", 400)
-
-    try:
-        registry._reject_link_local(base_url)
-    except registry.RemoteModelsError as e:
-        return _error(str(e), 400)
-
-    try:
-        created = store.create_connection(
-            name,
-            base_url,
-            data.get("api_key") or "",
-            bool(data.get("enabled", True)),
-            kind=data.get("kind") or "llm",
-        )
-    except ValueError as e:
-        return _error(str(e), 400)
-    registry.clear_caches()
-    return jsonify(created), 201
-
-
-@admin_bp.route("/connections/<int:connection_id>", methods=["PATCH"])
-@require_role("admin")
-def connections_update(connection_id):
-    data = request.get_json() or {}
-    base_url = data.get("base_url")
-    if base_url and not store.normalize_base_url(base_url).startswith(
-        ("http://", "https://")
-    ):
-        return _error("Base-URL muss mit http:// oder https:// beginnen", 400)
-    if base_url:
-        try:
-            registry._reject_link_local(store.normalize_base_url(base_url))
-        except registry.RemoteModelsError as e:
-            return _error(str(e), 400)
-
-    # Wird die URL geaendert, muss der Key neu eingegeben werden (siehe oben).
-    current = store.get_connection(connection_id)
-    if (
-        current
-        and base_url
-        and store.normalize_base_url(base_url) != current["base_url"]
-        and current["has_key"]
-        and not (data.get("api_key") or "").strip()
-    ):
-        return _error("Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400)
-
-    updated = store.update_connection(
-        connection_id,
-        name=data.get("name"),
-        base_url=base_url,
-        api_key=data.get("api_key"),
-        enabled=data.get("enabled"),
-        kind=data.get("kind"),
-    )
-    if not updated:
-        return _error("Connection nicht gefunden", 404)
-    registry.clear_caches()
-    return jsonify(updated)
-
-
-@admin_bp.route("/connections/<int:connection_id>", methods=["DELETE"])
-@require_role("admin")
-def connections_delete(connection_id):
-    if not store.delete_connection(connection_id):
-        return _error("Connection nicht gefunden", 404)
-    registry.clear_caches()
-    return jsonify({"success": True})
-
-
-@admin_bp.route("/connections/test", methods=["POST"])
-@require_role("admin")
-def connections_test():
-    """Testet Base-URL + Key, auch fuer noch ungespeicherte Eingaben. Ein leerer
-    Key bei vorhandener ``id`` verwendet den gespeicherten."""
-    data = request.get_json() or {}
-    base_url = store.normalize_base_url(data.get("base_url") or "")
-    if not base_url:
-        return _error("Base-URL erforderlich", 400)
-
-    api_key = (data.get("api_key") or "").strip()
-    connection_id = data.get("id")
-    if not api_key and connection_id:
-        # Den gespeicherten Key nur an die gespeicherte URL senden, sonst liesse
-        # er sich per geaenderter Base-URL an einen fremden Server ausleiten.
-        stored = store.get_connection(int(connection_id), with_key=True)
-        if stored and store.normalize_base_url(stored["base_url"]) == base_url:
-            api_key = stored["api_key"]
-
-    kind = data.get("kind") or "llm"
-    if kind not in store.CONNECTION_KINDS:
-        return _error("Unbekannter Typ", 400)
-    connection = {
-        "id": int(connection_id or 0),
-        "kind": kind,
-        "base_url": base_url,
-        "api_key": api_key,
-    }
-    if kind == "llm":
-        result = registry.test_connection(connection)
-    else:  # TEI / Infinity: Erreichbarkeit und beide APIs wirklich pruefen
-        from app.rag import endpoints
-
-        result = endpoints.test_connection(connection)
-    return jsonify(result), 200 if result["success"] else 502
-
-
-# =============================================================================
-# Modelle
-# =============================================================================
-
-
-@admin_bp.route("/models", methods=["GET"])
-@auth_required_api
-def models_list():
-    """Alle Modelle der aktiven Connections. ``visible=1`` filtert auf die im
-    Chat sichtbaren (Modell-Dropdown), ``refresh=1`` umgeht den kurzen Cache."""
-    is_admin = role_at_least(current_user()["role"], "admin")
-    result = registry.list_models(force=is_admin and request.args.get("refresh") == "1")
-    if request.args.get("visible") == "1" or not is_admin:
-        result["models"] = [
-            m for m in result["models"] if m["visible"] and m["available"]
-        ]
-    if not is_admin:
-        user = current_user()
-        result["models"] = [
-            m for m in result["models"] if can_use_model(user, m["ref"])
-        ]
-        if result["default"] and not can_use_model(user, result["default"]):
-            result["default"] = ""
-    # Das Modell-Knowledge ist immer die Basis und im Chat nicht abwaehlbar: ``knowledge_base`` und
-    # ``knowledge_locked`` bekommen auch Admins, sonst sehen sie es als normale, abwaehlbare Auswahl.
-    from app.knowledge.service import list_knowledge
-
-    names = {k["id"]: k["name"] for k in list_knowledge()}
-    for m in result["models"]:
-        cfg = m.get("config")
-        ids = (cfg or {}).get("knowledge_ids") or []
-        # Gesperrt ist die Auswahl nur, wenn der Admin zusaetzliches Knowledge nicht erlaubt hat.
-        m["knowledge_locked"] = bool(ids) and not (cfg or {}).get(
-            "allow_extra_knowledge", True
-        )
-        m["knowledge_base"] = [{"id": i, "name": names[i]} for i in ids if i in names]
-        m["vision"] = bool((cfg or {}).get("vision"))
-        if not is_admin:
-            # Prompts, Parameter und Knowledge-Zuordnung sind Admin-Sache
-            m.pop("config", None)
-            m["customized"] = False
-    if not is_admin:
-        result["errors"] = []
-    return jsonify(result)
-
-
-@admin_bp.route("/models/config", methods=["PUT"])
-@require_role("admin")
-def models_config_save():
-    data = request.get_json() or {}
-    ref = data.pop("ref", "")
-    if data.get("web_search"):
-        from app.agent.tools.web_access import web_search_available
-
-        if not web_search_available():
-            return _error(
-                "Die Websuche braucht SearXNG (Administration › Tools) und entweder einen aktiven "
-                "PII-Filter oder die ausdrückliche Freigabe „Auch ohne PII-Filter erlauben“. "
-                "Suchanfragen verlassen das System.",
-                400,
+    return jsonify(
+        {
+            "events": audit.list_events(
+                limit=request.args.get("limit", type=int) or 100,
+                offset=request.args.get("offset", type=int) or 0,
+                action=request.args.get("action") or None,
             )
-    try:
-        saved = store.save_model_config(ref, data)
-    except ValueError as e:
-        return _error(str(e), 400)
-    if not saved:
-        return _error("Modell oder Connection nicht gefunden", 404)
-    return jsonify(saved)
+        }
+    )
 
-
-@admin_bp.route("/models/config", methods=["DELETE"])
-@require_role("admin")
-def models_config_delete():
-    ref = request.args.get("ref", "")
-    try:
-        deleted = store.delete_model_config(ref)
-    except ValueError as e:
-        return _error(str(e), 400)
-    # Ein nie angepasstes Basismodell hat nichts zurueckzusetzen: auch ok.
-    return jsonify({"success": True, "deleted": deleted})
-
-
-@admin_bp.route("/models/clone", methods=["POST"])
-@require_role("admin")
-def models_clone():
-    data = request.get_json() or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return _error("Name erforderlich", 400)
-    try:
-        clone = store.clone_model(data.get("ref", ""), name)
-    except ValueError as e:
-        return _error(str(e), 400)
-    if not clone:
-        return _error("Modell oder Connection nicht gefunden", 404)
-    return jsonify(clone), 201
-
-
-@admin_bp.route("/models/default", methods=["PUT"])
-@require_role("admin")
-def models_set_default():
-    ref = (request.get_json() or {}).get("ref", "")
-    try:
-        store.parse_ref(ref)
-    except ValueError as e:
-        return _error(str(e), 400)
-    store.set_default_model(ref)
-    return jsonify({"success": True, "default": ref})
-
-
-# =============================================================================
-# Einlesen & Modelle (Embedding, Reranker, Zerlegen)
-# =============================================================================
 
 INGEST_FIELDS = {
     "chunk_size": ("INGEST_CHUNK_SIZE", int, (200, 4000)),
@@ -286,6 +66,7 @@ INGEST_FIELDS = {
     "index_enabled": ("INGEST_INDEX_ENABLED", bool, None),
     "bm25_language": ("BM25_LANGUAGE", str, None),
 }
+
 
 MODEL_SUGGESTIONS = {
     "embedding": [
@@ -298,8 +79,6 @@ MODEL_SUGGESTIONS = {
 
 
 def _ingest_values() -> dict:
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
     from app.rag import sparse as sparse_lang
 
     db = get_db_service().get_session()
@@ -328,8 +107,6 @@ def _parse_spec(raw):
 
 
 def _setting_value(key: str) -> str:
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
 
     db = get_db_service().get_session()
     try:
@@ -434,8 +211,7 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
 
 
 def _embedding_overview() -> dict:
-    from app.knowledge.service import list_knowledge
-    from app.rag import model_settings, models_runtime
+    from app.rag import models_runtime
     from app.rag import sparse as sparse_lang
 
     emb, rr = model_settings.embedding_spec(), model_settings.reranker_spec()
@@ -458,13 +234,13 @@ def _embedding_overview() -> dict:
     }
 
 
-@admin_bp.route("/admin/embedding", methods=["GET"])
+@bp.route("/admin/embedding", methods=["GET"])
 @require_role("admin")
 def embedding_overview():
     return jsonify(_embedding_overview())
 
 
-@admin_bp.route("/admin/embedding", methods=["PUT"])
+@bp.route("/admin/embedding", methods=["PUT"])
 @require_role("admin")
 def embedding_save():
     """Speichert Modelle und Einlese-Einstellungen; neue Modelle werden im Hintergrund geladen.
@@ -472,8 +248,6 @@ def embedding_save():
     Ein anderes Embedding-Modell macht bestehende Knowledge "veraltet" (Neu indexieren); bis
     dahin werden sie weiter mit ihrem bisherigen Modell abgefragt.
     """
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
     from app.rag import model_settings, models_runtime
 
     data = request.get_json() or {}
@@ -529,7 +303,7 @@ def embedding_save():
     return jsonify(_embedding_overview())
 
 
-@admin_bp.route("/admin/embedding/test", methods=["POST"])
+@bp.route("/admin/embedding/test", methods=["POST"])
 @require_role("admin")
 def embedding_test():
     """Laedt das Modell (beim ersten Mal mit Download) und meldet Dimension bzw. Fehler."""
@@ -563,7 +337,7 @@ def embedding_test():
     )
 
 
-@admin_bp.route("/admin/embedding/remote-models", methods=["GET"])
+@bp.route("/admin/embedding/remote-models", methods=["GET"])
 @require_role("admin")
 def embedding_remote_models():
     """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
@@ -591,11 +365,6 @@ def embedding_remote_models():
         return _error(str(e), 502)
 
 
-# =============================================================================
-# Tools (Spracheingabe, Websuche, PII-Filter)
-# =============================================================================
-
-
 class _FormSettings:
     """Stellt die Werte aus dem Formular wie Settings bereit (Test vor dem Speichern)."""
 
@@ -615,8 +384,6 @@ class _FormSettings:
 
 def _tools_overview() -> dict:
     from app.agent.tools.web_access import web_search_available, web_search_masked
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
 
     db = get_db_service().get_session()
     try:
@@ -661,19 +428,17 @@ def _clean_url(raw, label: str) -> str:
     return url
 
 
-@admin_bp.route("/admin/tools", methods=["GET"])
+@bp.route("/admin/tools", methods=["GET"])
 @require_role("admin")
 def tools_overview():
     return jsonify(_tools_overview())
 
 
-@admin_bp.route("/admin/tools", methods=["PUT"])
+@bp.route("/admin/tools", methods=["PUT"])
 @require_role("admin")
 def tools_save():
     """Speichert die Tool-Einstellungen. API-Keys werden nie ausgeliefert: ein leeres Feld
     behaelt den gespeicherten Key, ``clear_key`` loescht ihn."""
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
 
     data = request.get_json() or {}
     values: dict[str, str] = {}
@@ -766,14 +531,12 @@ def tools_save():
     return jsonify(_tools_overview())
 
 
-@admin_bp.route("/admin/tools/test", methods=["POST"])
+@bp.route("/admin/tools/test", methods=["POST"])
 @require_role("admin")
 def tools_test():
     """Testet die eingegebenen Werte (auch ungespeichert). Ein leeres Key-Feld nutzt den
     gespeicherten Key nur fuer die gespeicherte Adresse (sonst liesse er sich ausleiten)."""
-    from app.api.user_routes import _test_pii_filter, _test_search, _test_stt
-    from app.core.database_service import get_db_service
-    from app.core.settings_service import SettingsService
+    from app.api.tool_checks import check_pii_filter, check_search, check_stt
 
     data = request.get_json() or {}
     kind = data.get("kind")
@@ -798,12 +561,12 @@ def tools_test():
                     "STT_API_KEY": key,
                 }
             )
-            test = _test_stt
+            test = check_stt
         elif kind == "search":
             form = _FormSettings(
                 {"SEARCH_SEARXNG_URL": (values_in.get("url") or "").strip()}
             )
-            test = _test_search
+            test = check_search
         else:
             url = (values_in.get("url") or "").strip()
             key = (values_in.get("api_key") or "").strip()
@@ -816,7 +579,7 @@ def tools_test():
                     "PII_FILTER_TIMEOUT_S": values_in.get("timeout_s"),
                 }
             )
-            test = _test_pii_filter
+            test = check_pii_filter
     finally:
         db.close()
 
@@ -834,12 +597,7 @@ def tools_test():
     return jsonify(result), 200 if result.get("success") else 502
 
 
-# =============================================================================
-# Authentifizierung (LDAP, OIDC)
-# =============================================================================
-
-
-@admin_bp.route("/admin/auth", methods=["GET"])
+@bp.route("/admin/auth", methods=["GET"])
 @require_role("admin")
 def auth_overview():
     from app.auth import external as auth_external
@@ -851,7 +609,7 @@ def auth_overview():
     return jsonify(pub)
 
 
-@admin_bp.route("/admin/auth", methods=["PUT"])
+@bp.route("/admin/auth", methods=["PUT"])
 @require_role("admin")
 def auth_save():
     """Speichert die Einstellungen. Leere Geheimnis-Felder behalten den gespeicherten Wert."""
@@ -864,7 +622,7 @@ def auth_save():
     return auth_overview()
 
 
-@admin_bp.route("/admin/auth/test", methods=["POST"])
+@bp.route("/admin/auth/test", methods=["POST"])
 @require_role("admin")
 def auth_test():
     """Testet LDAP bzw. OIDC mit den eingegebenen Werten (ohne zu speichern, ohne Sitzung).
@@ -910,12 +668,7 @@ def auth_test():
     return jsonify({"success": True, **result})
 
 
-# =============================================================================
-# Kontext & Compaction
-# =============================================================================
-
-
-@admin_bp.route("/admin/compaction", methods=["GET"])
+@bp.route("/admin/compaction", methods=["GET"])
 @require_role("admin")
 def compaction_overview():
     from app.chat import compaction
@@ -923,7 +676,7 @@ def compaction_overview():
     return jsonify(compaction.load_settings())
 
 
-@admin_bp.route("/admin/compaction", methods=["PUT"])
+@bp.route("/admin/compaction", methods=["PUT"])
 @require_role("admin")
 def compaction_save():
     """Speichert die Compaction-Einstellungen (nur genannte Felder)."""
@@ -938,12 +691,7 @@ def compaction_save():
     return jsonify(compaction.load_settings())
 
 
-# =============================================================================
-# Standard-Anweisungen fuer alle Modelle
-# =============================================================================
-
-
-@admin_bp.route("/admin/agent-behavior", methods=["GET"])
+@bp.route("/admin/agent-behavior", methods=["GET"])
 @require_role("admin")
 def agent_behavior_overview():
     from app.agent import behavior
@@ -951,7 +699,7 @@ def agent_behavior_overview():
     return jsonify(behavior.load())
 
 
-@admin_bp.route("/admin/agent-behavior", methods=["PUT"])
+@bp.route("/admin/agent-behavior", methods=["PUT"])
 @require_role("admin")
 def agent_behavior_save():
     """Speichert die Standard-Anweisungen; ein leerer Text heisst: nur Basis-Prompt und Modell-Zusatz."""
@@ -964,11 +712,6 @@ def agent_behavior_save():
         return _error(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen den alten Prompt
     return jsonify(behavior.load())
-
-
-# =============================================================================
-# Tool-Worker (isolierte Codeausfuehrung)
-# =============================================================================
 
 
 def _tool_worker_view():
@@ -984,13 +727,13 @@ def _tool_worker_view():
     }
 
 
-@admin_bp.route("/admin/tool-worker", methods=["GET"])
+@bp.route("/admin/tool-worker", methods=["GET"])
 @require_role("admin")
 def tool_worker_overview():
     return jsonify(_tool_worker_view())
 
 
-@admin_bp.route("/admin/tool-worker", methods=["PUT"])
+@bp.route("/admin/tool-worker", methods=["PUT"])
 @require_role("admin")
 def tool_worker_save():
     """Speichert Adresse und Limits des Tool-Workers (nur genannte Felder)."""

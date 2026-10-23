@@ -26,9 +26,7 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
+from app.api import register_blueprints
 from app.chat import compaction
 from app.chat.pii_client import PIIFilterClient, PIIFilterUnavailable
 from app.chat.pii_session import (
@@ -279,14 +277,13 @@ def app(db):
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
     app.extensions["agent_tools"] = []
-    for bp in (main_bp, api_bp, admin_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
 def setup_chat(app, db, monkeypatch, pii_url, chunks):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
-    monkeypatch.setattr("app.api.routes.resources_ready", lambda: True)
+    monkeypatch.setattr("app.api.chat.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     s = db.get_session()
@@ -299,7 +296,7 @@ def setup_chat(app, db, monkeypatch, pii_url, chunks):
     )
     s.close()
     agent = FakeAgent(chunks)
-    monkeypatch.setattr("app.api.routes.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: agent)
     return agent
 
 

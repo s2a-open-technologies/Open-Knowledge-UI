@@ -11,10 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from flask import Flask
 from ldap3 import MOCK_SYNC, OFFLINE_AD_2012_R2, Connection, Server
 
-from app.api.admin_routes import admin_bp
-from app.api.api_routes import api_bp
-from app.api.routes import bp as main_bp
-from app.api.users import users_bp
+from app.api import register_blueprints
 from app.auth import external as auth_external
 from app.auth import ldap as auth_ldap
 from app.auth import oidc as auth_oidc
@@ -37,8 +34,7 @@ def app(db):
     app = Flask(__name__)
     app.secret_key = "t"
     app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    for bp in (main_bp, api_bp, admin_bp, users_bp):
-        app.register_blueprint(bp)
+    register_blueprints(app)
     return app
 
 
