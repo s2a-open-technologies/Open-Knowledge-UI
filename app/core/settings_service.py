@@ -247,7 +247,7 @@ class SettingsService:
         "RETRIEVER_LAMBDA": "MMR Balance: 0.0 = divers, 1.0 = relevant",
         "RETRIEVER_SCORE_THRESHOLD": "Mindest-Ähnlichkeitsscore",
         "DATA_DIR": "Verzeichnis für Excel/CSV Dateien",
-        "SECRET_KEY": "Flask Secret Key (wird bei leerem Wert automatisch erzeugt)",
+        "SECRET_KEY": "Schlüssel für das Session-Cookie (wird bei leerem Wert automatisch erzeugt)",
         "SUMMARIES_DIR": "Verzeichnis für gespeicherte Analysen",
         "QDRANT_HOST": "Qdrant Server Host",
         "QDRANT_PORT": "Qdrant Server Port",

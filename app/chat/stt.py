@@ -88,17 +88,19 @@ def stream_url(base_url: str) -> str:
     return urllib.parse.urlunparse((scheme, parsed.netloc, path, "", "", ""))
 
 
-def auth_headers(api_key: str) -> list[str]:
-    return [f"Authorization: Bearer {api_key}"] if api_key else []
+def auth_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
 def probe_stream(base_url: str, api_key: str = "") -> bool:
     """Nimmt ``<base>/audio/stream`` einen WebSocket an? (kurzer Verbindungsversuch)"""
-    import websocket
+    from websockets.sync.client import connect
 
     try:
-        ws = websocket.create_connection(
-            stream_url(base_url), timeout=PROBE_TIMEOUT_S, header=auth_headers(api_key)
+        ws = connect(
+            stream_url(base_url),
+            open_timeout=PROBE_TIMEOUT_S,
+            additional_headers=auth_headers(api_key) or None,
         )
     except Exception:
         return False

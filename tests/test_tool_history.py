@@ -1,12 +1,14 @@
+from tests.web import chat_ws
+
 # ruff: noqa: F811  (Fixtures aus anderen Testmodulen werden importiert und als Argument genutzt)
 """Werkzeug-Aufrufe im Chat-Verlauf: live entmaskiert, gespeichert maskiert (app/routes.py:tools_block)."""
 
 import json
 
-from app.api.chat import MAX_TOOL_BLOCKS, MAX_TOOL_CHARS, tools_block
 from app.chat import compaction
+from app.chat.service import MAX_TOOL_BLOCKS, MAX_TOOL_CHARS, tools_block
 from tests.test_access import add_user, client_for
-from tests.test_pii_session import app, guard, setup_chat, sse_events  # noqa: F401
+from tests.test_pii_session import app, guard, setup_chat  # noqa: F401
 
 
 class ToolMessageLike:
@@ -105,11 +107,9 @@ def test_tool_calls_are_shown_as_text_with_input_and_stored_masked(
 ):
     setup_chat(app, db, monkeypatch, guard, ["x"])
     agent = ToolAgent()
-    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.chat.service.get_agent", lambda *a, **k: agent)
     c = client_for(app, add_user(db, "ed", "editor"))
-    events = sse_events(
-        c.post("/chat", json={"message": "Max Mustermann bitte suchen"})
-    )
+    events = chat_ws(c, message="Max Mustermann bitte suchen")
     result = next(e["tool_result"] for e in events if "tool_result" in e)
     assert (
         result["output"] == "Treffer fuer Max Mustermann: 3 Zeilen"
@@ -121,7 +121,7 @@ def test_tool_calls_are_shown_as_text_with_input_and_stored_masked(
     sid = next(e["session_id"] for e in events if e.get("done"))
     stored = client_for(app, add_user(db, "ed2", "editor")).get(f"/api/sessions/{sid}")
     assert stored.status_code == 404  # fremder Chat
-    own = c.get(f"/api/sessions/{sid}").json["messages"][-1]["content"]
+    own = c.get(f"/api/sessions/{sid}").json()["messages"][-1]["content"]
     assert (
         "<tools>" in own and "[NAME_1]" in own and "Mustermann" not in own
     )  # gespeichert wird die maskierte Fassung
@@ -130,5 +130,5 @@ def test_tool_calls_are_shown_as_text_with_input_and_stored_masked(
     )
     assert rows[0]["output"] == "Treffer fuer [NAME_1]: 3 Zeilen"
     # die Folgefrage bekommt den Block nicht zu sehen
-    c.post("/chat", json={"message": "Und weiter?", "session_id": sid}).get_data()
+    chat_ws(c, message="Und weiter?", session_id=sid)
     assert all("<tools>" not in m["content"] for m in agent.inputs[-1]["messages"])

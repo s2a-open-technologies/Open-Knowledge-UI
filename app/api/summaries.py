@@ -18,21 +18,22 @@
 
 """Analysen (Summaries) des Nutzers: auflisten, lesen, speichern, loeschen, herunterladen."""
 
-import io
 from datetime import UTC, datetime
 from logging import getLogger
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from fastapi import APIRouter
+from fastapi.responses import FileResponse, Response
 
-from app.auth.auth import auth_required_api, current_user
-from app.auth.users import (
-    role_at_least,
-)
+from app.api.errors import ApiError
+from app.api.schemas.common import Success
+from app.api.schemas.summaries import SummaryContent, SummaryFile, SummarySave
+from app.auth.auth import CurrentUser
+from app.auth.users import role_at_least
 from app.chat import summaries as summaries_store
 from app.core.database_service import get_db_service
 
-bp = Blueprint("summaries", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["summaries"])
 logger = getLogger(__name__)
 
 
@@ -44,14 +45,10 @@ def _format_file_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
-@bp.route("/summaries", methods=["GET"])
-@auth_required_api
-def summaries():
-    user = current_user()
+@router.get("/summaries", response_model=list[SummaryFile])
+def summaries(user: CurrentUser):
     if role_at_least(user["role"], "admin"):
-        summaries_store.adopt_legacy(
-            user["id"]
-        )  # Altbestand einmalig dem Admin zuordnen
+        summaries_store.adopt_legacy(user["id"])  # Altbestand einmalig dem Admin zuordnen
     summaries_dir = summaries_store.user_dir(user["id"])
     result = []
 
@@ -64,108 +61,92 @@ def summaries():
                     "size": stat.st_size,
                     "size_human": _format_file_size(stat.st_size),
                     "modified": stat.st_mtime,
-                    "created_at": datetime.fromtimestamp(
-                        stat.st_ctime, tz=UTC
-                    ).isoformat(),
+                    "created_at": datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat(),
                 }
             )
 
-    return jsonify(result)
+    return result
 
 
-def _safe_summary_path(filename: str) -> Path | None:
+def _safe_summary_path(user: dict, filename: str) -> Path | None:
     """Datei im Analysen-Ordner des angemeldeten Nutzers (nie die anderer Nutzer)."""
-    return summaries_store.safe_path(current_user()["id"], filename)
+    return summaries_store.safe_path(user["id"], filename)
 
 
-@bp.route("/summaries/<path:filename>", methods=["GET"])
-@auth_required_api
-def read_summary(filename):
-    file_path = _safe_summary_path(filename)
+def _existing_summary(user: dict, filename: str) -> Path:
+    file_path = _safe_summary_path(user, filename)
     if file_path is None:
-        return jsonify({"error": "Ungültige Datei"}), 400
-    if not file_path.exists():
-        return jsonify({"error": "Datei nicht gefunden"}), 404
-
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except Exception as e:
-        return jsonify({"error": f"Fehler beim Lesen: {e!s}"}), 500
-
-    return jsonify({"filename": filename, "content": content})
-
-
-@bp.route("/summaries/<path:filename>", methods=["PUT"])
-@auth_required_api
-def save_summary(filename):
-    file_path = _safe_summary_path(filename)
-    if file_path is None:
-        return jsonify({"success": False, "error": "Ungültige Datei"}), 400
-
-    data = request.get_json() or {}
-    try:
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(data.get("content", ""), encoding="utf-8")
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@bp.route("/summaries/<path:filename>", methods=["DELETE"])
-@auth_required_api
-def delete_summary(filename):
-    file_path = _safe_summary_path(filename)
-    if file_path is None:
-        return jsonify({"success": False, "error": "Ungültige Datei"}), 400
-
-    try:
-        if file_path.exists():
-            file_path.unlink()
-        get_db_service().delete_summary_by_filename(
-            filename, user_id=current_user()["id"]
-        )
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-def _summary_file_or_404(filename: str):
-    file_path = _safe_summary_path(filename)
-    if file_path is None:
-        return None, (jsonify({"error": "Ungültige Datei"}), 400)
+        raise ApiError(400, "Ungültige Datei")
     if not file_path.is_file():
-        return None, (jsonify({"error": "Datei nicht gefunden"}), 404)
-    return file_path, None
+        raise ApiError(404, "Datei nicht gefunden")
+    return file_path
 
 
-@bp.route("/summaries/<path:filename>/download-md", methods=["GET"])
-@auth_required_api
-def download_summary_md(filename):
-    file_path, error = _summary_file_or_404(filename)
-    if error:
-        return error
-    return send_file(
-        str(file_path),
-        as_attachment=True,
-        download_name=file_path.name,
-        mimetype="text/markdown",
-    )
+# Downloads vor den allgemeinen Routen: ``{filename:path}`` wuerde sonst ".../download-md" schlucken.
+@router.get("/summaries/{filename:path}/download-md", response_class=FileResponse)
+def download_summary_md(filename: str, user: CurrentUser):
+    file_path = _existing_summary(user, filename)
+    return FileResponse(str(file_path), filename=file_path.name, media_type="text/markdown")
 
 
-@bp.route("/summaries/<path:filename>/download-docx", methods=["GET"])
-@auth_required_api
-def download_summary_docx(filename):
-    file_path, error = _summary_file_or_404(filename)
-    if error:
-        return error
+@router.get("/summaries/{filename:path}/download-docx")
+def download_summary_docx(filename: str, user: CurrentUser):
+    file_path = _existing_summary(user, filename)
     try:
         data = summaries_store.markdown_to_docx(file_path.read_text(encoding="utf-8"))
     except Exception as e:
         logger.error(f"DOCX-Export von {filename} fehlgeschlagen: {e}")
-        return jsonify({"error": f"Fehler beim Erzeugen der DOCX-Datei: {e!s}"}), 500
-    return send_file(
-        io.BytesIO(data),
-        as_attachment=True,
-        download_name=file_path.with_suffix(".docx").name,
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        raise ApiError(500, f"Fehler beim Erzeugen der DOCX-Datei: {e!s}")
+    name = file_path.with_suffix(".docx").name
+    from urllib.parse import quote
+
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
     )
+
+
+@router.get("/summaries/{filename:path}", response_model=SummaryContent)
+def read_summary(filename: str, user: CurrentUser):
+    file_path = _safe_summary_path(user, filename)
+    if file_path is None:
+        raise ApiError(400, "Ungültige Datei")
+    if not file_path.exists():
+        raise ApiError(404, "Datei nicht gefunden")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        raise ApiError(500, f"Fehler beim Lesen: {e!s}")
+
+    return {"filename": filename, "content": content}
+
+
+@router.put("/summaries/{filename:path}", response_model=Success)
+def save_summary(filename: str, user: CurrentUser, body: SummarySave | None = None):
+    file_path = _safe_summary_path(user, filename)
+    if file_path is None:
+        raise ApiError(400, "Ungültige Datei", success=False)
+
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text((body or SummarySave()).content, encoding="utf-8")
+    except Exception as e:
+        raise ApiError(500, str(e), success=False)
+    return Success()
+
+
+@router.delete("/summaries/{filename:path}", response_model=Success)
+def delete_summary(filename: str, user: CurrentUser):
+    file_path = _safe_summary_path(user, filename)
+    if file_path is None:
+        raise ApiError(400, "Ungültige Datei", success=False)
+
+    try:
+        if file_path.exists():
+            file_path.unlink()
+        get_db_service().delete_summary_by_filename(filename, user_id=user["id"])
+    except Exception as e:
+        raise ApiError(500, str(e), success=False)
+    return Success()

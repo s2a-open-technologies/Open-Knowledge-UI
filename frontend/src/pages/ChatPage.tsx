@@ -7,7 +7,7 @@ import { Composer, ATTACH_ACCEPT } from "@/components/chat/Composer";
 import { Message, type SourceInfo, type ToolCall, type ToolResult } from "@/components/chat/Message";
 import { useSessions } from "@/context/SessionsContext";
 import { useStt, type SttMode } from "@/hooks/useStt";
-import { api, ApiError, csrfHeaders, errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import {
   MODELS_CHANGED,
   readChosenModel,
@@ -16,7 +16,7 @@ import {
   writeChosenModel,
   writeSeenDefault,
 } from "@/lib/modelChoice";
-import { consumeChatStream, type ChatStreamEvent } from "@/lib/sse";
+import { ChatSocket, type ChatStreamEvent } from "@/lib/chatSocket";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -146,6 +146,10 @@ export function ChatPage() {
   const baseKnowledge = activeModel?.knowledge_base ?? [];
 
   const abortRef = useRef<AbortController | null>(null);
+  // Eine WebSocket-Verbindung fuer alle Fragen dieser Seite (Stopp sofort, auch im ersten Chat)
+  const socketRef = useRef<ChatSocket | null>(null);
+  if (socketRef.current === null) socketRef.current = new ChatSocket();
+  useEffect(() => () => socketRef.current?.close(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   // Session, die wir gerade selbst angelegt haben: beim Wechsel der URL darauf
@@ -391,11 +395,9 @@ export function ChatPage() {
   // ---- Chat --------------------------------------------------------------
 
   const stop = useCallback(() => {
-    abortRef.current?.abort();
-    if (sessionId) {
-      api.post("/chat/stop", { session_id: sessionId }).catch(() => {});
-    }
-  }, [sessionId]);
+    abortRef.current?.abort(); // falls noch auf Anhaenge gewartet wird
+    socketRef.current?.stop();
+  }, []);
 
   const handleEvent = useCallback(
     (event: ChatStreamEvent) => {
@@ -520,26 +522,15 @@ export function ChatPage() {
           return next;
         });
 
-        const response = await fetch("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...csrfHeaders() },
-          body: JSON.stringify({
+        if (controller.signal.aborted) throw new DOMException("abgebrochen", "AbortError");
+        const outcome = await socketRef.current!.ask(
+          {
             message,
             session_id: sessionId ?? null,
             knowledge_ids: selectedKnowledge,
             attachment_ids: imageIds,
             model: selectedModel || undefined,
-          }),
-          signal: controller.signal,
-          credentials: "same-origin",
-        });
-
-        if (response.status === 401) {
-          throw new ApiError(401, "Sitzung abgelaufen. Bitte neu anmelden.");
-        }
-
-        await consumeChatStream(
-          response,
+          },
           (event) => {
             if (event.done && event.session_id) {
               if (!sessionId) adoptSession(event.session_id);
@@ -547,8 +538,8 @@ export function ChatPage() {
             }
             handleEvent(event);
           },
-          controller.signal,
         );
+        if (outcome === "cancelled") throw new DOMException("abgebrochen", "AbortError");
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           setMessages((prev) => {

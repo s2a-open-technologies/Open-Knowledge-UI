@@ -2,6 +2,7 @@ import os
 import sqlite3
 
 import pytest
+from fastapi.testclient import TestClient
 
 from tool_worker.server import create_app
 
@@ -21,7 +22,7 @@ def data(tmp_path):
 
 @pytest.fixture
 def client(data):
-    return create_app(TOKEN, str(data)).test_client()
+    return TestClient(create_app(TOKEN, str(data)))
 
 
 def call(client, body, token=TOKEN):
@@ -48,7 +49,7 @@ def test_empty_token_refuses_to_start(data):
 
 
 def test_health_needs_no_token(client):
-    assert client.get("/health").get_json()["status"] == "ok"
+    assert client.get("/health").json()["status"] == "ok"
 
 
 @pytest.mark.parametrize("token", [None, "falsch", "t" * 31])
@@ -59,9 +60,7 @@ def test_wrong_or_missing_token_is_401(client, token):
 def test_runs_code_on_an_allowed_file(client):
     r = call(client, body())
     assert (
-        r.status_code == 200
-        and r.get_json()["ok"] is True
-        and "350" in r.get_json()["output"]
+        r.status_code == 200 and r.json()["ok"] is True and "350" in r.json()["output"]
     )
 
 
@@ -94,7 +93,7 @@ def test_symlink_out_of_the_mount_is_refused(client, data, tmp_path):
 
 
 def test_blocked_code_returns_ok_false_with_message(client):
-    j = call(client, body(code="import os")).get_json()
+    j = call(client, body(code="import os")).json()
     assert j["ok"] is False and "blockiert" in j["error"]
 
 
@@ -117,14 +116,16 @@ def test_limits_are_capped_by_the_worker(data):
         seen.update(kw)
         return {"ok": True, "output": "x"}
 
-    c = create_app(
-        TOKEN,
-        str(data),
-        runner=fake,
-        max_timeout_s=30,
-        max_memory_mb=2048,
-        max_output_chars=5000,
-    ).test_client()
+    c = TestClient(
+        create_app(
+            TOKEN,
+            str(data),
+            runner=fake,
+            max_timeout_s=30,
+            max_memory_mb=2048,
+            max_output_chars=5000,
+        )
+    )
     call(c, body(timeout_s=9999, memory_mb=99999, max_output_chars=10**9))
     assert seen == {"timeout_s": 30, "memory_mb": 2048, "max_output_chars": 5000}
 
@@ -133,9 +134,9 @@ def test_errors_do_not_leak_internals(data):
     def boom(*a, **k):
         raise RuntimeError("/geheimer/pfad")
 
-    c = create_app(TOKEN, str(data), runner=boom).test_client()
+    c = TestClient(create_app(TOKEN, str(data), runner=boom))
     r = call(c, body())
-    assert r.status_code == 500 and "geheimer" not in r.get_data(as_text=True)
+    assert r.status_code == 500 and "geheimer" not in r.text
 
 
 # --- Rolle sql -----------------------------------------------------------------
@@ -156,9 +157,7 @@ def sqldir(tmp_path):
 
 @pytest.fixture
 def sqlc(data, sqldir):
-    return create_app(
-        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir)
-    ).test_client()
+    return TestClient(create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir)))
 
 
 def sql_call(client, action, body, token=TOKEN):
@@ -183,7 +182,7 @@ def test_roles_only_serve_their_own_endpoints(client, sqlc):
         sql_call(client, "query", sql_body()).status_code == 404
     )  # pandas-Rolle kennt kein SQL
     assert call(sqlc, body()).status_code == 404  # sql-Rolle kennt kein pandas
-    assert sqlc.get("/health").get_json()["role"] == "sql"
+    assert sqlc.get("/health").json()["role"] == "sql"
 
 
 def test_sql_endpoints_need_the_token(sqlc):
@@ -192,7 +191,7 @@ def test_sql_endpoints_need_the_token(sqlc):
 
 
 def test_sql_query_returns_rows(sqlc):
-    j = sql_call(sqlc, "query", sql_body()).get_json()
+    j = sql_call(sqlc, "query", sql_body()).json()
     assert j == {
         "ok": True,
         "columns": ["name"],
@@ -202,9 +201,9 @@ def test_sql_query_returns_rows(sqlc):
 
 
 def test_sql_rejections_and_db_errors_are_ok_false_with_text(sqlc):
-    j = sql_call(sqlc, "query", sql_body(sql="delete from items")).get_json()
+    j = sql_call(sqlc, "query", sql_body(sql="delete from items")).json()
     assert j["ok"] is False and "SELECT" in j["error"]
-    j = sql_call(sqlc, "query", sql_body(sql="select nope from items")).get_json()
+    j = sql_call(sqlc, "query", sql_body(sql="select nope from items")).json()
     assert j["ok"] is False and "nope" in j["error"]
 
 
@@ -213,7 +212,7 @@ def test_blocked_columns_reach_the_engine(sqlc):
         sqlc,
         "query",
         sql_body(sql="select salary from items", blocked_columns={"items": ["salary"]}),
-    ).get_json()
+    ).json()
     assert j["ok"] is False and "gesperrt" in j["error"]
 
 
@@ -226,9 +225,9 @@ def test_sql_schema_and_test(sqlc):
             "allowed_tables": None,
             "blocked_columns": {"items": ["salary"]},
         },
-    ).get_json()
+    ).json()
     assert [c["name"] for c in s["tables"][0]["columns"]] == ["id", "name"]
-    t = sql_call(sqlc, "test", {"connection": sql_body()["connection"]}).get_json()
+    t = sql_call(sqlc, "test", {"connection": sql_body()["connection"]}).json()
     assert (
         t["ok"] is True
         and t["write_privilege"] is False
@@ -237,14 +236,14 @@ def test_sql_schema_and_test(sqlc):
 
 
 def test_sql_limits_are_capped_by_the_worker(data, sqldir):
-    c = create_app(
-        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_rows=1
-    ).test_client()
+    c = TestClient(
+        create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_rows=1)
+    )
     j = sql_call(
         c,
         "query",
         sql_body(limits={"row_limit": 9999, "timeout_s": 5, "max_cell_chars": 100}),
-    ).get_json()
+    ).json()
     assert len(j["rows"]) == 1 and j["truncated"] is True
 
 
@@ -264,7 +263,7 @@ def test_sql_errors_never_contain_the_password(sqlc):
             "password": "geheim123",
         }
     )
-    text = sql_call(sqlc, "query", body).get_data(as_text=True)
+    text = sql_call(sqlc, "query", body).text
     assert "geheim123" not in text and "127.0.0.1" not in text
 
 
@@ -281,9 +280,9 @@ def sqlc_goods(data, sqldir):
     )
     con.commit()
     con.close()
-    return create_app(
-        TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_distinct=2
-    ).test_client()
+    return TestClient(
+        create_app(TOKEN, str(data), role="sql", sqlite_dir=str(sqldir), max_distinct=2)
+    )
 
 
 def goods_body(**over):
@@ -301,11 +300,11 @@ def goods_body(**over):
 
 
 def test_distinct_endpoint_returns_values_and_caps_max_distinct(sqlc_goods):
-    j = sql_call(sqlc_goods, "distinct", goods_body()).get_json()
+    j = sql_call(sqlc_goods, "distinct", goods_body()).json()
     assert j["ok"] and j["values"][0] == ["Stuhl", 2] and j["too_many"] is False
     capped = sql_call(
         sqlc_goods, "distinct", goods_body(column="id", max_distinct=99999)
-    ).get_json()
+    ).json()
     assert (
         capped["too_many"] is True
     )  # Obergrenze des Workers (2) gilt, nicht die der Anfrage
@@ -322,7 +321,7 @@ def test_distinct_endpoint_validates_and_enforces_filters(sqlc_goods):
         sqlc_goods,
         "distinct",
         goods_body(column="salary", blocked_columns={"items": ["salary"]}),
-    ).get_json()
+    ).json()
     assert j["ok"] is False and "gesperrt" in j["error"]
 
 
@@ -335,7 +334,7 @@ def test_profile_endpoint_lists_text_columns(sqlc_goods):
             "allowed_tables": None,
             "blocked_columns": {},
         },
-    ).get_json()
+    ).json()
     assert j["ok"] and [(c["table"], c["column"]) for c in j["columns"]] == [
         ("items", "name")
     ]

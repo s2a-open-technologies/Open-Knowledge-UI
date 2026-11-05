@@ -39,17 +39,14 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 def get_data_dir() -> Path:
     """Liefert das konfigurierte DATA_DIR (Settings DB → env → Default)."""
-    try:
-        from flask import current_app
+    from app.core import runtime
 
-        settings = current_app.extensions.get("settings")
-        if settings:
-            data_dir = settings.get("DATA_DIR", "./data")
-        else:
-            data_dir = os.getenv("DATA_DIR", "./data")
+    settings = runtime.state.settings
+    try:
+        data_dir = settings.get("DATA_DIR", "./data") if settings else None
     except Exception:
-        data_dir = os.getenv("DATA_DIR", "./data")
-    return Path(data_dir)
+        data_dir = None
+    return Path(data_dir or os.getenv("DATA_DIR", "./data"))
 
 
 def _unique_path(directory: Path, filename: str) -> Path:
@@ -94,8 +91,6 @@ def store_uploaded_files(
         verfügbar), ``skipped`` (unbekannte Endungen) und ``duplicate``
         (Dateiname, falls ein bereits verarbeitetes Dokument erneut kam).
     """
-    from flask import current_app
-
     if paths is not None:
         files_dir, processed_dir, data_dir = (
             paths.files_dir,
@@ -103,7 +98,7 @@ def store_uploaded_files(
             paths.data_dir,
         )
     else:
-        project_root = Path(current_app.root_path).parent
+        project_root = Path(__file__).resolve().parents[2]
         files_dir = project_root / "data" / "files"
         processed_dir = project_root / "data" / "processed_files"
         data_dir = get_data_dir()
@@ -228,16 +223,7 @@ def check_data_file_exists(filename: str) -> bool:
     Returns:
         True wenn Datei existiert, sonst False
     """
-    from flask import current_app
-
-    try:
-        settings = current_app.extensions.get("settings")
-        if settings:
-            data_dir = settings.get("DATA_DIR", "./data")
-        else:
-            data_dir = os.getenv("DATA_DIR", "./data")
-    except Exception:
-        data_dir = os.getenv("DATA_DIR", "./data")
+    data_dir = str(get_data_dir())
 
     file_path = Path(data_dir) / filename
     return file_path.exists() and file_path.is_file()
@@ -262,16 +248,7 @@ def delete_associated_file(payload: dict[str, Any]) -> bool:
 
     if ext in [".csv", ".xlsx", ".xls"]:
         # CSV/Excel werden nach erfolgreicher Ingestion nach DATA_DIR verschoben
-        try:
-            from flask import current_app
-
-            settings = current_app.extensions.get("settings")
-            if settings:
-                data_dir = settings.get("DATA_DIR", "./data")
-            else:
-                data_dir = os.getenv("DATA_DIR", "./data")
-        except Exception:
-            data_dir = os.getenv("DATA_DIR", "./data")
+        data_dir = str(get_data_dir())
 
         candidates = [Path(data_dir) / filename]
     elif ext in [".pdf", ".docx", ".doc", ".odt", ".md"]:
@@ -326,16 +303,7 @@ def get_data_file_info(filename: str) -> dict[str, Any] | None:
     Returns:
         Dict mit file_info oder None
     """
-    from flask import current_app
-
-    try:
-        settings = current_app.extensions.get("settings")
-        if settings:
-            data_dir = settings.get("DATA_DIR", "./data")
-        else:
-            data_dir = os.getenv("DATA_DIR", "./data")
-    except Exception:
-        data_dir = os.getenv("DATA_DIR", "./data")
+    data_dir = str(get_data_dir())
 
     file_path = Path(data_dir) / filename
 

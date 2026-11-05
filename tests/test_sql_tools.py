@@ -29,6 +29,7 @@ from tests.test_sanitizer import (  # noqa: F401
     sanitizer,
     set_settings,
 )
+from tests.web import chat_text, chat_ws
 
 SRC = {
     "dialect": "sqlite",
@@ -334,14 +335,6 @@ class ToolAgent(FakeAgent):
             yield event
 
 
-def streamed(res):
-    out = ""
-    for line in res.get_data(as_text=True).splitlines():
-        if line.startswith("data: {"):
-            out += json.loads(line[6:]).get("token", "")
-    return out
-
-
 @pytest.fixture
 def orders(sql_worker):
     con = sqlite3.connect(sql_worker / "shop.db")
@@ -376,15 +369,12 @@ def run_chat(app, db, monkeypatch, pii_url, answer, who="[NAME_1]"):
         ],
         [answer],
     )
-    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: tool_agent)
-    res = client_for(app, ed).post(
-        "/chat",
-        json={
-            "message": "Wie viele Bestellungen hat Max Mustermann?",
-            "knowledge_ids": [sql["id"]],
-        },
+    monkeypatch.setattr("app.chat.service.get_agent", lambda *a, **k: tool_agent)
+    res = chat_ws(
+        client_for(app, ed),
+        message="Wie viele Bestellungen hat Max Mustermann?",
+        knowledge_ids=[sql["id"]],
     )
-    res.get_data()
     return res, tool_agent, agent
 
 
@@ -401,7 +391,7 @@ def test_end_to_end_with_a_filter_the_model_never_sees_the_name(
         "| 3 |" in agent.results[0]
     )  # die Bedingung wurde demaskiert, sonst waere das Ergebnis 0
     assert "Max Mustermann" not in agent.results[1] and "[NAME_1]" in agent.results[1]
-    assert streamed(res) == "Max Mustermann hat 3 Bestellungen"  # live demaskiert
+    assert chat_text(res) == "Max Mustermann hat 3 Bestellungen"  # live demaskiert
     s = db.get_session()
     saved = [m.content for m in s.query(Message).filter_by(role="assistant")]
     s.close()
@@ -425,7 +415,7 @@ def test_end_to_end_without_a_filter_nothing_is_masked(app, db, orders, monkeypa
     assert (
         "| 3 |" in agent.results[0] and "Max Mustermann" in agent.results[1]
     )  # ohne Filter unveraendert
-    assert streamed(res) == "Max Mustermann hat 3 Bestellungen"
+    assert chat_text(res) == "Max Mustermann hat 3 Bestellungen"
 
 
 def test_end_to_end_a_failing_filter_stops_before_the_model_and_the_tools(
@@ -433,7 +423,5 @@ def test_end_to_end_a_failing_filter_stops_before_the_model_and_the_tools(
 ):
     Sanitizer.behavior = "500"
     res, agent, _base = run_chat(app, db, monkeypatch, sanitizer, "egal")
-    assert "HTTP 500" in res.get_data(
-        as_text=True
-    ) and "nicht gesendet" in res.get_data(as_text=True)
+    assert "HTTP 500" in res.text and "nicht gesendet" in res.text
     assert agent.results == [] and agent.inputs == []

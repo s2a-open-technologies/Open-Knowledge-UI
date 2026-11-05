@@ -1,11 +1,9 @@
 import json
 
 import pytest
-from flask import Flask
 from qdrant_client import QdrantClient
 from qdrant_client import models as qm
 
-from app.api import register_blueprints
 from app.auth import access
 from app.knowledge import external as sources
 from app.knowledge import service as knowledge
@@ -14,6 +12,7 @@ from app.rag.retrieval import MultiCollectionRetriever, RetrievalScope
 from tests.test_access import add_user, client_for
 from tests.test_rag import FakeDense as KeywordDense
 from tests.test_rag import FakeSparse, cfg, with_scope
+from tests.web import make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 URL = "http://fremd.example:6333"
@@ -156,10 +155,7 @@ def body_b():
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -172,12 +168,12 @@ def create(app, body, user=ADMIN):
 
 def test_admin_creates_an_external_knowledge_and_the_key_never_leaks(app, db, remote):
     r = create(app, body_a())
-    assert r.status_code == 201, r.json
-    k = r.json
+    assert r.status_code == 201, r.json()
+    k = r.json()
     assert k["kind"] == "external" and k["collection_name"].startswith("ext_")
     assert k["source_config"]["has_key"] is True and "api_key" not in k["source_config"]
-    assert "geheim" not in r.get_data(as_text=True)
-    listed = client_for(app, ADMIN).get("/api/knowledge").get_data(as_text=True)
+    assert "geheim" not in r.text
+    listed = client_for(app, ADMIN).get("/api/knowledge").text
     assert "geheim" not in listed and "ext_" in listed
     assert (
         knowledge.get_knowledge(k["id"])["kind"] == "external"
@@ -212,7 +208,7 @@ def test_only_admins_create_external_sources(app, db, remote):
 )
 def test_wrong_configuration_is_refused_with_a_reason(app, db, remote, change, message):
     r = create(app, body_a(**change))
-    assert r.status_code == 400 and message in r.json["error"]
+    assert r.status_code == 400 and message in r.json()["error"]
     assert [k["kind"] for k in knowledge.list_knowledge()] == ["local"]
 
 
@@ -222,7 +218,9 @@ def test_a_model_with_the_wrong_dimension_is_refused(app, db, remote, monkeypatc
 
     monkeypatch.setattr(mr, "get_embedder", lambda spec: Wrong())
     r = create(app, body_a())
-    assert r.status_code == 400 and "384" in r.json["error"] and "7" in r.json["error"]
+    assert (
+        r.status_code == 400 and "384" in r.json()["error"] and "7" in r.json()["error"]
+    )
 
 
 def test_the_embedding_model_is_mandatory(app, db, remote):
@@ -234,7 +232,7 @@ def test_the_embedding_model_is_mandatory(app, db, remote):
 def test_probe_shows_facts_and_reuses_the_stored_key_only_for_the_same_url(
     app, db, remote, monkeypatch
 ):
-    k = create(app, body_a()).json
+    k = create(app, body_a()).json()
     seen = []
     real = sources.probe_source
     monkeypatch.setattr(
@@ -247,7 +245,7 @@ def test_probe_shows_facts_and_reuses_the_stored_key_only_for_the_same_url(
         "/api/knowledge/external/test",
         json={"knowledge_id": k["id"], "source": {"url": URL, "collection": "fremd_a"}},
     )
-    facts = r.json
+    facts = r.json()
     assert (
         r.status_code == 200
         and facts["points"] == 2
@@ -293,7 +291,7 @@ def retriever(db, remote):
 def test_search_maps_foreign_field_names_and_falls_back_to_dense(
     app, db, remote, retriever
 ):
-    k = knowledge.get_knowledge(create(app, body_a()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_a()).json()["id"])
     with_scope(scope_for(k))
     docs = retriever.invoke("Kaution")
     assert docs[0].metadata["filename"] == "mietvertrag.pdf"
@@ -303,7 +301,7 @@ def test_search_maps_foreign_field_names_and_falls_back_to_dense(
 
 
 def test_hybrid_search_uses_the_foreign_sparse_vector(app, db, remote, retriever):
-    k = knowledge.get_knowledge(create(app, body_b()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_b()).json()["id"])
     with_scope(scope_for(k))
     docs = retriever.invoke("Kuendigung Frist")
     assert docs[0].metadata["filename"] == "frist.md"
@@ -312,8 +310,8 @@ def test_hybrid_search_uses_the_foreign_sparse_vector(app, db, remote, retriever
 def test_two_external_sources_and_a_down_source_degrade_gracefully(
     app, db, remote, retriever, monkeypatch
 ):
-    a = knowledge.get_knowledge(create(app, body_a()).json["id"])
-    b = knowledge.get_knowledge(create(app, body_b()).json["id"])
+    a = knowledge.get_knowledge(create(app, body_a()).json()["id"])
+    b = knowledge.get_knowledge(create(app, body_b()).json()["id"])
     scope = scope_for(a, b)
     with_scope(scope)
     names = {
@@ -338,7 +336,7 @@ def test_two_external_sources_and_a_down_source_degrade_gracefully(
 
 
 def test_external_knowledge_is_read_only(app, db, remote):
-    k = create(app, body_a()).json
+    k = create(app, body_a()).json()
     admin = client_for(app, ADMIN)
     q = f"?knowledge_id={k['id']}"
     assert admin.post(f"/api/documents/ingest{q}").status_code == 409
@@ -357,26 +355,26 @@ def test_external_knowledge_is_read_only(app, db, remote):
 
 
 def test_deleting_the_knowledge_never_touches_the_foreign_data(app, db, remote):
-    k = create(app, body_a()).json
+    k = create(app, body_a()).json()
     assert client_for(app, ADMIN).delete(f"/api/knowledge/{k['id']}").status_code == 200
     assert remote.writes == [] and remote._c.collection_exists("fremd_a")
     assert [x["kind"] for x in knowledge.list_knowledge()] == ["local"]
 
 
 def test_visibility_follows_the_usual_knowledge_grants(app, db, remote):
-    k = create(app, body_a()).json
+    k = create(app, body_a()).json()
     ed = add_user(db, "ed", "editor")
     assert k["id"] not in [
-        x["id"] for x in client_for(app, ed).get("/api/knowledge").json
+        x["id"] for x in client_for(app, ed).get("/api/knowledge").json()
     ]
     access.add_grant("knowledge", k["id"], "user", ed["id"], "read")
-    got = client_for(app, ed).get("/api/knowledge").json
+    got = client_for(app, ed).get("/api/knowledge").json()
     assert k["id"] in [x["id"] for x in got]
     assert all("geheim" not in json.dumps(x) for x in got)
 
 
 def test_changing_the_source_revalidates_and_keeps_the_key(app, db, remote):
-    k = create(app, body_a()).json
+    k = create(app, body_a()).json()
     admin = client_for(app, ADMIN)
     bad = admin.patch(
         f"/api/knowledge/{k['id']}",
@@ -394,7 +392,7 @@ def test_changing_the_source_revalidates_and_keeps_the_key(app, db, remote):
             "embedding": SPEC,
         },
     )
-    assert ok.status_code == 200 and ok.json["name"] == "Neu"
+    assert ok.status_code == 200 and ok.json()["name"] == "Neu"
     assert (
         json.loads(knowledge.get_knowledge(k["id"])["source_config"])["api_key"]
         == "geheim"
@@ -405,7 +403,7 @@ def test_changing_the_source_revalidates_and_keeps_the_key(app, db, remote):
 def test_never_stale_and_no_local_collection(app, db, remote):
     from app.rag import model_settings
 
-    k = knowledge.get_knowledge(create(app, body_a()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_a()).json()["id"])
     model_settings.save_specs(mr.ModelSpec("hf", "ganz/anderes"))
     assert model_settings.is_stale(k) is False
 
@@ -419,7 +417,7 @@ def test_same_dimension_but_wrong_model_is_caught_by_the_sample_probe(
 
     monkeypatch.setattr(mr, "get_embedder", lambda spec: Other())
     r = create(app, body_a())
-    assert r.status_code == 400 and "passt nicht" in r.json["error"]
+    assert r.status_code == 400 and "passt nicht" in r.json()["error"]
     monkeypatch.setattr(mr, "get_embedder", lambda spec: Embedder())
     assert create(app, body_a()).status_code == 201
 
@@ -504,7 +502,7 @@ ALL = "Kaution Kuendigung Frist Dach Strom"
 
 
 def test_group_filter_shows_only_matching_chunks(app, db, secured, retriever):
-    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_secured()).json()["id"])
     sales, _ = ask(retriever, k, ALL, username="x", groups=["Vertrieb"])
     assert sales == {"datei0.md", "datei1.md"}
     tech, _ = ask(
@@ -518,7 +516,7 @@ def test_group_filter_shows_only_matching_chunks(app, db, secured, retriever):
 def test_user_without_a_matching_identity_gets_nothing_not_everything(
     app, db, secured, retriever
 ):
-    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_secured()).json()["id"])
     none, _ = ask(retriever, k, ALL, username="x", groups=[])
     assert none == set()
     other, _ = ask(retriever, k, ALL, username="x", groups=["Marketing"])
@@ -529,7 +527,7 @@ def test_user_field_group_field_and_static_conditions_combine(
     app, db, secured, retriever
 ):
     only_owner = knowledge.get_knowledge(
-        create(app, body_secured(group_field="", user_field="owner")).json["id"]
+        create(app, body_secured(group_field="", user_field="owner")).json()["id"]
     )
     mine, _ = ask(retriever, only_owner, ALL, username="alice", groups=[])
     assert mine == {"datei0.md", "datei2.md"}
@@ -542,7 +540,7 @@ def test_user_field_group_field_and_static_conditions_combine(
                 ),
                 "name": "Kombi",
             },
-        ).json["id"]
+        ).json()["id"]
     )
     # alice (Besitzerin) ODER Gruppe Technik, aber nur Mandant A: datei0 (alice, A) + datei3 (Technik, A), nicht datei2 (B)
     got, _ = ask(retriever, combined, ALL, username="alice", groups=["Technik"])
@@ -552,7 +550,7 @@ def test_user_field_group_field_and_static_conditions_combine(
 def test_filter_also_applies_to_neighbor_chunks_and_hybrid_search(
     app, db, secured, retriever
 ):
-    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_secured()).json()["id"])
     # Nachbar-Chunks (Standardfelder chunk_index/file_group_id) duerfen nichts Fremdes mitbringen
     scope = scope_for(k, profile=cfg(neighbors=1, search={"mode": "dense"}))
     scope.identity.update({"username": "x", "groups": ["Recht"]})
@@ -564,11 +562,11 @@ def test_filter_also_applies_to_neighbor_chunks_and_hybrid_search(
 
 
 def test_admins_can_be_exempt_only_when_switched_on(app, db, secured, retriever):
-    k = knowledge.get_knowledge(create(app, body_secured()).json["id"])
+    k = knowledge.get_knowledge(create(app, body_secured()).json()["id"])
     strict, _ = ask(retriever, k, ALL, username="admin", groups=[], is_admin=True)
     assert strict == set()
     k2 = knowledge.get_knowledge(
-        create(app, {**body_secured(admins_unfiltered=True), "name": "Offen"}).json[
+        create(app, {**body_secured(admins_unfiltered=True), "name": "Offen"}).json()[
             "id"
         ]
     )
@@ -578,14 +576,14 @@ def test_admins_can_be_exempt_only_when_switched_on(app, db, secured, retriever)
 
 def test_external_groups_can_feed_the_filter(app, db, secured, retriever):
     k = knowledge.get_knowledge(
-        create(app, body_secured(groups_from="external")).json["id"]
+        create(app, body_secured(groups_from="external")).json()["id"]
     )
     got, _ = ask(
         retriever, k, ALL, username="x", groups=["Vertrieb"], external_groups=["Recht"]
     )
     assert got == {"datei1.md"}  # nur die externe Gruppe zaehlt
     both = knowledge.get_knowledge(
-        create(app, {**body_secured(groups_from="both"), "name": "Beide"}).json["id"]
+        create(app, {**body_secured(groups_from="both"), "name": "Beide"}).json()["id"]
     )
     got2, _ = ask(
         retriever,
@@ -600,13 +598,13 @@ def test_external_groups_can_feed_the_filter(app, db, secured, retriever):
 
 def test_access_configuration_is_validated(app, db, secured):
     r = create(app, body_secured(group_field="", user_field="", static=[]))
-    assert r.status_code == 400 and "Zugriffsfilter" in r.json["error"]
+    assert r.status_code == 400 and "Zugriffsfilter" in r.json()["error"]
     r = create(app, body_secured(groups_from="alle"))
     assert r.status_code == 400
     r = create(
         app, body_secured(group_field="", static=[{"field": "mandant", "values": []}])
     )
-    assert r.status_code == 400 and "Werte" in r.json["error"]
+    assert r.status_code == 400 and "Werte" in r.json()["error"]
 
 
 def test_the_filter_test_shows_counts_without_saving_and_only_for_admins(
@@ -620,14 +618,14 @@ def test_the_filter_test_shows_counts_without_saving_and_only_for_admins(
     )
     assert (
         r.status_code == 200
-        and r.json["count"] == 2
-        and r.json["blocked"] is False
-        and len(r.json["samples"]) == 2
+        and r.json()["count"] == 2
+        and r.json()["blocked"] is False
+        and len(r.json()["samples"]) == 2
     )
     blocked = admin.post(
         "/api/knowledge/external/filter-test",
         json={"source": src, "identity": {"username": "x"}},
-    ).json
+    ).json()
     assert blocked["blocked"] is True and blocked["count"] == 0
     assert [k["kind"] for k in knowledge.list_knowledge()] == [
         "local"

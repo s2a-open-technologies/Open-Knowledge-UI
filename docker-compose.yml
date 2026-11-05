@@ -15,6 +15,8 @@ services:
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - QDRANT_PORT=${QDRANT_PORT:-6333}
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      # Chat-Stopp ueber Prozessgrenzen (Pub/Sub); leer = Stopp nur im eigenen Prozess
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       # Zugang zum Tool-Worker (fuehrt Pandas-Code isoliert aus), z. B. openssl rand -hex 32
       - TOOL_WORKER_TOKEN=${TOOL_WORKER_TOKEN:?TOOL_WORKER_TOKEN in .env setzen (z. B. openssl rand -hex 32)}
       # Schluessel fuer Zugangsdaten in der Datenbank (Fernet); leer = Schluesseldatei im Datenverzeichnis
@@ -57,6 +59,8 @@ services:
       qdrant:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
@@ -197,6 +201,20 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+
+  # Chat-Stopp zwischen Worker-Prozessen (Pub/Sub, kurzlebige Schluessel); keine Daten, kein Volume.
+  redis:
+    image: redis:7.4-alpine
+    container_name: open-knowledge-ui-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - open-knowledge-ui-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   qdrant:
     image: qdrant/qdrant:latest

@@ -3,9 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.auth import access
 from app.core.database_service import get_db_service
 from app.ingest import reindex
@@ -24,6 +22,7 @@ from tests.test_ingest import (  # noqa: F401  (Fixtures)
     scroll_all,
     set_setting,
 )
+from tests.web import make_app, set_state
 
 NEW = mr.ModelSpec("hf", "neues/modell")
 
@@ -177,11 +176,8 @@ def test_locked_while_running_and_one_job_at_a_time(db, qd, monkeypatch):
 
 @pytest.fixture
 def app(db, qd):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    app.extensions.update(client=qd, sparse_embeddings=FakeSparse())
-    register_blueprints(app)
+    app = make_app()
+    set_state(client=qd, sparse_embeddings=FakeSparse())
     return app
 
 
@@ -203,7 +199,7 @@ def test_api_permissions_status_and_lock(app, db, qd, monkeypatch):
     assert client_for(app, viewer).get("/api/reindex/status").status_code == 200
 
     # nichts veraltet -> "Alles aktuell"
-    assert client_for(app, admin).post("/api/reindex-all").json["started"] is False
+    assert client_for(app, admin).post("/api/reindex-all").json()["started"] is False
 
     started = []
     monkeypatch.setattr(
@@ -227,9 +223,9 @@ def test_api_permissions_status_and_lock(app, db, qd, monkeypatch):
 
 def test_knowledge_list_marks_stale(app, db):
     admin = client_for(app, {"id": 1, "role": "admin", "username": "admin"})
-    assert admin.get("/api/knowledge").json[0]["stale"] is False
+    assert admin.get("/api/knowledge").json()[0]["stale"] is False
     model_settings.save_specs(NEW)
-    assert admin.get("/api/knowledge").json[0]["stale"] is True
+    assert admin.get("/api/knowledge").json()[0]["stale"] is True
 
 
 def test_reindex_keeps_uploader_and_upload_date(db, qd, no_enrichment):

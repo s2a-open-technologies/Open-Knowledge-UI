@@ -1,21 +1,17 @@
 from pathlib import Path
 
 import pytest
-from flask import Flask
 
 from app.agent.tools.custom_tools import CustomTools
-from app.api import register_blueprints
 from app.chat import summaries
 from app.rag.retrieval import RetrievalScope, set_scope
 from tests.test_access import add_user, client_for
+from tests.web import make_app
 
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -27,16 +23,16 @@ def test_users_cannot_read_change_or_delete_each_others_summaries(app, db):
         a.put("/api/summaries/geheim.md", json={"content": "nur Alice"}).status_code
         == 200
     )
-    assert [s["filename"] for s in a.get("/api/summaries").json] == ["geheim.md"]
+    assert [s["filename"] for s in a.get("/api/summaries").json()] == ["geheim.md"]
 
-    assert b.get("/api/summaries").json == []
+    assert b.get("/api/summaries").json() == []
     assert b.get("/api/summaries/geheim.md").status_code == 404
     b.put(
         "/api/summaries/geheim.md", json={"content": "von Bob"}
     )  # legt eine EIGENE Datei an
-    assert a.get("/api/summaries/geheim.md").json["content"] == "nur Alice"
+    assert a.get("/api/summaries/geheim.md").json()["content"] == "nur Alice"
     assert b.delete("/api/summaries/geheim.md").status_code == 200
-    assert a.get("/api/summaries/geheim.md").json["content"] == "nur Alice"
+    assert a.get("/api/summaries/geheim.md").json()["content"] == "nur Alice"
 
 
 def test_path_traversal_and_foreign_folders_are_rejected(app, db):
@@ -58,11 +54,11 @@ def test_legacy_files_go_to_the_first_admin_only(app, db):
     (base / "alt.md").write_text("Altbestand", encoding="utf-8")
     bob = add_user(db, "bob", "editor")
     assert (
-        client_for(app, bob).get("/api/summaries").json == []
+        client_for(app, bob).get("/api/summaries").json() == []
     )  # kein Admin: sieht nichts
     admin = {"id": 1, "role": "admin", "username": "admin"}
     assert [
-        s["filename"] for s in client_for(app, admin).get("/api/summaries").json
+        s["filename"] for s in client_for(app, admin).get("/api/summaries").json()
     ] == ["alt.md"]
 
 
@@ -90,7 +86,9 @@ def test_deleting_a_summary_never_touches_another_users_tracking_row(app, db):
     assert client_for(app, bob).delete("/api/summaries/gleich.md").status_code == 200
     remaining = [(s.filename, s.user_id) for s in db.get_all_summaries()]
     assert remaining == [("gleich.md", alice["id"])]  # Alices Eintrag bleibt
-    assert client_for(app, alice).get("/api/summaries/gleich.md").json["content"] == "A"
+    assert (
+        client_for(app, alice).get("/api/summaries/gleich.md").json()["content"] == "A"
+    )
 
 
 def test_normal_users_download_their_own_summaries_as_md_and_docx(app, db):
@@ -108,12 +106,12 @@ def test_normal_users_download_their_own_summaries_as_md_and_docx(app, db):
     md = a.get("/api/summaries/bericht.md/download-md")
     assert md.status_code == 200
     assert "attachment" in md.headers["Content-Disposition"]
-    assert md.data.decode().startswith("# Titel")
+    assert md.content.decode().startswith("# Titel")
 
     docx = a.get("/api/summaries/bericht.md/download-docx")
     assert docx.status_code == 200
     assert "bericht.docx" in docx.headers["Content-Disposition"]
-    doc = Document(io.BytesIO(docx.data))
+    doc = Document(io.BytesIO(docx.content))
     assert doc.paragraphs[0].text == "Titel"
     assert doc.tables[0].cell(1, 1).text == "2"
 

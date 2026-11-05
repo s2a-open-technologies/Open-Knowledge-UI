@@ -167,7 +167,7 @@ def test_documents_are_indexed_in_the_knowledge_language_attachments_in_the_defa
 
 def test_admin_can_choose_the_language_and_unknown_ones_are_rejected(app, db):
     admin = client_for(app, ADMIN)
-    overview = admin.get("/api/admin/embedding").json
+    overview = admin.get("/api/admin/embedding").json()
     assert (
         overview["ingest"]["bm25_language"] == "german"
         and "german" in overview["bm25_languages"]
@@ -176,11 +176,11 @@ def test_admin_can_choose_the_language_and_unknown_ones_are_rejected(app, db):
     res = admin.put(
         "/api/admin/embedding", json={"ingest": {**ingest, "bm25_language": "english"}}
     )
-    assert res.status_code == 200 and res.json["ingest"]["bm25_language"] == "english"
+    assert res.status_code == 200 and res.json()["ingest"]["bm25_language"] == "english"
     res = admin.put(
         "/api/admin/embedding", json={"ingest": {"bm25_language": "klingonisch"}}
     )
-    assert res.status_code == 400 and "unbekannte Sprache" in res.json["error"]
+    assert res.status_code == 400 and "unbekannte Sprache" in res.json()["error"]
 
 
 def test_migration_0034_runs_up_down_up(tmp_path):

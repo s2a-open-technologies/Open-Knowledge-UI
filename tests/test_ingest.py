@@ -3,12 +3,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
-from app.api import register_blueprints
 from app.auth import access
+from app.core import runtime
 from app.core.models import User
 from app.core.settings_service import SettingsService
 from app.ingest import indexer
@@ -16,6 +15,7 @@ from app.ingest import pipeline as ingestion_module
 from app.ingest.pipeline import DocumentIngestion
 from app.knowledge import service as knowledge
 from app.rag.collections import ensure_collection
+from tests.web import client_for, make_app
 
 VOCAB = ["kuendigung", "kaution", "miete", "dach", "frist", "strom"]
 
@@ -423,18 +423,8 @@ def add_user(db, username, role):
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
-
-
-def client_for(app, user):
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["user_id"] = user["id"]
-    return c
 
 
 def stored_doc(db, kb, text="# Titel\n\nInhalt äöü.\n", file_group="fg-9"):
@@ -459,18 +449,18 @@ def test_markdown_can_be_viewed_and_downloaded(app, db):
     )  # Standard ist oeffentlich lesbar
 
     res = editor.get(f"/api/documents/{doc.id}/markdown")
-    assert res.status_code == 200 and res.json == {
+    assert res.status_code == 200 and res.json() == {
         "filename": "bericht.pdf",
         "markdown": "# Titel\n\nInhalt äöü.\n",
     }
 
     dl = editor.get(f"/api/documents/{doc.id}/markdown?download=1")
     assert (
-        dl.mimetype == "text/markdown"
+        dl.headers["content-type"].split(";")[0] == "text/markdown"
         and "attachment" in dl.headers["Content-Disposition"]
     )
     assert dl.headers["Content-Disposition"].endswith("bericht.md")
-    assert dl.get_data(as_text=True) == "# Titel\n\nInhalt äöü.\n"
+    assert dl.text == "# Titel\n\nInhalt äöü.\n"
 
 
 def test_markdown_respects_knowledge_access_and_role(app, db):
@@ -502,7 +492,7 @@ def test_documents_without_markdown_say_so(app, db):
     db.add_document("old", "alt.pdf", knowledge_id=kb["id"])
     doc = db.get_all_documents()[0]
     res = client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown")
-    assert res.status_code == 404 and "Neu-Indexieren" in res.json["error"]
+    assert res.status_code == 404 and "Neu-Indexieren" in res.json()["error"]
     assert (
         client_for(app, {"id": 1}).get("/api/documents/999/markdown").status_code == 404
     )
@@ -515,7 +505,7 @@ def test_paths_outside_the_markdown_folder_are_never_served(app, db, tmp_path):
     db.add_document("evil", "x.pdf", knowledge_id=kb["id"], markdown_path=str(secret))
     doc = db.get_all_documents()[0]
     res = client_for(app, {"id": 1}).get(f"/api/documents/{doc.id}/markdown")
-    assert res.status_code == 404 and "GEHEIM" not in res.get_data(as_text=True)
+    assert res.status_code == 404 and "GEHEIM" not in res.text
 
 
 def test_deleting_a_document_removes_its_markdown_file(app, db, monkeypatch):
@@ -535,7 +525,7 @@ def test_document_list_flags_which_documents_have_markdown(app, db):
     db.add_document("old", "alt.pdf", knowledge_id=kb["id"])
     flags = {
         d["filename"]: d["has_markdown"]
-        for d in client_for(app, {"id": 1}).get("/api/documents").json
+        for d in client_for(app, {"id": 1}).get("/api/documents").json()
     }
     assert flags == {"bericht.pdf": True, "alt.pdf": False}
 
@@ -680,7 +670,7 @@ def test_deleting_the_document_removes_its_csvs_and_reference_chunks(
     app, db, qd, no_enrichment, tmp_path
 ):
     ingest_docx(qd, make_docx_with_tables(tmp_path))
-    app.extensions["client"] = qd
+    runtime.state.client = qd
     other = Path("./data/andere.csv")
     other.write_text("a,b\n1,2\n")
     doc = db.get_all_documents()[0]
@@ -868,19 +858,17 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
         "Monat,Umsatz\nJan,100\nFeb,250\n", encoding="utf-8"
     )
     Path("data/geheim.txt").write_text("nein", encoding="utf-8")
-    flask_app = Flask(__name__)
-    flask_app.secret_key = "t"
-    register_blueprints(flask_app)
-    c = client_for(flask_app, ed)
+    web_app = make_app()
+    c = client_for(web_app, ed)
 
     view = c.get("/api/data-files/umsatz.csv")
     assert view.status_code == 200
-    body = view.json
+    body = view.json()
     assert body["columns"] == ["Monat", "Umsatz"] and body["rows"][0] == ["Jan", "100"]
     assert body["total_rows"] == 2 and body["truncated"] is False
 
     raw = c.get("/api/data-files/umsatz.csv?download=1")
-    assert raw.status_code == 200 and b"Jan,100" in raw.data
+    assert raw.status_code == 200 and b"Jan,100" in raw.content
     assert "attachment" in raw.headers["Content-Disposition"]
 
     assert (
@@ -889,7 +877,7 @@ def test_data_file_can_be_previewed_and_downloaded_but_not_outside_the_folder(db
     assert c.get("/api/data-files/..%2Fapp.db").status_code == 404
     # Rolle "Benutzer" darf lesen, was ihr gehoert oder freigegeben/oeffentlich ist (hier: oeffentlicher Standard)
     assert (
-        client_for(flask_app, add_user(db, "bob", "user"))
+        client_for(web_app, add_user(db, "bob", "user"))
         .get("/api/data-files/umsatz.csv")
         .status_code
         == 200
@@ -903,19 +891,16 @@ def test_chunks_carry_document_metadata_and_the_uploader(db, qd, no_enrichment):
     ed = add_user(db, "ed", "editor")
     kb = knowledge.get_knowledge(None)
     access.add_grant("knowledge", kb["id"], "user", ed["id"], "write")
-    flask_app = Flask(__name__)
-    flask_app.secret_key = "t"
-    flask_app.extensions["ingestion_status"] = {
+    web_app = make_app()
+    runtime.state.ingestion_status = {
         "is_ingesting": False,
         "knowledge_id": None,
     }
-    register_blueprints(flask_app)
     import io
 
-    r = client_for(flask_app, ed).post(
+    r = client_for(web_app, ed).post(
         "/api/documents/upload",
-        data={"files": (io.BytesIO(DOC.encode()), "vertrag.md")},
-        content_type="multipart/form-data",
+        files={"files": ("vertrag.md", io.BytesIO(DOC.encode()))},
     )
     assert r.status_code == 200
     with make_ingestion(qd) as ing:

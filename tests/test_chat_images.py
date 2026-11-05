@@ -1,3 +1,5 @@
+from tests.web import chat_ws
+
 # ruff: noqa: F811  (Fixtures aus anderen Testmodulen werden importiert und als Argument genutzt)
 """Bilder im Chat: als Text lesen (app/ingest/image_text.py) und direkt an Modelle mit Bildverstaendnis."""
 
@@ -13,6 +15,7 @@ import pytest
 from PIL import Image
 
 from app.chat import attachments
+from app.core import runtime
 from app.ingest import image_text, prompts, tasks
 from app.knowledge import service as knowledge  # noqa: F401
 from app.llm import connections as store
@@ -190,15 +193,14 @@ def upload_env(app, db, monkeypatch):
     started = []
     monkeypatch.setattr(app_pkg, "resources_ready", lambda: True)
     monkeypatch.setattr(attachments, "_ingest", lambda *a, **k: started.append(a))
-    app.extensions["sparse_embeddings"] = object()
+    runtime.state.sparse_embeddings = object()
     return started
 
 
 def upload(client, name, data):
     return client.post(
         "/api/chat/attachments",
-        data={"file": (BytesIO(data), name)},
-        content_type="multipart/form-data",
+        files={"file": (name, BytesIO(data))},
     )
 
 
@@ -206,7 +208,7 @@ def test_images_are_accepted_and_keep_a_shrunk_copy(app, db, upload_env):
     alice = add_user(db, "alice", "user")
     res = upload(client_for(app, alice), "foto.png", png_bytes((3000, 500)))
     assert res.status_code == 202
-    body = res.json
+    body = res.json()
     copy = attachments.image_copy_path(body["session_id"], body["id"])
     assert (
         Image.open(copy).size[0] == 2048
@@ -221,7 +223,7 @@ def test_images_are_refused_when_the_task_is_switched_off(app, db, upload_env):
     put_tasks(client_for(app, ADMIN), images={"enabled": False})
     alice = add_user(db, "alice", "user")
     res = upload(client_for(app, alice), "foto.png", png_bytes())
-    assert res.status_code == 415 and "abgeschaltet" in res.json["error"]
+    assert res.status_code == 415 and "abgeschaltet" in res.json()["error"]
     assert upload(client_for(app, alice), "x.exe", b"MZ").status_code == 415
 
 
@@ -239,30 +241,28 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_images(app, db, conn, upload_env, monkeypatch):
-    from app.api import chat as routes
+    from app.chat import service as routes
 
     CapturingAgent.sent = []
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())
     monkeypatch.setattr(routes, "resources_ready", lambda: True)
-    app.extensions["agent_tools"] = []
+    runtime.state.agent_tools = []
     return store.make_base_ref(conn["id"], "m")
 
 
 def attach_image(app, user):
-    body = upload(client_for(app, user), "foto.png", png_bytes()).json
+    body = upload(client_for(app, user), "foto.png", png_bytes()).json()
     return body["session_id"], body["id"]
 
 
 def ask(app, user, ref, session_id, ids):
-    client_for(app, user).post(
-        "/chat",
-        json={
-            "message": "Was steht drauf?",
-            "model": ref,
-            "session_id": session_id,
-            "attachment_ids": ids,
-        },
-    ).get_data()
+    chat_ws(
+        client_for(app, user),
+        message="Was steht drauf?",
+        model=ref,
+        session_id=session_id,
+        attachment_ids=ids,
+    )
     return CapturingAgent.sent[-1][-1]["content"]
 
 
@@ -301,7 +301,7 @@ def test_foreign_or_unknown_attachment_ids_are_ignored(app, db, chat_images):
 def test_the_pii_filter_masks_the_text_but_the_image_is_sent_unchanged(
     app, db, chat_images, monkeypatch
 ):
-    from app.api import chat as routes
+    from app.chat import service as routes
 
     store.save_model_config(chat_images, {"vision": True})
 
@@ -337,7 +337,7 @@ def test_vision_is_a_model_property_that_clones_inherit_and_the_model_list_shows
     for user in (alice, ADMIN):
         m = next(
             x
-            for x in client_for(app, user).get("/api/models?visible=1").json["models"]
+            for x in client_for(app, user).get("/api/models?visible=1").json()["models"]
             if x["ref"] == ref
         )
         assert m["vision"] is True

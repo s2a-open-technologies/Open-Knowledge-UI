@@ -21,25 +21,34 @@
 import json
 from logging import getLogger
 
-from flask import (
-    Blueprint,
-    abort,
-    current_app,
-    jsonify,
-    make_response,
-    request,
-)
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
-from app.api._common import _abort_if_reindexing
+from app.api._common import abort_if_reindexing
+from app.api.errors import ApiError
+from app.api.schemas.common import Loose, Success
+from app.api.schemas.knowledge import (
+    FilterTest,
+    FilterTestResult,
+    IndexPayload,
+    KnowledgeCreate,
+    KnowledgeOut,
+    KnowledgeUpdate,
+    ReindexStarted,
+    SourceTest,
+    ValuesColumns,
+    ValuesOverview,
+    ValuesSearch,
+    ValuesSearchResult,
+)
 from app.auth.access import (
     accessible_knowledge_ids,
     add_grant,
     can_access_knowledge,
 )
-from app.auth.auth import auth_required_api, current_user, require_role
-from app.auth.users import (
-    role_at_least,
-)
+from app.auth.auth import Admin, CurrentUser
+from app.auth.users import role_at_least
+from app.core import runtime
 from app.core.database_service import get_db_service
 from app.core.settings_service import SettingsService
 from app.ingest import reindex
@@ -62,31 +71,31 @@ from app.knowledge.service import (
 from app.knowledge.sql import config as sqlcfg
 from app.rag import model_settings
 
-bp = Blueprint("knowledge", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["knowledge"])
 logger = getLogger(__name__)
 
+_NOT_FOUND = "Knowledge nicht gefunden"
 
-def _knowledge_with_counts(knowledge: dict) -> dict:
+
+def _knowledge_with_counts(knowledge: dict, user: dict) -> dict:
     """Ergaenzt Dokumentanzahl, Chunk-Anzahl (best-effort) und ``can_write``."""
     docs = get_db_service().get_all_documents(knowledge_id=knowledge["id"])
     entry = {
         **knowledge,
         "document_count": len(docs),
         "chunk_count": None,
-        "can_write": can_access_knowledge(current_user(), knowledge["id"], "write"),
+        "can_write": can_access_knowledge(user, knowledge["id"], "write"),
         # Index passt nicht zur aktuellen Modell-/Zerlege-Konfiguration (Neu indexieren)
         "stale": model_settings.is_stale(knowledge),
     }
     if is_sql(knowledge):
-        entry["source_config"] = sqlcfg.parse_config(
-            knowledge.get("source_config")
-        ).public()
+        entry["source_config"] = sqlcfg.parse_config(knowledge.get("source_config")).public()
         return entry
     if is_external(knowledge):
         entry["source_config"] = _public_source(knowledge)
         return entry
     entry.pop("source_config", None)
-    client = current_app.extensions.get("client")
+    client = runtime.state.client
     if client:
         try:
             entry["chunk_count"] = client.count(knowledge["collection_name"]).count
@@ -100,65 +109,51 @@ def _public_source(knowledge: dict) -> dict:
     return sources.parse_config(knowledge.get("source_config")).public()
 
 
-@bp.route("/knowledge", methods=["GET"])
-@auth_required_api
-def knowledge_list():
-    readable = accessible_knowledge_ids(current_user(), "read")
-    return jsonify(
-        [_knowledge_with_counts(k) for k in list_knowledge() if k["id"] in readable]
-    )
+@router.get("/knowledge", response_model=list[KnowledgeOut])
+def knowledge_list(user: CurrentUser):
+    readable = accessible_knowledge_ids(user, "read")
+    return [_knowledge_with_counts(k, user) for k in list_knowledge() if k["id"] in readable]
 
 
-@bp.route("/knowledge", methods=["POST"])
-@require_role("user")
-def knowledge_create():
+@router.post("/knowledge", response_model=KnowledgeOut, status_code=201)
+def knowledge_create(user: CurrentUser, body: KnowledgeCreate | None = None):
     from app.rag.collections import ensure_collection
 
-    data = request.get_json() or {}
-    name = (data.get("name") or "").strip()
+    body = body or KnowledgeCreate()
+    name = (body.name or "").strip()
     if not name:
-        return jsonify({"success": False, "error": "Name erforderlich"}), 400
+        raise ApiError(400, "Name erforderlich", success=False)
 
-    from app.rag import model_settings, models_runtime
+    from app.rag import models_runtime
 
-    if data.get("kind") == "external":
-        return _create_external(name, data)
-    if data.get("kind") == "sql":
-        return _create_sql(name, data)
+    if body.kind == "external":
+        return _create_external(name, body, user)
+    if body.kind == "sql":
+        return _create_sql(name, body, user)
 
     try:  # Modell laden und Dimension per Probe ermitteln (beim ersten Mal ggf. Download)
-        dimension = models_runtime.get_embedder(
-            model_settings.embedding_spec()
-        ).dimension
+        dimension = models_runtime.get_embedder(model_settings.embedding_spec()).dimension
     except models_runtime.ModelLoadError as e:
-        return jsonify(
-            {"success": False, "error": f"Embedding-Modell nicht verfügbar: {e}"}
-        ), 503
+        raise ApiError(503, f"Embedding-Modell nicht verfügbar: {e}", success=False)
 
-    knowledge = create_knowledge(name, data.get("description", ""), dimension)
+    knowledge = create_knowledge(name, body.description, dimension)
     # Der Ersteller darf sein Knowledge verwalten (Admins ohnehin alles).
-    add_grant("knowledge", knowledge["id"], "user", current_user()["id"], "write")
-    client = current_app.extensions.get("client")
+    add_grant("knowledge", knowledge["id"], "user", user["id"], "write")
     try:
         ensure_collection(
-            client, knowledge["collection_name"], knowledge["embedding_dimension"]
+            runtime.state.client, knowledge["collection_name"], knowledge["embedding_dimension"]
         )
     except Exception as e:
         delete_knowledge(knowledge["id"])
-        return jsonify({"success": False, "error": f"Qdrant Fehler: {e!s}"}), 500
-    return jsonify(_knowledge_with_counts(knowledge)), 201
+        raise ApiError(500, f"Qdrant Fehler: {e!s}", success=False)
+    return _knowledge_with_counts(knowledge, user)
 
 
 def _index_payload(knowledge: dict) -> dict:
     """Inhaltsverzeichnis (``index.md``) des Knowledge fuer die Anzeige. Fehlt die Datei (Bestand aus einer
     aelteren Version, abgeschaltet gewesen), wird sie bei eingeschalteter Funktion nachtraeglich erzeugt."""
     if is_remote(knowledge):
-        return {
-            "available": False,
-            "enabled": True,
-            "markdown": None,
-            "updated_at": None,
-        }
+        return {"available": False, "enabled": True, "markdown": None, "updated_at": None}
     session = get_db_service().get_session()
     try:
         enabled = SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
@@ -166,12 +161,7 @@ def _index_payload(knowledge: dict) -> dict:
         session.close()
     text = ensure_index(knowledge) if enabled else None
     if not text:
-        return {
-            "available": True,
-            "enabled": enabled,
-            "markdown": None,
-            "updated_at": None,
-        }
+        return {"available": True, "enabled": enabled, "markdown": None, "updated_at": None}
     _, updated = get_index(knowledge["id"])
     return {
         "available": True,
@@ -181,38 +171,33 @@ def _index_payload(knowledge: dict) -> dict:
     }
 
 
-@bp.route("/knowledge/<int:knowledge_id>/index", methods=["GET"])
-@auth_required_api
-def knowledge_index(knowledge_id):
+@router.get("/knowledge/{knowledge_id:int}/index", response_model=IndexPayload)
+def knowledge_index(knowledge_id: int, user: CurrentUser):
     """Das Inhaltsverzeichnis, das das Modell zur Orientierung bekommt (lesen genuegt)."""
     knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "read"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    return jsonify(_index_payload(knowledge))
+    if not knowledge or not can_access_knowledge(user, knowledge_id, "read"):
+        raise ApiError(404, _NOT_FOUND, success=False)
+    return _index_payload(knowledge)
 
 
-@bp.route("/knowledge/<int:knowledge_id>/index/refresh", methods=["POST"])
-@require_role("user")
-def knowledge_index_refresh(knowledge_id):
+@router.post("/knowledge/{knowledge_id:int}/index/refresh", response_model=IndexPayload)
+def knowledge_index_refresh(knowledge_id: int, user: CurrentUser):
     """Erzeugt das Inhaltsverzeichnis neu (Schreibrecht)."""
     knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "write"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+    if not knowledge or not can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, _NOT_FOUND, success=False)
     if is_remote(knowledge):
-        return jsonify(
-            {"success": False, "error": "Diese Quelle hat kein Inhaltsverzeichnis"}
-        ), 409
+        raise ApiError(409, "Diese Quelle hat kein Inhaltsverzeichnis", success=False)
     refresh_index(knowledge_id)
-    return jsonify(_index_payload(knowledge))
+    return _index_payload(knowledge)
 
 
-@bp.route("/knowledge/<int:knowledge_id>", methods=["GET"])
-@auth_required_api
-def knowledge_detail(knowledge_id):
+@router.get("/knowledge/{knowledge_id:int}", response_model=KnowledgeOut)
+def knowledge_detail(knowledge_id: int, user: CurrentUser):
     knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(current_user(), knowledge_id, "read"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    return jsonify(_knowledge_with_counts(knowledge))
+    if not knowledge or not can_access_knowledge(user, knowledge_id, "read"):
+        raise ApiError(404, _NOT_FOUND, success=False)
+    return _knowledge_with_counts(knowledge, user)
 
 
 def _parse_external_body(data: dict, stored: dict | None = None):
@@ -233,9 +218,7 @@ def _parse_external_body(data: dict, stored: dict | None = None):
     try:
         spec = models_runtime.ModelSpec.from_dict(data.get("embedding"))
     except (ValueError, TypeError):
-        raise ValueError(
-            "Das Embedding-Modell der Quelle muss angegeben werden"
-        ) from None
+        raise ValueError("Das Embedding-Modell der Quelle muss angegeben werden") from None
     try:
         dimension = models_runtime.get_embedder(spec).dimension
     except models_runtime.ModelLoadError as e:
@@ -251,20 +234,16 @@ def _parse_external_body(data: dict, stored: dict | None = None):
     return cfg, spec, dimension, facts
 
 
-def _create_external(name: str, data: dict):
-    if not role_at_least(current_user()["role"], "admin"):
-        return jsonify(
-            {"success": False, "error": "Externe Quellen legen nur Admins an"}
-        ), 403
+def _create_external(name: str, body: KnowledgeCreate, user: dict):
+    if not role_at_least(user["role"], "admin"):
+        raise ApiError(403, "Externe Quellen legen nur Admins an", success=False)
     try:
-        cfg, spec, dimension, _facts = _parse_external_body(data)
+        cfg, spec, dimension, _facts = _parse_external_body(body.model_dump())
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-    knowledge = create_external_knowledge(
-        name, data.get("description", ""), spec, dimension, cfg.to_dict()
-    )
-    add_grant("knowledge", knowledge["id"], "user", current_user()["id"], "write")
-    return jsonify(_knowledge_with_counts(knowledge)), 201
+        raise ApiError(400, str(e), success=False)
+    knowledge = create_external_knowledge(name, body.description, spec, dimension, cfg.to_dict())
+    add_grant("knowledge", knowledge["id"], "user", user["id"], "write")
+    return _knowledge_with_counts(knowledge, user)
 
 
 def _sql_probe(cfg: "sqlcfg.SqlConfig") -> dict:
@@ -290,67 +269,55 @@ def _sql_source_from(data: dict, stored: dict | None = None) -> "sqlcfg.SqlConfi
     cfg = sqlcfg.parse_config(raw)
     old = sqlcfg.parse_config(stored.get("source_config")) if stored else None
     cfg = sqlcfg.merge_password(cfg, old)
-    if (
-        old is not None and "value_columns" not in raw
-    ):  # der Dialog kennt das Wertverzeichnis nicht
+    if old is not None and "value_columns" not in raw:  # der Dialog kennt das Wertverzeichnis nicht
         cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": old.value_columns})
     # Gesperrte oder nicht mehr freigegebene Spalten fliegen aus der Auswahl des Wertverzeichnisses
     from app.knowledge.sql import valueindex
 
-    cfg = sqlcfg.SqlConfig(
-        **{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)}
-    )
+    cfg = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": valueindex.clean_value_columns(cfg)})
     sqlcfg.validate(cfg)
     return cfg
 
 
-def _sql_error(e: Exception):
-    if isinstance(e, RuntimeError):
-        return jsonify({"success": False, "error": str(e)}), 503
-    return jsonify({"success": False, "error": str(e)}), 400
+def _sql_error(e: Exception) -> ApiError:
+    return ApiError(503 if isinstance(e, RuntimeError) else 400, str(e), success=False)
 
 
-def _create_sql(name: str, data: dict):
-    if not role_at_least(current_user()["role"], "admin"):
-        return jsonify(
-            {"success": False, "error": "SQL-Quellen legen nur Admins an"}
-        ), 403
+def _create_sql(name: str, body: KnowledgeCreate, user: dict):
+    if not role_at_least(user["role"], "admin"):
+        raise ApiError(403, "SQL-Quellen legen nur Admins an", success=False)
     try:
-        cfg = _sql_source_from(data)
+        cfg = _sql_source_from(body.model_dump())
         _sql_probe(cfg)
     except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
-        return _sql_error(e)
-    knowledge = create_sql_knowledge(name, data.get("description", ""), cfg.to_dict())
-    add_grant("knowledge", knowledge["id"], "user", current_user()["id"], "write")
-    return jsonify(_knowledge_with_counts(knowledge)), 201
+        raise _sql_error(e)
+    knowledge = create_sql_knowledge(name, body.description, cfg.to_dict())
+    add_grant("knowledge", knowledge["id"], "user", user["id"], "write")
+    return _knowledge_with_counts(knowledge, user)
 
 
-@bp.route("/knowledge/sql/test", methods=["POST"])
-@require_role("admin")
-def knowledge_sql_test():
+def _stored_id(raw) -> int | None:
+    return int(raw) if str(raw or "").isdigit() else None
+
+
+@router.post("/knowledge/sql/test", response_model=Loose)
+def knowledge_sql_test(_user: Admin, body: SourceTest | None = None):
     """Verbindungsprobe: Version, Tabellen mit Spalten, Warnung bei Schreibrechten (nichts wird gespeichert)."""
-    data = request.get_json() or {}
-    stored = (
-        get_knowledge(int(data["knowledge_id"]))
-        if str(data.get("knowledge_id") or "").isdigit()
-        else None
-    )
+    body = body or SourceTest()
+    kid = _stored_id(body.knowledge_id)
+    stored = get_knowledge(kid) if kid is not None else None
     try:
-        cfg = _sql_source_from(data, stored if is_sql(stored) else None)
+        cfg = _sql_source_from(body.model_dump(), stored if is_sql(stored) else None)
         facts = _sql_probe(cfg)
     except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
-        return _sql_error(e)
-    return jsonify({"success": True, **facts})
+        raise _sql_error(e)
+    return {"success": True, **facts}
 
 
 def _sql_knowledge_or_404(knowledge_id: int):
     k = get_knowledge(knowledge_id)
     if not is_sql(k):
-        abort(
-            make_response(
-                jsonify({"success": False, "error": "SQL-Quelle nicht gefunden"}), 404
-            )
-        )
+        raise ApiError(404, "SQL-Quelle nicht gefunden", success=False)
     return k
 
 
@@ -368,142 +335,116 @@ def _values_overview(k: dict) -> dict:
     }
 
 
-@bp.route("/knowledge/<int:knowledge_id>/sql-values", methods=["GET"])
-@require_role("admin")
-def sql_values_overview(knowledge_id):
-    return jsonify(_values_overview(_sql_knowledge_or_404(knowledge_id)))
+@router.get("/knowledge/{knowledge_id:int}/sql-values", response_model=ValuesOverview)
+def sql_values_overview(knowledge_id: int, _user: Admin):
+    return _values_overview(_sql_knowledge_or_404(knowledge_id))
 
 
-@bp.route("/knowledge/<int:knowledge_id>/sql-values/suggest", methods=["POST"])
-@require_role("admin")
-def sql_values_suggest(knowledge_id):
+@router.post("/knowledge/{knowledge_id:int}/sql-values/suggest", response_model=Loose)
+def sql_values_suggest(knowledge_id: int, _user: Admin):
     """Textspalten mit Vorschlag (aufnehmen oder nicht, mit Begruendung). Liest nur Zaehlungen aus der Quelle."""
     from app.knowledge.sql import valueindex
 
     k = _sql_knowledge_or_404(knowledge_id)
     try:
-        return jsonify(
-            {"success": True, "columns": valueindex.profile(k["source_config"])}
-        )
+        return {"success": True, "columns": valueindex.profile(k["source_config"])}
     except ValueError as e:
-        return jsonify({"success": False, "error": str(e)}), 502
+        raise ApiError(502, str(e), success=False)
 
 
-@bp.route("/knowledge/<int:knowledge_id>/sql-values", methods=["PUT"])
-@require_role("admin")
-def sql_values_save(knowledge_id):
+@router.put("/knowledge/{knowledge_id:int}/sql-values", response_model=ValuesOverview)
+def sql_values_save(knowledge_id: int, _user: Admin, body: ValuesColumns | None = None):
     """Speichert die Spaltenauswahl (``{"columns": {"tabelle": ["spalte", ...]}}``); gebaut wird separat."""
     k = _sql_knowledge_or_404(knowledge_id)
     cfg = sqlcfg.parse_config(k["source_config"])
-    raw = (request.get_json() or {}).get("columns") or {}
+    raw = (body.columns if body else None) or {}
     chosen = sqlcfg.parse_config({"value_columns": raw}).value_columns
     allowed = {t.lower() for t in cfg.tables}
-    blocked = {
-        t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()
-    }
+    blocked = {t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()}
     for table, columns in chosen.items():
         if allowed and table.lower() not in allowed:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"Die Tabelle {table} ist nicht freigegeben",
-                }
-            ), 400
+            raise ApiError(400, f"Die Tabelle {table} ist nicht freigegeben", success=False)
         for column in columns:
             if column.lower() in blocked.get(table.lower(), set()):
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": f"Die Spalte {table}.{column} ist gesperrt",
-                    }
-                ), 400
+                raise ApiError(400, f"Die Spalte {table}.{column} ist gesperrt", success=False)
     updated = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": chosen})
     try:
         sqlcfg.validate(updated)
     except sqlcfg.SqlConfigError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        raise ApiError(400, str(e), success=False)
     update_sql_source(knowledge_id, updated.to_dict())
-    return jsonify(_values_overview(get_knowledge(knowledge_id)))
+    return _values_overview(get_knowledge(knowledge_id))
 
 
-@bp.route("/knowledge/<int:knowledge_id>/sql-values/build", methods=["POST"])
-@require_role("admin")
-def sql_values_build(knowledge_id):
+@router.post("/knowledge/{knowledge_id:int}/sql-values/build", response_model=Loose, status_code=202)
+def sql_values_build(knowledge_id: int, _user: Admin):
     from app.knowledge.sql import valueindex
 
     k = _sql_knowledge_or_404(knowledge_id)
     if not sqlcfg.parse_config(k["source_config"]).value_columns:
-        return jsonify(
-            {"success": False, "error": "Erst Spalten auswählen und speichern"}
-        ), 400
+        raise ApiError(400, "Erst Spalten auswählen und speichern", success=False)
     if not valueindex.start_build(knowledge_id, k["source_config"]):
-        return jsonify({"success": False, "error": "Der Aufbau läuft bereits"}), 409
-    return jsonify({"success": True, **valueindex.status(knowledge_id)}), 202
+        raise ApiError(409, "Der Aufbau läuft bereits", success=False)
+    return {"success": True, **valueindex.status(knowledge_id)}
 
 
-@bp.route("/knowledge/<int:knowledge_id>/sql-values/search", methods=["POST"])
-@require_role("admin")
-def sql_values_search(knowledge_id):
+@router.post("/knowledge/{knowledge_id:int}/sql-values/search", response_model=ValuesSearchResult)
+def sql_values_search(knowledge_id: int, _user: Admin, body: ValuesSearch | None = None):
     """Probe: welche Werte findet die Suche zu einem Begriff (wie das Modell sie sieht)."""
     from app.knowledge.sql import valueindex
 
     _sql_knowledge_or_404(knowledge_id)
-    term = str((request.get_json() or {}).get("term") or "")
+    term = str((body.term if body else None) or "")
     hits = valueindex.search(knowledge_id, term)
-    return jsonify(
-        {
-            "results": [
-                {
-                    "table": e["table"],
-                    "column": e["column"],
-                    "value": e["value"],
-                    "count": e["count"],
-                    "score": round(s, 2),
-                }
-                for e, s in hits
-            ]
-        }
-    )
+    return {
+        "results": [
+            {
+                "table": e["table"],
+                "column": e["column"],
+                "value": e["value"],
+                "count": e["count"],
+                "score": round(s, 2),
+            }
+            for e, s in hits
+        ]
+    }
 
 
-@bp.route("/knowledge/external/test", methods=["POST"])
-@require_role("admin")
-def knowledge_external_test():
-    """Fakten zu einer fremden Quelle zum Abgleich (nichts wird geraten oder gespeichert)."""
-    data = request.get_json() or {}
-    stored = None
-    if data.get("knowledge_id"):
-        found = get_knowledge(int(data["knowledge_id"]))
-        stored = found if is_external(found) else None
-    cfg = sources.parse_config(data.get("source"))
-    if stored is not None and not cfg.api_key:
+def _with_stored_key(cfg, knowledge_id) -> object:
+    """Leeres Key-Feld: gespeicherten Key nehmen, aber nie fuer eine andere Adresse."""
+    kid = _stored_id(knowledge_id) if knowledge_id not in (None, "", 0) else None
+    if kid is None:
+        return cfg
+    stored = get_knowledge(kid)
+    if is_external(stored) and not cfg.api_key:
         old = sources.parse_config(stored.get("source_config"))
-        if old.url == cfg.url:  # gespeicherter Key nie an eine andere Adresse
-            cfg = sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
+        if old.url == cfg.url:
+            return sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
+    return cfg
+
+
+@router.post("/knowledge/external/test", response_model=Loose)
+def knowledge_external_test(_user: Admin, body: SourceTest | None = None):
+    """Fakten zu einer fremden Quelle zum Abgleich (nichts wird geraten oder gespeichert)."""
+    body = body or SourceTest()
+    cfg = _with_stored_key(sources.parse_config(body.source), body.knowledge_id)
     try:
         facts = sources.probe_source(cfg)
     except sources.SourceError as e:
-        return jsonify({"success": False, "error": str(e)}), 502
-    return jsonify({"success": True, **facts})
+        raise ApiError(502, str(e), success=False)
+    return {"success": True, **facts}
 
 
-@bp.route("/knowledge/external/filter-test", methods=["POST"])
-@require_role("admin")
-def knowledge_external_filter_test():
+@router.post("/knowledge/external/filter-test", response_model=FilterTestResult)
+def knowledge_external_filter_test(_user: Admin, body: FilterTest | None = None):
     """Zeigt, was ein Benutzer mit diesem Zugriffsfilter sehen wuerde (ohne zu speichern).
 
     Body: ``source`` (inkl. ``access``), optional ``knowledge_id`` (gespeicherter Key) und
     ``identity`` (``username``, ``display_name``, ``groups``, ``external_groups``).
     """
-    data = request.get_json() or {}
-    cfg = sources.parse_config(data.get("source"))
-    if data.get("knowledge_id"):
-        stored = get_knowledge(int(data["knowledge_id"]))
-        if is_external(stored) and not cfg.api_key:
-            old = sources.parse_config(stored.get("source_config"))
-            if old.url == cfg.url:
-                cfg = sources.parse_config({**cfg.to_dict(), "api_key": old.api_key})
-    ident = data.get("identity") or {}
+    body = body or FilterTest()
+    cfg = _with_stored_key(sources.parse_config(body.source), body.knowledge_id)
+    ident = body.identity or {}
     identity = {
         "username": str(ident.get("username") or ""),
         "display_name": str(ident.get("display_name") or ""),
@@ -515,98 +456,74 @@ def knowledge_external_filter_test():
         sources.validate_access(cfg)
         flt, blocked = sources.build_filter(cfg, identity)
         if blocked:
-            return jsonify(
-                {"success": True, "blocked": True, "count": 0, "samples": []}
-            )
+            return {"success": True, "blocked": True, "count": 0, "samples": []}
         client = sources.connect(cfg)
         try:
-            count = int(
-                client.count(cfg.collection, count_filter=flt, exact=True).count
-            )
-            points, _ = client.scroll(
-                cfg.collection, scroll_filter=flt, limit=3, with_payload=True
-            )
+            count = int(client.count(cfg.collection, count_filter=flt, exact=True).count)
+            points, _ = client.scroll(cfg.collection, scroll_filter=flt, limit=3, with_payload=True)
         finally:
             client.close()
     except sources.SourceError as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        raise ApiError(400, str(e), success=False)
     except Exception as e:
-        return jsonify(
-            {
-                "success": False,
-                "error": f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300],
-            }
-        ), 502
+        raise ApiError(502, f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300], success=False)
     texts = cfg.fields["text"]
-    return jsonify(
-        {
-            "success": True,
-            "blocked": False,
-            "count": count,
-            "samples": [str((p.payload or {}).get(texts, ""))[:120] for p in points],
-        }
-    )
+    return {
+        "success": True,
+        "blocked": False,
+        "count": count,
+        "samples": [str((p.payload or {}).get(texts, ""))[:120] for p in points],
+    }
 
 
-@bp.route("/knowledge/<int:knowledge_id>", methods=["PATCH"])
-@require_role("user")
-def knowledge_update(knowledge_id):
-    if not can_access_knowledge(current_user(), knowledge_id, "write"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    _abort_if_reindexing(knowledge_id)
-    data = request.get_json() or {}
+@router.patch("/knowledge/{knowledge_id:int}", response_model=KnowledgeOut)
+def knowledge_update(knowledge_id: int, user: CurrentUser, body: KnowledgeUpdate | None = None):
+    if not can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, _NOT_FOUND, success=False)
+    abort_if_reindexing(knowledge_id)
+    data = body.model_dump(exclude_unset=True) if body else {}
     current = get_knowledge(knowledge_id)
     if is_external(current) and ("source" in data or "embedding" in data):
-        if not role_at_least(current_user()["role"], "admin"):
-            return jsonify(
-                {"success": False, "error": "Nur Admins ändern die Quelle"}
-            ), 403
+        if not role_at_least(user["role"], "admin"):
+            raise ApiError(403, "Nur Admins ändern die Quelle", success=False)
         try:
-            body = {
+            merged = {
                 "source": data.get("source")
                 or sources.parse_config(current["source_config"]).to_dict(),
-                "embedding": data.get("embedding")
-                or json.loads(current["embedding_spec"]),
+                "embedding": data.get("embedding") or json.loads(current["embedding_spec"]),
             }
-            cfg, spec, dimension, _f = _parse_external_body(body, stored=current)
+            cfg, spec, dimension, _f = _parse_external_body(merged, stored=current)
         except ValueError as e:
-            return jsonify({"success": False, "error": str(e)}), 400
+            raise ApiError(400, str(e), success=False)
         update_external_source(knowledge_id, spec, dimension, cfg.to_dict())
     if is_sql(current) and "source" in data:
-        if not role_at_least(current_user()["role"], "admin"):
-            return jsonify(
-                {"success": False, "error": "Nur Admins ändern die Quelle"}
-            ), 403
+        if not role_at_least(user["role"], "admin"):
+            raise ApiError(403, "Nur Admins ändern die Quelle", success=False)
         try:
             cfg = _sql_source_from(data, current)
             _sql_probe(cfg)
         except (sqlcfg.SqlConfigError, ValueError, RuntimeError) as e:
-            return _sql_error(e)
+            raise _sql_error(e)
         update_sql_source(knowledge_id, cfg.to_dict())
         from app.knowledge.sql import valueindex
 
-        valueindex.prune(
-            knowledge_id, cfg.to_dict()
-        )  # bereits gespeicherte Werte gesperrter Spalten entfernen
-    knowledge = update_knowledge(
-        knowledge_id, data.get("name"), data.get("description")
-    )
+        valueindex.prune(knowledge_id, cfg.to_dict())  # bereits gespeicherte Werte gesperrter Spalten entfernen
+    knowledge = update_knowledge(knowledge_id, data.get("name"), data.get("description"))
     if not knowledge:
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+        raise ApiError(404, _NOT_FOUND, success=False)
     if not is_remote(knowledge):
         refresh_index(knowledge_id)  # Name steht im Verzeichnis
-    return jsonify(_knowledge_with_counts(knowledge))
+    return _knowledge_with_counts(knowledge, user)
 
 
-@bp.route("/knowledge/<int:knowledge_id>", methods=["DELETE"])
-@require_role("user")
-def knowledge_delete(knowledge_id):
-    if not can_access_knowledge(current_user(), knowledge_id, "write"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-    status = current_app.extensions["ingestion_status"]
+@router.delete("/knowledge/{knowledge_id:int}", response_model=Success)
+def knowledge_delete(knowledge_id: int, user: CurrentUser):
+    if not can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, _NOT_FOUND, success=False)
+    status = runtime.state.ingestion_status
     if status["is_ingesting"] and status.get("knowledge_id") == knowledge_id:
-        return jsonify({"success": False, "error": "Ingestion läuft gerade"}), 409
-    _abort_if_reindexing(knowledge_id)
+        raise ApiError(409, "Ingestion läuft gerade", success=False)
+    abort_if_reindexing(knowledge_id)
 
     knowledge = delete_knowledge(knowledge_id)
     if knowledge:
@@ -614,61 +531,55 @@ def knowledge_delete(knowledge_id):
 
         remove_knowledge_from_models(knowledge_id)
     if not knowledge:
-        return jsonify(
-            {
-                "success": False,
-                "error": "Knowledge nicht gefunden oder Standard-Bereich "
-                "(nicht löschbar)",
-            }
-        ), 404
+        raise ApiError(
+            404, "Knowledge nicht gefunden oder Standard-Bereich (nicht löschbar)", success=False
+        )
 
-    client = current_app.extensions.get("client")
+    client = runtime.state.client
     if client and not is_remote(knowledge):  # eine fremde Quelle wird nie angefasst
         try:
             client.delete_collection(knowledge["collection_name"])
         except Exception as e:
             logger.warning(f"Collection konnte nicht gelöscht werden: {e}")
-    return jsonify({"success": True})
+    return Success()
 
 
-@bp.route("/knowledge/<int:knowledge_id>/reindex", methods=["POST"])
-@require_role("user")
-def knowledge_reindex(knowledge_id):
-    if not can_access_knowledge(current_user(), knowledge_id, "write"):
-        return jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
+@router.post(
+    "/knowledge/{knowledge_id:int}/reindex",
+    response_model=ReindexStarted,
+    response_model_exclude_none=True,
+    status_code=202,
+)
+def knowledge_reindex(knowledge_id: int, user: CurrentUser):
+    if not can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, _NOT_FOUND, success=False)
     if is_remote(get_knowledge(knowledge_id)):
-        return jsonify(
-            {"success": False, "error": "Diese Quelle ist schreibgeschützt"}
-        ), 409
+        raise ApiError(409, "Diese Quelle ist schreibgeschützt", success=False)
     return _start_reindex([knowledge_id])
 
 
-@bp.route("/reindex-all", methods=["POST"])
-@require_role("admin")
-def reindex_all():
+@router.post("/reindex-all", response_model=ReindexStarted, response_model_exclude_none=True)
+def reindex_all(_user: Admin):
     stale = [k["id"] for k in list_knowledge() if model_settings.is_stale(k)]
     if not stale:
-        return jsonify({"success": True, "started": False, "message": "Alles aktuell"})
-    return _start_reindex(stale)
+        return {"success": True, "started": False, "message": "Alles aktuell"}
+    return JSONResponse(_start_reindex(stale), status_code=202)
 
 
-@bp.route("/reindex/status", methods=["GET"])
-@auth_required_api
-def reindex_status():
-    return jsonify(reindex.status())
+@router.get("/reindex/status", response_model=Loose)
+def reindex_status(_user: CurrentUser):
+    return reindex.status()
 
 
-def _start_reindex(ids: list[int]):
-    client = current_app.extensions.get("client")
-    sparse = current_app.extensions.get("sparse_embeddings")
+def _start_reindex(ids: list[int]) -> dict:
+    client = runtime.state.client
+    sparse = runtime.state.sparse_embeddings
     if not client or not sparse:
-        return jsonify(
-            {"success": False, "error": "RAG-System wird noch initialisiert"}
-        ), 503
-    if current_app.extensions["ingestion_status"]["is_ingesting"]:
-        return jsonify({"success": False, "error": "Ingestion läuft gerade"}), 409
+        raise ApiError(503, "RAG-System wird noch initialisiert", success=False)
+    if runtime.state.ingestion_status["is_ingesting"]:
+        raise ApiError(409, "Ingestion läuft gerade", success=False)
     try:
         reindex.start(ids, client, sparse)
     except reindex.ReindexBusy as e:
-        return jsonify({"success": False, "error": str(e)}), 409
-    return jsonify({"success": True, "started": True, "knowledge_ids": ids}), 202
+        raise ApiError(409, str(e), success=False)
+    return {"success": True, "started": True, "knowledge_ids": ids}

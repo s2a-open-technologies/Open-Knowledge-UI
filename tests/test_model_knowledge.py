@@ -94,7 +94,7 @@ def test_model_list_tells_users_the_base_knowledge_and_whether_the_choice_is_loc
     alice = add_user(db, "alice", "user")
     m = next(
         x
-        for x in client_for(app, alice).get("/api/models?visible=1").json["models"]
+        for x in client_for(app, alice).get("/api/models?visible=1").json()["models"]
         if x["ref"] == ref
     )
     assert m["knowledge_locked"] is False and m["knowledge_base"] == [
@@ -103,7 +103,7 @@ def test_model_list_tells_users_the_base_knowledge_and_whether_the_choice_is_loc
     setup_model(conn, [base["id"]], allow_extra_knowledge=False)
     m = next(
         x
-        for x in client_for(app, alice).get("/api/models?visible=1").json["models"]
+        for x in client_for(app, alice).get("/api/models?visible=1").json()["models"]
         if x["ref"] == ref
     )
     assert m["knowledge_locked"] is True
@@ -119,7 +119,9 @@ def test_admins_also_get_the_base_knowledge_so_the_chat_cannot_deselect_it(
     ref = setup_model(conn, [base["id"]])
     m = next(
         x
-        for x in client_for(app, {"id": 1}).get("/api/models?visible=1").json["models"]
+        for x in client_for(app, {"id": 1})
+        .get("/api/models?visible=1")
+        .json()["models"]
         if x["ref"] == ref
     )
     assert m["knowledge_base"] == [{"id": base["id"], "name": "Standard"}]

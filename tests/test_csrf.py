@@ -1,45 +1,39 @@
-"""CSRF-Schutz der Cookie-Sitzung (app/csrf.py)."""
+"""CSRF-Schutz der Cookie-Sitzung (app/core/csrf.py)."""
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
-from app.core.csrf import COOKIE, HEADER, init_csrf, same_origin
+from app.core.csrf import COOKIE, HEADER, same_origin
+from tests.web import anon, make_app
 
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    init_csrf(app)
-    register_blueprints(app)
-    return app
+    return make_app(csrf=True)
 
 
 def token_of(client):
     client.get("/api/auth/me")  # liefert 401, setzt aber Sitzung und Cookie
-    return client.get_cookie(COOKIE).value
+    return client.cookies.get(COOKIE)
 
 
 def test_changing_requests_without_a_valid_token_are_refused(app):
-    c = app.test_client()
+    c = anon(app)
     token_of(c)
     for headers in ({}, {HEADER: "falsch"}):
         res = c.post("/api/auth/logout", json={}, headers=headers)
-        assert res.status_code == 403 and "CSRF" in res.json["error"]
+        assert res.status_code == 403 and "CSRF" in res.json()["error"]
     for method in ("put", "patch", "delete"):
-        assert getattr(c, method)("/api/knowledge/1", json={}).status_code == 403
+        assert c.request(method.upper(), "/api/knowledge/1", json={}).status_code == 403
 
 
 def test_a_request_with_the_session_token_passes(app):
-    c = app.test_client()
+    c = anon(app)
     token = token_of(c)
     assert (
         c.post("/api/auth/logout", json={}, headers={HEADER: token}).status_code == 200
     )
     # Login: der Token reicht, ueber falsche Zugangsdaten entscheidet erst die Anmeldung (401, nicht 403)
-    c2 = app.test_client()
+    c2 = anon(app)
     token2 = token_of(c2)
     assert (
         c2.post(
@@ -51,20 +45,16 @@ def test_a_request_with_the_session_token_passes(app):
     )
 
 
-def test_a_form_field_works_too(app):
-    c = app.test_client()
+def test_a_form_field_is_not_enough(app):
+    """Nur der Header zaehlt: Ein Formularfeld koennte eine fremde Seite selbst mitschicken."""
+    c = anon(app)
     token = token_of(c)
-    assert c.post("/login", data={"username": "x", "password": "y"}).status_code == 403
-    assert (
-        c.post(
-            "/login", data={"username": "x", "password": "y", "csrf_token": token}
-        ).status_code
-        != 403
-    )
+    res = c.post("/api/auth/logout", data={"csrf_token": token})
+    assert res.status_code == 403
 
 
 def test_a_token_from_another_session_is_refused(app):
-    a, b = app.test_client(), app.test_client()
+    a, b = anon(app), anon(app)
     token_a = token_of(a)
     token_of(b)
     assert (
@@ -74,26 +64,24 @@ def test_a_token_from_another_session_is_refused(app):
 
 
 def test_reading_requests_need_no_token_and_set_the_cookies(app):
-    c = app.test_client()
+    c = anon(app)
     res = c.get("/api/auth/me")
-    cookies = res.headers.getlist("Set-Cookie")
+    cookies = res.headers.get_list("Set-Cookie")
     csrf = next(h for h in cookies if h.startswith(COOKIE + "="))
     session = next(h for h in cookies if h.startswith("session="))
-    assert (
-        "HttpOnly" not in csrf and "SameSite=Lax" in csrf
-    )  # das Skript der Seite muss ihn lesen koennen
-    assert (
-        "HttpOnly" in session and "SameSite=Lax" in session
-    )  # der Sitzungs-Cookie nicht
+    csrf, session = csrf.lower(), session.lower()
+    # das Skript der Seite muss ihn lesen koennen, den Sitzungs-Cookie nicht
+    assert "httponly" not in csrf and "samesite=lax" in csrf
+    assert "httponly" in session and "samesite=lax" in session
 
 
 def test_login_and_logout_rotate_the_token(app, db):
-    c = app.test_client()
+    c = anon(app)
     first = token_of(c)
     assert (
         c.post("/api/auth/logout", json={}, headers={HEADER: first}).status_code == 200
     )
-    second = c.get_cookie(COOKIE).value
+    second = c.cookies.get(COOKIE)
     assert (
         second != first
     )  # session.clear() -> neues Token, die Antwort setzt den Cookie neu
@@ -106,8 +94,8 @@ def test_login_and_logout_rotate_the_token(app, db):
 
 
 def test_the_check_can_be_switched_off_for_tests(app):
-    app.config["CSRF_ENABLED"] = False
-    assert app.test_client().post("/api/auth/logout", json={}).status_code == 200
+    app.state.csrf_enabled = False
+    assert anon(app).post("/api/auth/logout", json={}).status_code == 200
 
 
 def test_websocket_origin_must_match_the_host():

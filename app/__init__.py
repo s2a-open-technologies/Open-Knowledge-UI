@@ -19,13 +19,12 @@
 import atexit
 import logging
 import os
-import signal
-import sys
 import threading
 import warnings
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from flask import Flask
+from fastapi import FastAPI
 
 from app.core.database_service import init_db_service
 from app.core.qdrant_client import get_qdrant_client
@@ -83,17 +82,11 @@ def _cleanup():
             pass
 
 
-def _signal_handler(signum, frame):
-    _cleanup()
-    sys.exit(0)
-
-
+# Kein eigener SIGTERM/SIGINT-Handler: Uvicorn faehrt geordnet herunter (Lifespan), atexit raeumt auf.
 atexit.register(_cleanup)
-signal.signal(signal.SIGTERM, _signal_handler)
-signal.signal(signal.SIGINT, _signal_handler)
 
 
-def init_resources(app, preload=False):
+def init_resources(preload=False):
     """Initialisiert Ressourcen mit Settings aus DB.
 
     Qdrant-Client und Collection werden sofort (synchron) angelegt, da viele
@@ -112,7 +105,9 @@ def init_resources(app, preload=False):
     global _qdrant_client
 
     # Settings Service holen
-    settings = app.extensions.get("settings")
+    from app.core import runtime
+
+    settings = runtime.state.settings
     if not settings:
         logger.error("Settings Service nicht verfügbar!")
         _resources_ready.set()
@@ -137,7 +132,7 @@ def init_resources(app, preload=False):
         logger.warning(f"Knowledge-Collections konnten nicht angelegt werden: {e}")
 
     # Qdrant-Client sofort fuer Dokument-Endpunkte bereithalten
-    app.extensions["client"] = _qdrant_client
+    runtime.state.client = _qdrant_client
 
     # Alle Settings im Main-Thread vorlesen (SQLAlchemy-Session ist nicht
     # thread-safe) und als Captures in den Hintergrund-Thread reichen.
@@ -160,7 +155,6 @@ def init_resources(app, preload=False):
     # Modell-Laden: synchron (preload) oder asynchron (Hintergrund-Thread)
     if preload:
         _load_resources_sync(
-            app,
             {
                 "retriever_k": retriever_k,
                 "retriever_fetch_k": retriever_fetch_k,
@@ -172,7 +166,6 @@ def init_resources(app, preload=False):
         )
     else:
         _load_resources_async(
-            app,
             {
                 "retriever_k": retriever_k,
                 "retriever_fetch_k": retriever_fetch_k,
@@ -193,14 +186,13 @@ def _prepare_models(client):
         logger.warning(f"Modelle konnten nicht vorbereitet werden: {e}")
 
 
-def _load_resources_sync(app, settings_dict):
+def _load_resources_sync(settings_dict):
     """Laedt KI-Ressourcen synchron (blockierend)."""
     global _resources_error
     try:
         from app.agent.resources import load_resources
 
         load_resources(
-            app=app,
             qdrant_client=_qdrant_client,
             collection_name="open_knowledge_ui",
             **settings_dict,
@@ -212,11 +204,11 @@ def _load_resources_sync(app, settings_dict):
         _resources_ready.set()
 
 
-def _load_resources_async(app, settings_dict):
+def _load_resources_async(settings_dict):
     """Startet das Laden der KI-Ressourcen in einem Hintergrund-Thread."""
     threading.Thread(
         target=_load_resources_sync,
-        args=(app, settings_dict),
+        args=(settings_dict,),
         name="init-resources",
         daemon=True,
     ).start()
@@ -295,8 +287,24 @@ def _remove_empty_dirs(path: Path):
         path.rmdir()
 
 
-def create_app(preload=False):
-    app = Flask(__name__)
+def create_app(
+    preload: bool | None = None, resources: bool = True, routers: tuple[str, ...] | None = None
+) -> FastAPI:
+    """FastAPI-App bauen.
+
+    ``preload``: Modelle vor dem Start laden (Default aus ``APP_PRELOAD``), sonst im Hintergrund.
+    ``resources=False`` (Tests): kein Qdrant, keine Modelle, kein Redis.
+    """
+    from starlette.middleware.sessions import SessionMiddleware
+
+    from app.api import errors, include_routers
+    from app.core import redis_bus, runtime
+    from app.core.csrf import CSRFMiddleware, cookie_secure
+    from app.core.request_context import RequestContextMiddleware
+    from app.core.security_headers import SecurityHeadersMiddleware
+
+    if preload is None:
+        preload = os.getenv("APP_PRELOAD", "").strip().lower() in ("1", "true", "yes", "on")
 
     # Database Service initialisieren
     global _db_service
@@ -310,50 +318,62 @@ def create_app(preload=False):
     # Verzeichnisse mit Settings erstellen
     ensure_directories(settings)
 
-    # Flask Konfiguration
     # SECRET_KEY wird persistiert (Settings DB → env → neu generiert), damit
     # Sessions App-Neustarts überleben und sich nicht bei jedem Start vermehren.
     secret_key = settings.get("SECRET_KEY")
     if not secret_key:
         secret_key = os.urandom(32).hex()
         settings.set("SECRET_KEY", secret_key)
-    app.config["SECRET_KEY"] = secret_key
-
-    app.extensions = {}
-    app.extensions["db"] = _db_service
     db_session.close()  # nur fuer den Start; danach liest jeder Zugriff frisch
-    app.extensions["settings"] = LiveSettingsService()
-    # Geteilter Ingestion-Status, fuer den Navbar-Indikator per Polling
-    # ueber /api/ingestion-status.
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
 
-    init_resources(app, preload=preload)
+    runtime.state.db = _db_service
+    runtime.state.settings = LiveSettingsService()
 
-    # UI-Theme-Default für das SPA-Bootstrap bereitstellen. Die SPA liest
-    # localStorage('ui_theme'); index.html hat 'system' als Fallback. Der
-    # Server-Default wird hier nur noch als Inline-Variable in index.html
-    # eingebettet (siehe serve_spa) - daher kein Jinja-Context mehr nötig.
+    if resources:
+        init_resources(preload=preload)
 
-    # Blueprints registrieren
-    from app.core.csrf import init_csrf
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if resources:
+            await redis_bus.start()
+        try:
+            yield
+        finally:
+            await redis_bus.stop()
+            _cleanup()
 
-    init_csrf(
-        app
-    )  # CSRF-Token fuer alle aendernden Anfragen, Session-Cookie SameSite=Lax
+    app = FastAPI(
+        title="Open Knowledge UI",
+        lifespan=lifespan,
+        # Nur das Schema: die Swagger-Seite laedt Skripte vom CDN, das die CSP (nur gleiche Herkunft) sperrt
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/api/openapi.json",
+    )
+    app.state.csrf_enabled = True
+    app.state.cookie_secure = cookie_secure()
+    app.state.secret_key = secret_key  # Tests: Session-Cookie signieren
 
-    from app.core.security_headers import init_security_headers
+    errors.install(app)
+    include_routers(app, routers)
+    # Gebaute SPA (Vite schreibt nach app/static, siehe frontend/vite.config.ts)
+    from fastapi.staticfiles import StaticFiles
 
-    init_security_headers(
-        app
-    )  # CSP, X-Frame-Options, nosniff; HSTS nur bei Secure-Cookie
+    from app.api.pages import STATIC_DIR
 
-    from app.api import register_blueprints
+    app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
-    register_blueprints(app)
-
-    # WebSocket-Proxy fuer Live-STT-Streaming (Browser <-> Parakeet).
-    from app.chat.stt_stream import sock
-
-    sock.init_app(app)
-
+    # Middleware: zuletzt hinzugefuegt = aussen. Reihenfolge von aussen nach innen:
+    # Request-Kontext -> Sicherheits-Header -> Session-Cookie -> CSRF -> Router.
+    app.add_middleware(CSRFMiddleware)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=secret_key,
+        session_cookie="session",
+        max_age=None,  # Browser-Sitzung (wie bisher)
+        same_site="lax",
+        https_only=app.state.cookie_secure,
+    )
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestContextMiddleware)
     return app

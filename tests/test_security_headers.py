@@ -1,21 +1,26 @@
 """Sicherheits-Header (app/core/security_headers.py): Header vorhanden, HSTS nur bei Secure, Off-Schalter."""
 
-from flask import Flask
+import pytest
 
-from app.core.security_headers import CSP, HSTS, init_security_headers
+from app.core.security_headers import CSP, HSTS
+from tests.web import anon, make_app
+
+
+@pytest.fixture(autouse=True)
+def _test_db(db):
+    """make_app braucht die Test-Datenbank."""
 
 
 def _client(monkeypatch, secure=False):
-    app = Flask(__name__)
-    init_security_headers(app)
-    app.config["SESSION_COOKIE_SECURE"] = secure
-    return app.test_client()
+    app = make_app()
+    app.state.cookie_secure = secure
+    return anon(app)
 
 
 def test_all_headers_present(monkeypatch):
     c = _client(monkeypatch)
-    r = c.get("/ohne-alles")
-    assert r.status_code == 404  # Route ist egal, Header kommen von after_request
+    r = c.get("/api/ohne-alles")
+    assert r.status_code == 404  # Route ist egal, Header kommen von der Middleware
     assert r.headers["Content-Security-Policy"] == CSP
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert r.headers["X-Frame-Options"] == "DENY"
@@ -25,21 +30,21 @@ def test_all_headers_present(monkeypatch):
 
 def test_hsts_only_in_secure_mode(monkeypatch):
     c = _client(monkeypatch, secure=True)
-    r = c.get("/ohne-alles")
+    r = c.get("/api/ohne-alles")
     assert r.headers["Strict-Transport-Security"] == HSTS
 
 
 def test_off_switch(monkeypatch):
     monkeypatch.setenv("SECURITY_HEADERS", "off")
     c = _client(monkeypatch)
-    r = c.get("/ohne-alles")
+    r = c.get("/api/ohne-alles")
     assert "Content-Security-Policy" not in r.headers
     assert "X-Frame-Options" not in r.headers
 
 
 def test_existing_csp_is_preserved(monkeypatch):
     c = _client(monkeypatch)
-    r = c.get("/ohne-alles", headers={"X-Frame-Options": "SAMEORIGIN"})
+    r = c.get("/api/ohne-alles", headers={"X-Frame-Options": "SAMEORIGIN"})
     # X-Frame-Options wird vom Modul gesetzt; ein vom Proxy vorgegebener CSP bleibt stehen
     assert r.headers["X-Frame-Options"] == "DENY"
 

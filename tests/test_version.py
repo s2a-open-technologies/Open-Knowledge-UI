@@ -1,8 +1,8 @@
 import tomllib
 from pathlib import Path
 
-from app.api import register_blueprints
 from app.core import version
+from tests.web import anon, make_app
 
 
 def test_version_matches_pyproject():
@@ -23,11 +23,8 @@ def test_falls_back_to_env_then_unknown(tmp_path, monkeypatch):
     version.get_version.cache_clear()
 
 
-def test_version_endpoint_is_public_and_health_reports_it():
-    from flask import Flask
-
-    app = Flask(__name__)
-    register_blueprints(app)
-    c = app.test_client()
-    assert c.get("/api/version").json == {"version": version.get_version()}
-    assert c.get("/health").json["version"] == version.get_version()
+def test_version_endpoint_is_public_and_health_reports_it(db):
+    app = make_app()
+    c = anon(app)
+    assert c.get("/api/version").json() == {"version": version.get_version()}
+    assert c.get("/health").json()["version"] == version.get_version()

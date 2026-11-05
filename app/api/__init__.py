@@ -16,34 +16,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""HTTP-Routen: ein Blueprint je Fachbereich."""
+"""HTTP-Routen: ein ``APIRouter`` je Fachbereich."""
+
+import importlib
+
+ROUTERS = (
+    "pages",
+    "chat",
+    "auth",
+    "users",
+    "knowledge",
+    "documents",
+    "summaries",
+    "models",
+    "admin",
+    "retrieval",
+)
 
 
-def register_blueprints(app) -> None:
-    """Alle Blueprints registrieren (Import erst hier, damit ``import app.api`` nichts nachlaedt)."""
-    from app.api import (
-        admin,
-        auth,
-        chat,
-        documents,
-        knowledge,
-        models,
-        pages,
-        retrieval,
-        summaries,
-        users,
-    )
-
-    for module in (
-        pages,
-        chat,
-        auth,
-        users,
-        knowledge,
-        documents,
-        summaries,
-        models,
-        admin,
-        retrieval,
-    ):
-        app.register_blueprint(module.bp)
+def include_routers(app, only: tuple[str, ...] | None = None) -> None:
+    """Alle Router einbinden (Import erst hier, damit ``import app.api`` nichts nachlaedt)."""
+    for name in only or ROUTERS:
+        module = importlib.import_module(f"app.api.{name}")
+        app.include_router(module.router)

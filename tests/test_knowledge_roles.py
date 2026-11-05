@@ -1,22 +1,19 @@
 import pytest
-from flask import Flask
 from qdrant_client import QdrantClient
 
-from app.api import register_blueprints
 from app.auth import access
+from app.core import runtime
 from app.core.models import Group, GroupMember
 from app.knowledge import service as knowledge
 from app.rag import models_runtime as mr
 from tests.test_access import add_user, client_for
+from tests.web import make_app
 
 
 @pytest.fixture
 def app(db, monkeypatch):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    app.extensions["client"] = QdrantClient(":memory:")
-    register_blueprints(app)
+    app = make_app()
+    runtime.state.client = QdrantClient(":memory:")
 
     class Emb:
         dimension = 7
@@ -43,13 +40,13 @@ def test_a_plain_user_creates_manages_and_deletes_their_own_knowledge(app, db):
     bob = add_user(db, "bob", "user")
     c = client_for(app, bob)
     created = c.post("/api/knowledge", json={"name": "Meins"})
-    assert created.status_code == 201, created.json
-    kid = created.json["id"]
-    assert created.json["can_write"] is True
+    assert created.status_code == 201, created.json()
+    kid = created.json()["id"]
+    assert created.json()["can_write"] is True
     assert (
         c.patch(f"/api/knowledge/{kid}", json={"name": "Umbenannt"}).status_code == 200
     )
-    assert kid in [k["id"] for k in c.get("/api/knowledge").json]
+    assert kid in [k["id"] for k in c.get("/api/knowledge").json()]
     assert c.get(f"/api/documents?knowledge_id={kid}").status_code == 200
     assert c.delete(f"/api/knowledge/{kid}").status_code == 200
 
@@ -95,7 +92,7 @@ def test_external_and_sql_sources_stay_admin_only(app, db):
 def test_sharing_stays_with_editors_and_admins(app, db):
     bob = add_user(db, "bob", "user")
     c = client_for(app, bob)
-    kid = c.post("/api/knowledge", json={"name": "Meins"}).json["id"]
+    kid = c.post("/api/knowledge", json={"name": "Meins"}).json()["id"]
     assert c.get("/api/principals").status_code == 403  # Nutzerliste nicht fuer jeden
     assert c.get(f"/api/knowledge/{kid}/access").status_code == 403
 
@@ -103,7 +100,7 @@ def test_sharing_stays_with_editors_and_admins(app, db):
 def test_profiles_can_be_chosen_for_own_knowledge_only(app, db):
     bob = add_user(db, "bob", "user")
     c = client_for(app, bob)
-    kid = c.post("/api/knowledge", json={"name": "Meins"}).json["id"]
+    kid = c.post("/api/knowledge", json={"name": "Meins"}).json()["id"]
     other = knowledge.create_knowledge("Fremd")
     assert (
         c.put(
@@ -135,7 +132,7 @@ def test_an_editor_may_edit_all_knowledge_shared_with_their_groups(app, db):
         == 200
     )
     assert (
-        next(k for k in c.get("/api/knowledge").json if k["id"] == shared["id"])[
+        next(k for k in c.get("/api/knowledge").json() if k["id"] == shared["id"])[
             "can_write"
         ]
         is True
@@ -174,9 +171,9 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
     c = client_for(app, bob)
     kid = c.post(
         "/api/knowledge", json={"name": "Vertraege", "description": "Mietvertraege"}
-    ).json["id"]
+    ).json()["id"]
 
-    got = c.get(f"/api/knowledge/{kid}/index").json
+    got = c.get(f"/api/knowledge/{kid}/index").json()
     assert (
         got["enabled"] is True
         and "# Inhaltsverzeichnis: Vertraege" in got["markdown"]
@@ -187,7 +184,7 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
     # Lesen genuegt fuer die Ansicht, Neu erzeugen braucht Schreibrecht, Fremde sehen nichts
     access.add_grant("knowledge", kid, "user", reader["id"], "read")
     r = client_for(app, reader)
-    assert "Vertraege" in r.get(f"/api/knowledge/{kid}/index").json["markdown"]
+    assert "Vertraege" in r.get(f"/api/knowledge/{kid}/index").json()["markdown"]
     assert r.post(f"/api/knowledge/{kid}/index/refresh").status_code == 404
     stranger = client_for(app, add_user(db, "fremd", "user"))
     assert stranger.get(f"/api/knowledge/{kid}/index").status_code == 404
@@ -196,7 +193,7 @@ def test_the_index_is_shown_generated_on_demand_and_refreshable_with_write_acces
     index_doc._store(kid, "alt")
     assert (
         "Inhaltsverzeichnis"
-        in c.post(f"/api/knowledge/{kid}/index/refresh").json["markdown"]
+        in c.post(f"/api/knowledge/{kid}/index/refresh").json()["markdown"]
     )
 
 
@@ -204,12 +201,12 @@ def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
     from app.core.settings_service import SettingsService
 
     c = client_for(app, {"id": 1, "role": "admin", "username": "admin"})
-    kid = c.post("/api/knowledge", json={"name": "K"}).json["id"]
+    kid = c.post("/api/knowledge", json={"name": "K"}).json()["id"]
     s = db.get_session()
     SettingsService(s).set("INGEST_INDEX_ENABLED", "false")
     s.commit()
     s.close()
-    got = c.get(f"/api/knowledge/{kid}/index").json
+    got = c.get(f"/api/knowledge/{kid}/index").json()
     assert got["enabled"] is False and got["markdown"] is None
     sql = knowledge.create_sql_knowledge(
         "DB", "", {"dialect": "sqlite", "database": "x.db"}
@@ -217,5 +214,5 @@ def test_a_disabled_index_is_reported_and_remote_sources_have_none(app, db):
     access.add_grant(
         "knowledge", sql["id"], "user", 1, "write"
     )  # Admins sehen Knowledge nur mit Freigabe
-    assert c.get(f"/api/knowledge/{sql['id']}/index").json["available"] is False
+    assert c.get(f"/api/knowledge/{sql['id']}/index").json()["available"] is False
     assert c.post(f"/api/knowledge/{sql['id']}/index/refresh").status_code == 409

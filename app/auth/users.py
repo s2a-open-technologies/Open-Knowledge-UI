@@ -43,7 +43,7 @@ ROLES = ("user", "editor", "admin")
 # Client-IP) innerhalb WINDOW_SECONDS wird die Anmeldung voruebergehend gesperrt.
 # Gezaehlt wird pro aufgeloestem Konto (nicht pro eingegebener Schreibweise) und
 # zusaetzlich pro IP, damit sich der Schutz nicht durch wechselnde Namen oder
-# Gross-/Kleinschreibung umgehen laesst. In-Memory, ein gunicorn-Worker
+# Gross-/Kleinschreibung umgehen laesst. In-Memory, ein Uvicorn-Worker
 # (siehe AGENTS.md).
 MAX_FAILURES = 5
 MAX_FAILURES_PER_IP = 20

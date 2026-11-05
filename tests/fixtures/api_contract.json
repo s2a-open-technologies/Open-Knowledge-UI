@@ -1,0 +1,1756 @@
+{
+ "DELETE /api/documents/{doc_id} 200": {
+  "success": "bool"
+ },
+ "DELETE /api/documents/{doc_id} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "DELETE /api/knowledge/{knowledge_id} 200": {
+  "success": "bool"
+ },
+ "DELETE /api/knowledge/{knowledge_id} 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "DELETE /api/knowledge/{knowledge_id} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "DELETE /api/my-uploads/{kind}/{item_id} 200": {
+  "success": "bool"
+ },
+ "DELETE /api/my-uploads/{kind}/{item_id} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "DELETE /api/retrieval/profiles/{profile_id} 403": {
+  "error": "str"
+ },
+ "DELETE /api/retrieval/profiles/{profile_id} 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "DELETE /api/sessions/{session_id} 200": {
+  "success": "bool"
+ },
+ "DELETE /api/sessions/{session_id} 404": {
+  "error": "str"
+ },
+ "DELETE /api/summaries/{filename} 200": {
+  "success": "bool"
+ },
+ "DELETE /api/users/{user_id} 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/admin/agent-behavior 200": {
+  "default_prompt": "str",
+  "prompt": "str"
+ },
+ "GET /api/admin/agent-behavior 403": {
+  "error": "str"
+ },
+ "GET /api/admin/audit 200": {
+  "events": [
+   {
+    "action": "str",
+    "actor_name": "str",
+    "actor_user_id": "null",
+    "created_at": "str",
+    "detail": "null",
+    "id": "int",
+    "ip": "null",
+    "object_id": "null",
+    "object_type": "null"
+   }
+  ]
+ },
+ "GET /api/admin/audit 403": {
+  "error": "str"
+ },
+ "GET /api/admin/auth 200": {
+  "auto_create": "bool",
+  "base_url": "str",
+  "default_role": "str",
+  "ldap": {
+   "base_dn": "str",
+   "bind_dn": "str",
+   "ca_file": "str",
+   "enabled": "bool",
+   "group_attr": "str",
+   "has_bind_password": "bool",
+   "name_attr": "str",
+   "starttls": "bool",
+   "timeout": "int",
+   "url": "str",
+   "user_filter": "str",
+   "username_attr": "str",
+   "verify_tls": "bool"
+  },
+  "oidc": {
+   "client_id": "str",
+   "enabled": "bool",
+   "groups_claim": "str",
+   "has_client_secret": "bool",
+   "issuer": "str",
+   "name": "str",
+   "name_claim": "str",
+   "scopes": "str",
+   "timeout": "int",
+   "username_claim": "str"
+  },
+  "redirect_uri": "str"
+ },
+ "GET /api/admin/auth 403": {
+  "error": "str"
+ },
+ "GET /api/admin/compaction 200": {
+  "default_prompt": "str",
+  "enabled": "bool",
+  "headroom_percent": "int",
+  "keep_percent": "int",
+  "output_reserve_percent": "int",
+  "prompt": "str"
+ },
+ "GET /api/admin/compaction 403": {
+  "error": "str"
+ },
+ "GET /api/admin/embedding 200": {
+  "bm25_languages": [
+   "str"
+  ],
+  "device": "str",
+  "embedding": {
+   "model": "str",
+   "source": "str",
+   "status": {
+    "spec": {
+     "model": "str",
+     "source": "str"
+    },
+    "state": "str"
+   }
+  },
+  "ingest": {
+   "bm25_language": "str",
+   "chunk_overlap": "int",
+   "chunk_size": "int",
+   "index_enabled": "bool",
+   "keep_original": "bool"
+  },
+  "reranker": {
+   "model": "str",
+   "source": "str",
+   "status": {
+    "spec": {
+     "model": "str",
+     "source": "str"
+    },
+    "state": "str"
+   }
+  },
+  "stale": [],
+  "suggestions": {
+   "embedding": [
+    "str"
+   ],
+   "reranker": [
+    "str"
+   ]
+  },
+  "tasks": {
+   "context": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "excerpt_chars": "int",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "null"
+   },
+   "images": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "float"
+   },
+   "tables": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_row_deviation": "int",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "float"
+   },
+   "vision": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "null"
+   }
+  }
+ },
+ "GET /api/admin/embedding 403": {
+  "error": "str"
+ },
+ "GET /api/admin/embedding/remote-models 200": [
+  "str"
+ ],
+ "GET /api/admin/tool-worker 200": {
+  "error": "str",
+  "max_output_chars": "int",
+  "memory_mb": "int",
+  "reachable": "bool",
+  "sql_max_cell_chars": "int",
+  "sql_reachable": "bool",
+  "sql_row_limit": "int",
+  "sql_timeout_s": "int",
+  "sql_url": "str",
+  "sql_version": "str",
+  "timeout_s": "int",
+  "token_configured": "bool",
+  "url": "str",
+  "version": "str"
+ },
+ "GET /api/admin/tools 200": {
+  "pii": {
+   "enabled": "bool",
+   "has_key": "bool",
+   "max_chars": "int",
+   "timeout_s": "float",
+   "url": "str"
+  },
+  "search": {
+   "allow_unmasked": "bool",
+   "categories": "str",
+   "url": "str"
+  },
+  "stt": {
+   "base_url": "str",
+   "has_key": "bool",
+   "mode": "str",
+   "model": "str"
+  },
+  "web_search_available": "bool",
+  "web_search_masked": "bool"
+ },
+ "GET /api/admin/tools 403": {
+  "error": "str"
+ },
+ "GET /api/auth/me 200": {
+  "authenticated": "bool",
+  "user": {
+   "auth_source": "str",
+   "display_name": "str",
+   "external_groups": [
+    "str"
+   ],
+   "id": "int",
+   "is_active": "bool",
+   "role": "str",
+   "username": "str"
+  }
+ },
+ "GET /api/auth/me 401": {
+  "error": "str"
+ },
+ "GET /api/auth/providers 200": {
+  "ldap": "bool",
+  "oidc": {
+   "enabled": "bool",
+   "name": "str"
+  }
+ },
+ "GET /api/chat/attachments/{attachment_id} 200": {
+  "error": "null",
+  "filename": "str",
+  "id": "str",
+  "session_id": "str",
+  "status": "str"
+ },
+ "GET /api/chat/attachments/{attachment_id} 404": {
+  "error": "str"
+ },
+ "GET /api/connections 200": [
+  {
+   "base_url": "str",
+   "enabled": "bool",
+   "has_key": "bool",
+   "id": "int",
+   "kind": "str",
+   "name": "str"
+  }
+ ],
+ "GET /api/connections 401": {
+  "error": "str"
+ },
+ "GET /api/connections 403": {
+  "error": "str"
+ },
+ "GET /api/data-files 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/data-files/{filename} 200": {
+  "columns": [
+   "str"
+  ],
+  "filename": "str",
+  "rows": [
+   [
+    "str"
+   ]
+  ],
+  "total_rows": "int",
+  "truncated": "bool"
+ },
+ "GET /api/data-files/{filename} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/documents 200": [
+  {
+   "content_preview": "str",
+   "document_id": "str",
+   "filename": "str",
+   "has_data_file": "bool",
+   "has_markdown": "bool",
+   "id": "int",
+   "source": "str",
+   "uploaded_at": "str"
+  }
+ ],
+ "GET /api/documents 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/documents/{doc_id}/markdown 200": {
+  "filename": "str",
+  "markdown": "str"
+ },
+ "GET /api/documents/{doc_id}/markdown 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/groups 403": {
+  "error": "str"
+ },
+ "GET /api/knowledge 200": [
+  {
+   "bm25_language": "null|str",
+   "can_write": "bool",
+   "chunk_count": "int|null",
+   "collection_name": "str",
+   "created_at": "str",
+   "description": "str",
+   "document_count": "int",
+   "embedding_dimension": "int|null",
+   "embedding_model": "null|str",
+   "embedding_spec": "null|str",
+   "id": "int",
+   "index_signature": "null|str",
+   "is_default": "bool",
+   "is_public": "bool",
+   "kind": "str",
+   "last_reindex_error": "null",
+   "name": "str",
+   "retrieval_profile_id": "null",
+   "source_config": {
+    "access": {
+     "admins_unfiltered": "bool",
+     "enabled": "bool",
+     "group_field": "str",
+     "groups_from": "str",
+     "static": [],
+     "user_attr": "str",
+     "user_field": "str"
+    },
+    "blocked_columns": {
+     "items": [
+      "str"
+     ]
+    },
+    "collection": "str",
+    "database": "str",
+    "dense_vector": "str",
+    "dialect": "str",
+    "fields": {
+     "chunk_index": "str",
+     "filename": "str",
+     "group": "str",
+     "headers": "str",
+     "page_end": "str",
+     "page_start": "str",
+     "text": "str",
+     "title": "str"
+    },
+    "has_key": "bool",
+    "has_password": "bool",
+    "host": "str",
+    "instance": "str",
+    "kind": "str",
+    "port": "int",
+    "schema": "str",
+    "sparse_vector": "str",
+    "tables": [
+     "str"
+    ],
+    "url": "str",
+    "user": "str",
+    "value_columns": {}
+   },
+   "stale": "bool"
+  }
+ ],
+ "GET /api/knowledge 401": {
+  "error": "str"
+ },
+ "GET /api/knowledge/{knowledge_id} 200": {
+  "bm25_language": "str",
+  "can_write": "bool",
+  "chunk_count": "null",
+  "collection_name": "str",
+  "created_at": "str",
+  "description": "str",
+  "document_count": "int",
+  "embedding_dimension": "null",
+  "embedding_model": "str",
+  "embedding_spec": "str",
+  "id": "int",
+  "index_signature": "str",
+  "is_default": "bool",
+  "is_public": "bool",
+  "kind": "str",
+  "last_reindex_error": "null",
+  "name": "str",
+  "retrieval_profile_id": "null",
+  "stale": "bool"
+ },
+ "GET /api/knowledge/{knowledge_id} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/knowledge/{knowledge_id}/access 200": {
+  "grants": [
+   {
+    "access": "str",
+    "name": "str",
+    "principal_id": "int",
+    "principal_type": "str"
+   }
+  ],
+  "is_public": "bool"
+ },
+ "GET /api/knowledge/{knowledge_id}/access 403": {
+  "error": "str"
+ },
+ "GET /api/knowledge/{knowledge_id}/access 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/knowledge/{knowledge_id}/index 200": {
+  "available": "bool",
+  "enabled": "bool",
+  "markdown": "null|str",
+  "updated_at": "null|str"
+ },
+ "GET /api/knowledge/{knowledge_id}/index 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/knowledge/{knowledge_id}/sql-values 200": {
+  "built_at": "null|str",
+  "column_count": "int",
+  "columns": {
+   "items": [
+    "str"
+   ]
+  },
+  "error": "str",
+  "max_distinct": "int",
+  "max_results": "int",
+  "status": "str",
+  "value_count": "int"
+ },
+ "GET /api/knowledge/{knowledge_id}/sql-values 403": {
+  "error": "str"
+ },
+ "GET /api/knowledge/{knowledge_id}/sql-values 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/me/export 200": {
+  "format": "str",
+  "version": "int",
+  "exported_at": "str",
+  "profil": {
+   "id": "int",
+   "username": "str",
+   "display_name": "str",
+   "role": "str",
+   "auth_source": "str",
+   "created_at": "str"
+  },
+  "chats": [
+   {
+    "id": "str",
+    "titel": "str",
+    "erstellt": "str",
+    "zusammenfassung": "null",
+    "nachrichten": [
+     {
+      "id": "int",
+      "rolle": "str",
+      "inhalt": "str",
+      "erstellt": "str"
+     }
+    ]
+   }
+  ],
+  "meine_analysen": [
+   {
+    "dateiname": "str",
+    "erstellt": "str",
+    "inhalt": "str"
+   }
+  ],
+  "meine_dokumente": [],
+  "chat_anhaenge": []
+ },
+ "GET /api/me/export 401": {
+  "error": "str"
+ },
+ "GET /api/models 200": {
+  "compaction": {
+   "enabled": "bool",
+   "headroom_percent": "int",
+   "keep_percent": "int",
+   "output_reserve_percent": "int"
+  },
+  "default": "str",
+  "errors": [],
+  "models": [
+   {
+    "available": "bool",
+    "config": {
+     "allow_extra_knowledge": "bool",
+     "base_model": "str",
+     "connection_id": "int",
+     "id": "int",
+     "is_clone": "bool",
+     "is_public": "bool",
+     "knowledge_ids": [
+      "int"
+     ],
+     "name": "str",
+     "params": {},
+     "ref": "str",
+     "system_prompt": "str",
+     "visible": "bool",
+     "vision": "bool",
+     "web_search": "bool"
+    },
+    "connection_id": "int",
+    "connection_name": "str",
+    "customized": "bool",
+    "is_clone": "bool",
+    "knowledge_base": [
+     {
+      "id": "int",
+      "name": "str"
+     }
+    ],
+    "knowledge_locked": "bool",
+    "model_id": "str",
+    "name": "str",
+    "ref": "str",
+    "visible": "bool",
+    "vision": "bool"
+   }
+  ],
+  "param_defaults": {
+   "max_tokens": "null",
+   "num_ctx": "int",
+   "temperature": "float",
+   "thinking": "str",
+   "top_k": "int",
+   "top_p": "float"
+  },
+  "web_search_available": "bool",
+  "web_search_masked": "bool"
+ },
+ "GET /api/models 401": {
+  "error": "str"
+ },
+ "GET /api/models/access 200": {
+  "grants": [],
+  "is_public": "bool"
+ },
+ "GET /api/models/access 403": {
+  "error": "str"
+ },
+ "GET /api/my-uploads 200": [
+  {
+   "created_at": "str",
+   "filename": "str",
+   "has_markdown": "bool",
+   "id": "str",
+   "kind": "str",
+   "size": "int",
+   "source": "str"
+  }
+ ],
+ "GET /api/my-uploads/{kind}/{item_id}/markdown 200": {
+  "filename": "str",
+  "markdown": "str"
+ },
+ "GET /api/my-uploads/{kind}/{item_id}/markdown 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/principals 200": {
+  "groups": [],
+  "users": [
+   {
+    "id": "int",
+    "name": "str",
+    "username": "str"
+   }
+  ]
+ },
+ "GET /api/principals 403": {
+  "error": "str"
+ },
+ "GET /api/reindex/status 200": {
+  "current": "null",
+  "queue": [],
+  "results": [
+   {
+    "error": "null",
+    "id": "int",
+    "name": "str",
+    "ok": "bool"
+   }
+  ],
+  "running": "bool",
+  "started_at": "float"
+ },
+ "GET /api/retrieval/profiles 200": [
+  {
+   "config": {
+    "final_k": "int",
+    "mmr": {
+     "enabled": "bool",
+     "lambda_mult": "float"
+    },
+    "neighbors": "int",
+    "query_enhancement": {
+     "include_original": "bool",
+     "mode": "str",
+     "model_ref": "null",
+     "n_queries": "int",
+     "prompt": "str",
+     "temperature": "float",
+     "timeout_s": "int"
+    },
+    "rerank": {
+     "candidates": "int",
+     "enabled": "bool",
+     "min_score": "null",
+     "model": "str"
+    },
+    "search": {
+     "candidates": "int",
+     "dense_min_score": "float|null",
+     "dense_weight": "float",
+     "fusion": "str",
+     "mode": "str",
+     "sparse_weight": "float"
+    }
+   },
+   "description": "str",
+   "id": "int",
+   "is_default": "bool",
+   "name": "str"
+  }
+ ],
+ "GET /api/sessions 200": [
+  {
+   "created_at": "str",
+   "id": "str",
+   "title": "null",
+   "updated_at": "str"
+  }
+ ],
+ "GET /api/sessions 401": {
+  "error": "str"
+ },
+ "GET /api/sessions/{session_id} 200": {
+  "created_at": "str",
+  "id": "str",
+  "messages": [
+   {
+    "content": "str",
+    "created_at": "str",
+    "role": "str"
+   }
+  ],
+  "title": "null|str",
+  "updated_at": "str"
+ },
+ "GET /api/sessions/{session_id} 404": {
+  "error": "str"
+ },
+ "GET /api/stt/config 200": {
+  "available": "bool",
+  "mode": "str"
+ },
+ "GET /api/stt/config 401": {
+  "error": "str"
+ },
+ "GET /api/summaries 200": [
+  {
+   "created_at": "str",
+   "filename": "str",
+   "modified": "float",
+   "size": "int",
+   "size_human": "str"
+  }
+ ],
+ "GET /api/summaries/{filename} 200": {
+  "content": "str",
+  "filename": "str"
+ },
+ "GET /api/summaries/{filename} 400": {
+  "error": "str"
+ },
+ "GET /api/summaries/{filename} 404": {
+  "error": "str"
+ },
+ "GET /api/summaries/{filename}/download-docx 400": {
+  "error": "str"
+ },
+ "GET /api/summaries/{filename}/download-docx 404": {
+  "error": "str"
+ },
+ "GET /api/summaries/{filename}/download-md 400": {
+  "error": "str"
+ },
+ "GET /api/summaries/{filename}/download-md 404": {
+  "error": "str"
+ },
+ "GET /api/users 200": [
+  {
+   "auth_source": "str",
+   "created_at": "str",
+   "display_name": "str",
+   "group_ids": [],
+   "id": "int",
+   "is_active": "bool",
+   "role": "str",
+   "username": "str"
+  }
+ ],
+ "GET /api/users 403": {
+  "error": "str"
+ },
+ "GET /api/vectordb 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/vectordb 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "GET /api/version 200": {
+  "version": "str"
+ },
+ "GET /health 200": {
+  "ready": "bool",
+  "status": "str",
+  "version": "str"
+ },
+ "GET /history/{session_id} 404": {
+  "error": "str"
+ },
+ "PATCH /api/connections/{connection_id} 200": {
+  "base_url": "str",
+  "enabled": "bool",
+  "has_key": "bool",
+  "id": "int",
+  "kind": "str",
+  "name": "str"
+ },
+ "PATCH /api/connections/{connection_id} 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/knowledge/{knowledge_id} 200": {
+  "bm25_language": "null|str",
+  "can_write": "bool",
+  "chunk_count": "int|null",
+  "collection_name": "str",
+  "created_at": "str",
+  "description": "str",
+  "document_count": "int",
+  "embedding_dimension": "int|null",
+  "embedding_model": "null|str",
+  "embedding_spec": "null|str",
+  "id": "int",
+  "index_signature": "null|str",
+  "is_default": "bool",
+  "is_public": "bool",
+  "kind": "str",
+  "last_reindex_error": "null",
+  "name": "str",
+  "retrieval_profile_id": "null",
+  "source_config": {
+   "access": {
+    "admins_unfiltered": "bool",
+    "enabled": "bool",
+    "group_field": "str",
+    "groups_from": "str",
+    "static": [],
+    "user_attr": "str",
+    "user_field": "str"
+   },
+   "blocked_columns": {
+    "items": [
+     "str"
+    ]
+   },
+   "collection": "str",
+   "database": "str",
+   "dense_vector": "str",
+   "dialect": "str",
+   "fields": {
+    "chunk_index": "str",
+    "filename": "str",
+    "group": "str",
+    "headers": "str",
+    "page_end": "str",
+    "page_start": "str",
+    "text": "str",
+    "title": "str"
+   },
+   "has_key": "bool",
+   "has_password": "bool",
+   "host": "str",
+   "instance": "str",
+   "kind": "str",
+   "port": "int",
+   "schema": "str",
+   "sparse_vector": "str",
+   "tables": [
+    "str"
+   ],
+   "url": "str",
+   "user": "str",
+   "value_columns": {
+    "items": [
+     "str"
+    ]
+   }
+  },
+  "stale": "bool"
+ },
+ "PATCH /api/knowledge/{knowledge_id} 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/knowledge/{knowledge_id} 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/knowledge/{knowledge_id} 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/knowledge/{knowledge_id} 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/retrieval/profiles/{profile_id} 403": {
+  "error": "str"
+ },
+ "PATCH /api/users/{user_id} 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PATCH /api/users/{user_id} 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/auth/test 200": {
+  "authorization_endpoint": "str",
+  "display_name": "str",
+  "groups": [
+   "str"
+  ],
+  "issuer": "str",
+  "jwks_reachable": "bool",
+  "login_ok": "bool",
+  "pkce_supported": "bool",
+  "reachable": "bool",
+  "redirect_uri": "str",
+  "service_bind": "bool",
+  "success": "bool",
+  "token_endpoint": "str",
+  "user_found": "bool"
+ },
+ "POST /api/admin/auth/test 502": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/embedding/test 200": {
+  "dimension": "int",
+  "seconds": "float",
+  "success": "bool"
+ },
+ "POST /api/admin/embedding/test 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/embedding/test 502": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/tools/test 200": {
+  "details": "str",
+  "message": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/tools/test 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/admin/tools/test 502": {
+  "details": "str",
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/auth/change-password 200": {
+  "success": "bool"
+ },
+ "POST /api/auth/change-password 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/auth/change-password 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/auth/login 200": {
+  "success": "bool",
+  "user": {
+   "auth_source": "str",
+   "display_name": "str",
+   "external_groups": [
+    "str"
+   ],
+   "id": "int",
+   "is_active": "bool",
+   "role": "str",
+   "username": "str"
+  }
+ },
+ "POST /api/auth/login 401": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/auth/login 429": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/auth/logout 200": {
+  "success": "bool"
+ },
+ "POST /api/auth/logout 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/chat/attachments 202": {
+  "filename": "str",
+  "id": "str",
+  "session_id": "str",
+  "status": "str",
+  "success": "bool"
+ },
+ "POST /api/chat/attachments 415": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/connections 201": {
+  "base_url": "str",
+  "enabled": "bool",
+  "has_key": "bool",
+  "id": "int",
+  "kind": "str",
+  "name": "str"
+ },
+ "POST /api/connections 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/connections/test 200": {
+  "embedding": {
+   "dimension": "int",
+   "model": "str",
+   "ok": "bool"
+  },
+  "message": "str",
+  "models": [
+   "str"
+  ],
+  "reranker": {
+   "model": "str",
+   "ok": "bool"
+  },
+  "success": "bool"
+ },
+ "POST /api/connections/test 502": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/documents/ingest 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/documents/ingest 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/documents/upload 200": {
+  "data_files": [
+   "str"
+  ],
+  "documents": [
+   "str"
+  ],
+  "files": [
+   "str"
+  ],
+  "message": "str",
+  "skipped": [],
+  "success": "bool"
+ },
+ "POST /api/documents/upload 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/documents/upload 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/groups 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge 201": {
+  "bm25_language": "null|str",
+  "can_write": "bool",
+  "chunk_count": "int|null",
+  "collection_name": "str",
+  "created_at": "str",
+  "description": "str",
+  "document_count": "int",
+  "embedding_dimension": "int|null",
+  "embedding_model": "null|str",
+  "embedding_spec": "null|str",
+  "id": "int",
+  "index_signature": "null|str",
+  "is_default": "bool",
+  "is_public": "bool",
+  "kind": "str",
+  "last_reindex_error": "null",
+  "name": "str",
+  "retrieval_profile_id": "null",
+  "source_config": {
+   "access": {
+    "admins_unfiltered": "bool",
+    "enabled": "bool",
+    "group_field": "str",
+    "groups_from": "str",
+    "static": [
+     {
+      "field": "str",
+      "values": [
+       "str"
+      ]
+     }
+    ],
+    "user_attr": "str",
+    "user_field": "str"
+   },
+   "blocked_columns": {
+    "items": [
+     "str"
+    ]
+   },
+   "collection": "str",
+   "database": "str",
+   "dense_vector": "str",
+   "dialect": "str",
+   "fields": {
+    "chunk_index": "str",
+    "filename": "str",
+    "group": "str",
+    "headers": "str",
+    "page_end": "str",
+    "page_start": "str",
+    "text": "str",
+    "title": "str"
+   },
+   "has_key": "bool",
+   "has_password": "bool",
+   "host": "str",
+   "instance": "str",
+   "kind": "str",
+   "port": "int",
+   "schema": "str",
+   "sparse_vector": "str",
+   "tables": [
+    "str"
+   ],
+   "url": "str",
+   "user": "str",
+   "value_columns": {}
+  },
+  "stale": "bool"
+ },
+ "POST /api/knowledge 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/external/filter-test 200": {
+  "blocked": "bool",
+  "count": "int",
+  "samples": [
+   "str"
+  ],
+  "success": "bool"
+ },
+ "POST /api/knowledge/external/filter-test 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge/external/test 200": {
+  "collections": [
+   "str"
+  ],
+  "dense_vectors": {
+   "": "int"
+  },
+  "points": "int",
+  "reachable": "bool",
+  "sample_payload": {
+   "content": "str",
+   "datei": "str",
+   "seite": "int"
+  },
+  "sparse_vectors": [],
+  "success": "bool"
+ },
+ "POST /api/knowledge/external/test 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge/external/test 502": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/sql/test 200": {
+  "success": "bool",
+  "tables": [
+   {
+    "columns": [
+     "str"
+    ],
+    "name": "str"
+   }
+  ],
+  "version": "str",
+  "write_privilege": "bool"
+ },
+ "POST /api/knowledge/sql/test 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge/sql/test 503": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/index/refresh 200": {
+  "available": "bool",
+  "enabled": "bool",
+  "markdown": "str",
+  "updated_at": "str"
+ },
+ "POST /api/knowledge/{knowledge_id}/index/refresh 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/index/refresh 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/reindex 202": {
+  "knowledge_ids": [
+   "int"
+  ],
+  "started": "bool",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/reindex 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/reindex 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/build 202": {
+  "built_at": "null|str",
+  "column_count": "int",
+  "error": "str",
+  "status": "str",
+  "success": "bool",
+  "value_count": "int"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/build 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/build 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/search 200": {
+  "results": [
+   {
+    "column": "str",
+    "count": "int",
+    "score": "float",
+    "table": "str",
+    "value": "str"
+   }
+  ]
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/search 403": {
+  "error": "str"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/suggest 200": {
+  "columns": [
+   {
+    "column": "str",
+    "distinct": "int",
+    "include": "bool",
+    "non_null": "int",
+    "reason": "str",
+    "rows": "int",
+    "table": "str",
+    "type": "str"
+   }
+  ],
+  "success": "bool"
+ },
+ "POST /api/knowledge/{knowledge_id}/sql-values/suggest 403": {
+  "error": "str"
+ },
+ "POST /api/reindex-all 200": {
+  "message": "str",
+  "started": "bool",
+  "success": "bool"
+ },
+ "POST /api/reindex-all 403": {
+  "error": "str"
+ },
+ "POST /api/retrieval/profiles 201": {
+  "config": {
+   "final_k": "int",
+   "mmr": {
+    "enabled": "bool",
+    "lambda_mult": "float"
+   },
+   "neighbors": "int",
+   "query_enhancement": {
+    "include_original": "bool",
+    "mode": "str",
+    "model_ref": "null",
+    "n_queries": "int",
+    "prompt": "str",
+    "temperature": "float",
+    "timeout_s": "int"
+   },
+   "rerank": {
+    "candidates": "int",
+    "enabled": "bool",
+    "min_score": "null",
+    "model": "str"
+   },
+   "search": {
+    "candidates": "int",
+    "dense_min_score": "float",
+    "dense_weight": "float",
+    "fusion": "str",
+    "mode": "str",
+    "sparse_weight": "float"
+   }
+  },
+  "description": "str",
+  "id": "int",
+  "is_default": "bool",
+  "name": "str"
+ },
+ "POST /api/retrieval/profiles 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/retrieval/profiles 403": {
+  "error": "str"
+ },
+ "POST /api/retrieval/profiles 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/retrieval/test 200": {
+  "helper_model": "str",
+  "results": [
+   {
+    "documents": [
+     {
+      "chunk_index": "null",
+      "chunks": "null",
+      "filename": "str",
+      "score": "float",
+      "text": "str"
+     }
+    ],
+    "knowledge": "str",
+    "knowledge_id": "int",
+    "profile_id": "int|null",
+    "trace": {
+     "stages": [
+      {
+       "candidates": [
+        {
+         "chunk_index": "null",
+         "collection": "str",
+         "filename": "str",
+         "score": "float",
+         "snippet": "str"
+        }
+       ],
+       "fusion": "str",
+       "lists": "int",
+       "mode": "str",
+       "model": "str",
+       "ms": "int",
+       "n": "int",
+       "per_collection": {
+        "open_knowledge_ui": "int"
+       },
+       "queries": "int",
+       "result": [
+        {
+         "chunk_index": "null",
+         "collection": "str",
+         "filename": "str",
+         "score": "float",
+         "snippet": "str"
+        }
+       ],
+       "results": [
+        {
+         "chunk_index": "null",
+         "collection": "str",
+         "filename": "str",
+         "score": "float",
+         "snippet": "str"
+        }
+       ],
+       "stage": "str",
+       "without_chunk_index": "int"
+      }
+     ],
+     "total_ms": "int"
+    }
+   }
+  ]
+ },
+ "POST /api/retrieval/test 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/retrieval/test 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/sessions 200": {
+  "created_at": "str",
+  "id": "str",
+  "title": "null",
+  "updated_at": "str"
+ },
+ "POST /api/settings/change-password 200": {
+  "success": "bool"
+ },
+ "POST /api/settings/change-password 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/stt 200": {
+  "text": "str"
+ },
+ "POST /api/stt 400": {
+  "error": "str"
+ },
+ "POST /api/stt 401": {
+  "error": "str"
+ },
+ "POST /api/stt 413": {
+  "error": "str"
+ },
+ "POST /api/stt 502": {
+  "error": "str"
+ },
+ "POST /api/users 201": {
+  "auth_source": "str",
+  "created_at": "str",
+  "display_name": "str",
+  "group_ids": [],
+  "id": "int",
+  "is_active": "bool",
+  "role": "str",
+  "username": "str"
+ },
+ "POST /api/users 403": {
+  "error": "str"
+ },
+ "POST /api/users 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /api/vectordb/clear 409": {
+  "error": "str",
+  "success": "bool"
+ },
+ "POST /login 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/agent-behavior 200": {
+  "default_prompt": "str",
+  "prompt": "str"
+ },
+ "PUT /api/admin/agent-behavior 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/agent-behavior 403": {
+  "error": "str"
+ },
+ "PUT /api/admin/auth 200": {
+  "auto_create": "bool",
+  "base_url": "str",
+  "default_role": "str",
+  "ldap": {
+   "base_dn": "str",
+   "bind_dn": "str",
+   "ca_file": "str",
+   "enabled": "bool",
+   "group_attr": "str",
+   "has_bind_password": "bool",
+   "name_attr": "str",
+   "starttls": "bool",
+   "timeout": "int",
+   "url": "str",
+   "user_filter": "str",
+   "username_attr": "str",
+   "verify_tls": "bool"
+  },
+  "oidc": {
+   "client_id": "str",
+   "enabled": "bool",
+   "groups_claim": "str",
+   "has_client_secret": "bool",
+   "issuer": "str",
+   "name": "str",
+   "name_claim": "str",
+   "scopes": "str",
+   "timeout": "int",
+   "username_claim": "str"
+  },
+  "redirect_uri": "str"
+ },
+ "PUT /api/admin/auth 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/auth 403": {
+  "error": "str"
+ },
+ "PUT /api/admin/compaction 200": {
+  "default_prompt": "str",
+  "enabled": "bool",
+  "headroom_percent": "int",
+  "keep_percent": "int",
+  "output_reserve_percent": "int",
+  "prompt": "str"
+ },
+ "PUT /api/admin/compaction 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/compaction 403": {
+  "error": "str"
+ },
+ "PUT /api/admin/embedding 200": {
+  "bm25_languages": [
+   "str"
+  ],
+  "device": "str",
+  "embedding": {
+   "connection_id": "int",
+   "model": "str",
+   "source": "str",
+   "status": {
+    "at": "float",
+    "spec": {
+     "connection_id": "int",
+     "model": "str",
+     "source": "str"
+    },
+    "state": "str"
+   }
+  },
+  "ingest": {
+   "bm25_language": "str",
+   "chunk_overlap": "int",
+   "chunk_size": "int",
+   "index_enabled": "bool",
+   "keep_original": "bool"
+  },
+  "reranker": {
+   "model": "str",
+   "source": "str",
+   "status": {
+    "spec": {
+     "model": "str",
+     "source": "str"
+    },
+    "state": "str"
+   }
+  },
+  "stale": [
+   {
+    "error": "null",
+    "id": "int",
+    "name": "str"
+   }
+  ],
+  "suggestions": {
+   "embedding": [
+    "str"
+   ],
+   "reranker": [
+    "str"
+   ]
+  },
+  "tasks": {
+   "context": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "excerpt_chars": "int",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "null"
+   },
+   "images": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "float"
+   },
+   "tables": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_row_deviation": "int",
+    "max_tokens": "null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "float"
+   },
+   "vision": {
+    "default_prompt": "str",
+    "enabled": "bool",
+    "max_tokens": "int|null",
+    "model_ref": "str",
+    "prompt": "str",
+    "temperature": "float|null"
+   }
+  }
+ },
+ "PUT /api/admin/embedding 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/embedding 403": {
+  "error": "str"
+ },
+ "PUT /api/admin/tool-worker 200": {
+  "error": "str",
+  "max_output_chars": "int",
+  "memory_mb": "int",
+  "reachable": "bool",
+  "sql_max_cell_chars": "int",
+  "sql_reachable": "bool",
+  "sql_row_limit": "int",
+  "sql_timeout_s": "int",
+  "sql_url": "str",
+  "sql_version": "str",
+  "timeout_s": "int",
+  "token_configured": "bool",
+  "url": "str",
+  "version": "str"
+ },
+ "PUT /api/admin/tool-worker 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/tools 200": {
+  "pii": {
+   "enabled": "bool",
+   "has_key": "bool",
+   "max_chars": "int",
+   "timeout_s": "float",
+   "url": "str"
+  },
+  "search": {
+   "allow_unmasked": "bool",
+   "categories": "str",
+   "url": "str"
+  },
+  "stt": {
+   "base_url": "str",
+   "has_key": "bool",
+   "mode": "str",
+   "model": "str"
+  },
+  "web_search_available": "bool",
+  "web_search_masked": "bool"
+ },
+ "PUT /api/admin/tools 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/admin/tools 403": {
+  "error": "str"
+ },
+ "PUT /api/knowledge/1 403": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/access 200": {
+  "grants": [
+   {
+    "access": "str",
+    "name": "str",
+    "principal_id": "int",
+    "principal_type": "str"
+   }
+  ],
+  "is_public": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/access 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/access 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/retrieval-profile 200": {
+  "profile_id": "int|null",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/retrieval-profile 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/retrieval-profile 404": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/sql-values 200": {
+  "built_at": "null",
+  "column_count": "int",
+  "columns": {
+   "items": [
+    "str"
+   ]
+  },
+  "error": "str",
+  "max_distinct": "int",
+  "max_results": "int",
+  "status": "str",
+  "value_count": "int"
+ },
+ "PUT /api/knowledge/{knowledge_id}/sql-values 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/knowledge/{knowledge_id}/sql-values 403": {
+  "error": "str"
+ },
+ "PUT /api/models/access 200": {
+  "grants": [
+   {
+    "access": "str",
+    "name": "str",
+    "principal_id": "int",
+    "principal_type": "str"
+   }
+  ],
+  "is_public": "bool"
+ },
+ "PUT /api/models/config 200": {
+  "allow_extra_knowledge": "bool",
+  "base_model": "str",
+  "connection_id": "int",
+  "id": "int",
+  "is_clone": "bool",
+  "is_public": "bool",
+  "knowledge_ids": "null",
+  "name": "str",
+  "params": {},
+  "ref": "str",
+  "system_prompt": "str",
+  "visible": "bool",
+  "vision": "bool",
+  "web_search": "bool"
+ },
+ "PUT /api/models/config 400": {
+  "error": "str",
+  "success": "bool"
+ },
+ "PUT /api/models/default 200": {
+  "default": "str",
+  "success": "bool"
+ },
+ "PUT /api/summaries/{filename} 200": {
+  "success": "bool"
+ },
+ "PUT /api/summaries/{filename} 400": {
+  "error": "str",
+  "success": "bool"
+ }
+}

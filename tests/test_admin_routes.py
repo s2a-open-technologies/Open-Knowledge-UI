@@ -1,20 +1,15 @@
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.llm import connections as store
 from app.llm import registry
+from tests.web import client_for, make_app
 
 
 @pytest.fixture
 def client(db):
     # Als geseedeter Admin angemeldet (id 1); es geht um die Key-Weitergabe.
-    app = Flask(__name__)
-    app.secret_key = "t"
-    register_blueprints(app)
-    with app.test_client() as c:
-        with c.session_transaction() as s:
-            s["user_id"] = 1
+    app = make_app()
+    with client_for(app, {"id": 1}) as c:
         yield c
 
 
@@ -94,7 +89,7 @@ def test_tool_worker_overview_reports_reachability(client, monkeypatch):
         "ping",
         lambda self: {"reachable": True, "version": "0.1.0", "error": ""},
     )
-    j = client.get("/api/admin/tool-worker").get_json()
+    j = client.get("/api/admin/tool-worker").json()
     assert (
         j["reachable"] is True
         and j["url"] == "http://tool-worker:8090"
@@ -111,9 +106,9 @@ def test_tool_worker_settings_can_be_saved_and_are_validated(client, monkeypatch
         lambda self: {"reachable": False, "version": "", "error": "nicht erreichbar"},
     )
     ok = client.put("/api/admin/tool-worker", json={"timeout_s": 45})
-    assert ok.status_code == 200 and ok.get_json()["timeout_s"] == 45
+    assert ok.status_code == 200 and ok.json()["timeout_s"] == 45
     bad = client.put("/api/admin/tool-worker", json={"url": "ftp://x"})
-    assert bad.status_code == 400 and "http" in bad.get_json()["error"]
+    assert bad.status_code == 400 and "http" in bad.json()["error"]
 
 
 def test_tool_worker_overview_includes_the_sql_worker(client, monkeypatch):
@@ -124,14 +119,14 @@ def test_tool_worker_overview_includes_the_sql_worker(client, monkeypatch):
         "ping",
         lambda self: {"reachable": True, "version": "0.1.0", "error": ""},
     )
-    j = client.get("/api/admin/tool-worker").get_json()
+    j = client.get("/api/admin/tool-worker").json()
     assert (
         j["sql_url"] == "http://tool-worker-sql:8090"
         and j["sql_reachable"] is True
         and j["sql_row_limit"] == 50
     )
     ok = client.put("/api/admin/tool-worker", json={"sql_row_limit": 100})
-    assert ok.status_code == 200 and ok.get_json()["sql_row_limit"] == 100
+    assert ok.status_code == 200 and ok.json()["sql_row_limit"] == 100
     assert (
         client.put("/api/admin/tool-worker", json={"sql_row_limit": 0}).status_code
         == 400
@@ -144,7 +139,7 @@ def test_connections_have_a_kind_and_reject_unknown_ones(client):
         "/api/connections",
         json={"name": "TEI", "base_url": "http://tei.lan:8080", "kind": "tei"},
     )
-    assert ok.status_code == 201 and ok.get_json()["kind"] == "tei"
+    assert ok.status_code == 201 and ok.json()["kind"] == "tei"
     assert (
         client.post(
             "/api/connections",
@@ -154,11 +149,11 @@ def test_connections_have_a_kind_and_reject_unknown_ones(client):
     )
     plain = client.post(
         "/api/connections", json={"name": "L", "base_url": "http://l.lan/v1"}
-    ).get_json()
+    ).json()
     assert plain["kind"] == "llm"  # Standard bleibt OpenAI-kompatibel
     changed = client.patch(f"/api/connections/{plain['id']}", json={"kind": "infinity"})
-    assert changed.get_json()["kind"] == "infinity"
-    assert [c["kind"] for c in client.get("/api/connections").get_json()][-2:] == [
+    assert changed.json()["kind"] == "infinity"
+    assert [c["kind"] for c in client.get("/api/connections").json()][-2:] == [
         "tei",
         "infinity",
     ]
@@ -170,14 +165,14 @@ def test_connection_test_checks_the_real_apis_of_tei_and_infinity(client):
     url, stop, _ = serve(TEI, mode="embedding")
     try:
         r = client.post("/api/connections/test", json={"base_url": url, "kind": "tei"})
-        assert r.status_code == 200 and r.get_json()["embedding"]["dimension"] == 4
+        assert r.status_code == 200 and r.json()["embedding"]["dimension"] == 4
     finally:
         stop()
     url, stop, _ = serve(Infinity)
     try:
         j = client.post(
             "/api/connections/test", json={"base_url": url, "kind": "infinity"}
-        ).get_json()
+        ).json()
         assert j["success"] and j["embedding"]["ok"] and j["reranker"]["ok"]
     finally:
         stop()
@@ -191,7 +186,7 @@ def test_connection_test_uses_the_stored_key_only_for_the_stored_url(client):
         saved = client.post(
             "/api/connections",
             json={"name": "T", "base_url": url, "api_key": "geheim", "kind": "tei"},
-        ).get_json()
+        ).json()
         assert (
             client.post(
                 "/api/connections/test",
@@ -207,7 +202,7 @@ def test_connection_test_uses_the_stored_key_only_for_the_stored_url(client):
                 "kind": "tei",
             },
         )
-        assert other.status_code == 502 and "API-Key" in other.get_json()["error"]
+        assert other.status_code == 502 and "API-Key" in other.json()["error"]
     finally:
         stop()
 
@@ -219,11 +214,11 @@ def test_embedding_models_of_a_connection_are_filtered_by_capability(client):
     try:
         cid = client.post(
             "/api/connections", json={"name": "I", "base_url": url, "kind": "infinity"}
-        ).get_json()["id"]
+        ).json()["id"]
         q = f"/api/admin/embedding/remote-models?connection_id={cid}"
-        assert client.get(q + "&capability=embedding").get_json() == ["emb-model"]
-        assert client.get(q + "&capability=reranker").get_json() == ["rr-model"]
-        assert client.get(q).get_json() == ["emb-model", "rr-model"]
+        assert client.get(q + "&capability=embedding").json() == ["emb-model"]
+        assert client.get(q + "&capability=reranker").json() == ["rr-model"]
+        assert client.get(q).json() == ["emb-model", "rr-model"]
     finally:
         stop()
 

@@ -24,12 +24,12 @@ import os
 import uuid
 from datetime import datetime
 
-from flask import after_this_request, g, has_request_context
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SQLAlchemySession
 from sqlalchemy.orm import sessionmaker
 from werkzeug.security import generate_password_hash
 
+from app.core import request_context
 from app.core.models import (
     Base,
     ChatAttachment,
@@ -39,15 +39,6 @@ from app.core.models import (
     UserDocument,
     UserSummaryFile,
 )
-
-
-def _close_request_sessions(response):
-    for session in g.pop("_opened_sessions", []):
-        try:
-            session.close()  # idempotent; bereits geschlossene Sessions schaden nicht
-        except Exception:
-            pass
-    return response
 
 
 class DatabaseService:
@@ -81,11 +72,7 @@ class DatabaseService:
         Sonst bliebe die Verbindung belegt: SQLite sperrt, der Postgres-Pool laeuft voll.
         """
         session = self.Session()
-        if has_request_context():
-            opened = g.setdefault("_opened_sessions", [])
-            if not opened:
-                after_this_request(_close_request_sessions)
-            opened.append(session)
+        request_context.track_session(session)
         return session
 
     def init_default_data(self):
@@ -177,7 +164,7 @@ class DatabaseService:
             "SECRET_KEY": (
                 "auth",
                 "",
-                "Flask Secret Key (wird bei leerem Wert automatisch erzeugt)",
+                "Schlüssel für das Session-Cookie (wird bei leerem Wert automatisch erzeugt)",
             ),
             "DATA_DIR": ("storage", "./data", "Daten-Verzeichnis"),
             "SUMMARIES_DIR": ("storage", "./data/summaries", "Summaries-Verzeichnis"),

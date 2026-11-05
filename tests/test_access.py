@@ -1,13 +1,13 @@
 import pytest
-from flask import Flask
 from werkzeug.security import generate_password_hash
 
-from app.api import register_blueprints
 from app.auth import access, user_admin
 from app.auth.user_admin import AdminError
+from app.core import runtime
 from app.core.models import User
 from app.knowledge import service as knowledge
 from app.llm import connections as store
+from tests.web import chat_ws, client_for, make_app
 
 
 def add_user(db, username, role="user", password="pw"):
@@ -33,18 +33,8 @@ def admin(db):
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
-
-
-def client_for(app, user):
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["user_id"] = user["id"]
-    return c
 
 
 # --- Knowledge-Zugriff ------------------------------------------------------
@@ -303,11 +293,11 @@ def test_editor_creates_private_knowledge_only_they_can_manage(app, db):
     access.add_grant("knowledge", kb["id"], "user", alice["id"], "write")
     kid = kb["id"]
 
-    ids = lambda c: {k["id"] for k in c.get("/api/knowledge").json}
+    ids = lambda c: {k["id"] for k in c.get("/api/knowledge").json()}
     assert kid in ids(ca)
     assert kid not in ids(cb) and kid not in ids(cu)
 
-    assert ca.get(f"/api/knowledge/{kid}").json["can_write"] is True
+    assert ca.get(f"/api/knowledge/{kid}").json()["can_write"] is True
     assert cb.get(f"/api/knowledge/{kid}").status_code == 404
     assert cu.get(f"/api/knowledge/{kid}").status_code == 404
 
@@ -327,7 +317,7 @@ def test_editor_creates_private_knowledge_only_they_can_manage(app, db):
         assert res.status_code == 404, f"{method} {path} -> {res.status_code}"
         # Der Besitzer kommt durch die Rechtepruefung (egal was danach passiert).
     assert ca.get(f"/api/documents?knowledge_id={kid}").status_code == 200
-    assert ca.get(f"/api/knowledge/{kid}/access").json["is_public"] is False
+    assert ca.get(f"/api/knowledge/{kid}/access").json()["is_public"] is False
 
 
 def test_sharing_with_a_group_grants_read_but_not_write(app, db):
@@ -352,19 +342,19 @@ def test_sharing_with_a_group_grants_read_but_not_write(app, db):
             ],
         },
     )
-    assert res.status_code == 200 and res.json["grants"][0]["name"] == "Team"
+    assert res.status_code == 200 and res.json()["grants"][0]["name"] == "Team"
 
     # Rolle "Benutzer": bleibt beim vergebenen Level (nur lesen)
     carol = add_user(db, "carol", "user")
     user_admin.set_group_members(group["id"], [bob["id"], carol["id"]])
     cc = client_for(app, carol)
-    assert cc.get(f"/api/knowledge/{kb['id']}").json["can_write"] is False
+    assert cc.get(f"/api/knowledge/{kb['id']}").json()["can_write"] is False
     assert cc.get(f"/api/documents?knowledge_id={kb['id']}").status_code == 200  # lesen
     assert (
         cc.post(f"/api/documents/ingest?knowledge_id={kb['id']}").status_code == 404
     )  # schreiben
     # Editor: alles, was einer seiner Gruppen freigegeben ist, darf er bearbeiten (auch bei Lese-Freigabe)
-    assert cb.get(f"/api/knowledge/{kb['id']}").json["can_write"] is True
+    assert cb.get(f"/api/knowledge/{kb['id']}").json()["can_write"] is True
 
 
 def test_access_endpoint_rejects_bad_principals(app, db):
@@ -455,13 +445,13 @@ def test_models_listing_respects_model_access(app, db, conn, monkeypatch):
     u = add_user(db, "plain", "user")
     names = {
         m["model_id"]
-        for m in client_for(app, u).get("/api/models").json["models"]
+        for m in client_for(app, u).get("/api/models").json()["models"]
         if m["connection_name"] == "C"
     }
     assert names == {"open"}
     admin_names = {
         m["model_id"]
-        for m in client_for(app, {"id": 1}).get("/api/models").json["models"]
+        for m in client_for(app, {"id": 1}).get("/api/models").json()["models"]
         if m["connection_name"] == "C"
     }
     assert admin_names == {"open", "secret"}
@@ -470,7 +460,7 @@ def test_models_listing_respects_model_access(app, db, conn, monkeypatch):
 def test_model_access_endpoint_creates_config_for_plain_base_model(app, db, conn):
     ca = client_for(app, {"id": 1})
     ref = store.make_base_ref(conn["id"], "qwen")
-    assert ca.get(f"/api/models/access?ref={ref}").json == {
+    assert ca.get(f"/api/models/access?ref={ref}").json() == {
         "is_public": True,
         "grants": [],
     }
@@ -485,7 +475,7 @@ def test_model_access_endpoint_creates_config_for_plain_base_model(app, db, conn
             ],
         },
     )
-    assert res.status_code == 200 and res.json["is_public"] is False
+    assert res.status_code == 200 and res.json()["is_public"] is False
     assert access.can_use_model(u, ref)
     assert not access.can_use_model(add_user(db, "other"), ref)
 
@@ -501,21 +491,20 @@ class FakeAgent:
 
 @pytest.fixture
 def chat_env(app, db, conn, monkeypatch):
-    """/chat ohne LLM: ein Fake-Agent, der Scope wird mitgeschrieben."""
-    from app.api import chat as routes
+    """Chat ohne LLM: ein Fake-Agent, der Scope wird mitgeschrieben."""
+    from app.chat import service as routes
 
     seen = []
     monkeypatch.setattr(routes, "set_scope", lambda scope: seen.append(scope))
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: FakeAgent())
     monkeypatch.setattr(routes, "resources_ready", lambda: True)
-    app.extensions["agent_tools"] = []
+    runtime.state.agent_tools = []
     return seen
 
 
 def chat(client, **body):
-    res = client.post("/chat", json={"message": "Hallo", **body})
-    res.get_data()  # Stream bis zum Ende lesen
-    return res
+    """Frage ueber den WebSocket stellen; liefert die Events bis zum Ende."""
+    return chat_ws(client, **{"message": "Hallo", **body})
 
 
 def test_chat_scope_only_contains_readable_knowledge(app, db, conn, chat_env):
@@ -548,7 +537,7 @@ def test_chat_denies_models_without_access_and_never_leaks_knowledge(
     store.save_model_config(ref, {"is_public": False})
     u = add_user(db, "plain")
     res = chat(client_for(app, u), model=ref)
-    assert "Kein Zugriff" in res.get_data(as_text=True)
+    assert "Kein Zugriff" in res[-1]["error"]
     assert chat_env == []  # weder Agent noch Scope wurden angefasst
 
 

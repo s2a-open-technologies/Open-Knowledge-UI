@@ -4,8 +4,12 @@ import hmac
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
-from flask import Flask, jsonify, request
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, StrictStr
 
 from tool_worker import __version__, sandbox
 from tool_worker.frames import SUFFIXES
@@ -13,6 +17,70 @@ from tool_worker.frames import SUFFIXES
 log = logging.getLogger("tool_worker")
 MAX_CODE_CHARS = 20_000
 MAX_FILE_CHARS = 512
+MAX_BODY_BYTES = 1024 * 1024
+
+
+class PandasRequest(BaseModel):
+    file: StrictStr
+    code: StrictStr
+    limits: Any = None
+
+
+class SqlRequest(BaseModel):
+    connection: dict[str, Any]
+    sql: Any = None
+    table: Any = None
+    column: Any = None
+    allowed_tables: Any = None
+    blocked_columns: Any = None
+    limits: Any = None
+    max_distinct: Any = None
+
+
+def _error(message: str, status: int) -> JSONResponse:
+    return JSONResponse({"error": message}, status_code=status)
+
+
+class _Guard:
+    """Rolle, Token und Groesse pruefen, bevor eine Anfrage einen Handler erreicht (ASGI)."""
+
+    def __init__(self, app, role: str, expected: bytes):
+        self.app, self.role, self.expected = app, role, expected
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+            return await self.app(scope, receive, send)
+        path = scope["path"]
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope["headers"]
+        }
+        # pandas-Rolle: nur /v1/pandas; sql-Rolle: nur /v1/sql/*
+        if (self.role == "pandas") == path.startswith("/v1/sql/"):
+            return await _error("Nicht gefunden", 404)(scope, receive, send)
+        sent = headers.get("authorization", "")
+        given = sent[7:].encode() if sent.startswith("Bearer ") else b""
+        if not hmac.compare_digest(given, self.expected):
+            return await _error("Nicht autorisiert", 401)(scope, receive, send)
+        try:
+            declared = int(headers.get("content-length") or 0)
+        except ValueError:
+            declared = 0
+        if declared > MAX_BODY_BYTES:
+            return await _error("Anfrage zu groß", 413)(scope, receive, send)
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > MAX_BODY_BYTES:
+                    raise ValueError("Anfrage zu groß")
+            return message
+
+        await self.app(scope, limited_receive, send)
 
 
 def create_app(
@@ -28,35 +96,30 @@ def create_app(
     max_rows: int = 1000,
     max_sql_timeout_s: float = 60,
     max_distinct: int = 100_000,
-) -> Flask:
+) -> FastAPI:
     if role not in ("pandas", "sql"):
         raise ValueError("TOOL_WORKER_ROLE muss pandas oder sql sein")
     if not token:
         raise ValueError("TOOL_WORKER_TOKEN ist nicht gesetzt")
-    app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
-    expected = token.encode()
+    app = FastAPI(
+        title="Open Knowledge UI Tool-Worker",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.add_middleware(_Guard, role=role, expected=token.encode())
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid(_request, _exc):
+        # Das Protokoll kennt nur diese eine Meldung (der App-Client wertet sie aus)
+        return _error("Ungültige Anfrage", 400)
 
     def root() -> Path:
         return Path(data_dir() if callable(data_dir) else data_dir).resolve()
 
     @app.get("/health")
     def health():
-        return jsonify(status="ok", version=__version__, role=role)
-
-    @app.before_request
-    def auth():
-        path = request.path
-        if path.startswith("/v1/"):
-            sql_path = path.startswith("/v1/sql/")
-            if (
-                role == "pandas"
-            ) == sql_path:  # pandas-Rolle: nur /v1/pandas; sql-Rolle: nur /v1/sql/*
-                return jsonify(error="Nicht gefunden"), 404
-            sent = request.headers.get("Authorization", "")
-            given = sent[7:].encode() if sent.startswith("Bearer ") else b""
-            if not hmac.compare_digest(given, expected):
-                return jsonify(error="Nicht autorisiert"), 401
+        return {"status": "ok", "version": __version__, "role": role}
 
     def resolve(file: str) -> Path | None:
         if (
@@ -76,18 +139,8 @@ def create_app(
             return None
         return target
 
-    @app.post("/v1/pandas")
-    def pandas_run():
-        data = request.get_json(silent=True)
-        if (
-            not isinstance(data, dict)
-            or not isinstance(data.get("file"), str)
-            or not isinstance(data.get("code"), str)
-        ):
-            return jsonify(error="Ungültige Anfrage"), 400
-        if len(data["code"]) > MAX_CODE_CHARS:
-            return jsonify(error="Code zu lang"), 413
-        limits = data.get("limits") if isinstance(data.get("limits"), dict) else {}
+    def capper(limits):
+        limits = limits if isinstance(limits, dict) else {}
 
         def cap(name, default, ceiling):
             try:
@@ -96,51 +149,40 @@ def create_app(
                 value = default
             return min(max(value, 1), ceiling)
 
-        target = resolve(data["file"])
+        return cap
+
+    @app.post("/v1/pandas")
+    def pandas_run(data: PandasRequest):
+        if len(data.code) > MAX_CODE_CHARS:
+            return _error("Code zu lang", 413)
+        cap = capper(data.limits)
+        target = resolve(data.file)
         if target is None:
-            return jsonify(error="Datei nicht verfügbar"), 404
+            return _error("Datei nicht verfügbar", 404)
         try:
             out = runner(
                 str(target),
-                data["code"],
+                data.code,
                 timeout_s=cap("timeout_s", 30, max_timeout_s),
                 memory_mb=int(cap("memory_mb", 1024, max_memory_mb)),
                 max_output_chars=int(cap("max_output_chars", 20_000, max_output_chars)),
             )
         except Exception:
             log.exception("pandas-Lauf fehlgeschlagen")
-            return jsonify(error="Interner Fehler"), 500
-        return jsonify(out)
+            return _error("Interner Fehler", 500)
+        return out
 
-    def sql_request():
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict) or not isinstance(data.get("connection"), dict):
-            return None
-        return data
-
-    def sql_caps(data):
-        limits = data.get("limits") if isinstance(data.get("limits"), dict) else {}
-
-        def cap(name, default, ceiling):
-            try:
-                value = float(limits.get(name, default))
-            except (TypeError, ValueError):
-                value = default
-            return min(max(value, 1), ceiling)
-
+    def sql_caps(data: SqlRequest):
+        cap = capper(data.limits)
         return {
             "row_limit": int(cap("row_limit", 50, max_rows)),
             "timeout_s": cap("timeout_s", 15, max_sql_timeout_s),
             "max_cell_chars": int(cap("max_cell_chars", 500, 5000)),
         }
 
-    def sql_filters(data):
-        tables = data.get("allowed_tables")
-        blocked = (
-            data.get("blocked_columns")
-            if isinstance(data.get("blocked_columns"), dict)
-            else {}
-        )
+    def sql_filters(data: SqlRequest):
+        tables = data.allowed_tables
+        blocked = data.blocked_columns if isinstance(data.blocked_columns, dict) else {}
         return (
             {str(t) for t in tables} if isinstance(tables, list) else None,
             {
@@ -150,25 +192,24 @@ def create_app(
             },
         )
 
-    def sql_run(action):
+    def sql_run(action: str, data: SqlRequest):
         from tool_worker import sqlengine
         from tool_worker.sqlcheck import SqlRejected
 
-        data = sql_request()
-        if data is None or (action == "query" and not isinstance(data.get("sql"), str)):
-            return jsonify(error="Ungültige Anfrage"), 400
+        if action == "query" and not isinstance(data.sql, str):
+            return _error("Ungültige Anfrage", 400)
         if action == "distinct" and not all(
-            isinstance(data.get(k), str) and data[k] for k in ("table", "column")
+            isinstance(v, str) and v for v in (data.table, data.column)
         ):
-            return jsonify(error="Ungültige Anfrage"), 400
+            return _error("Ungültige Anfrage", 400)
         caps = sql_caps(data)
         allowed, blocked = sql_filters(data)
-        conn = data["connection"]
+        conn = data.connection
         try:
             if action == "query":
                 result = sqlengine.run_query(
                     conn,
-                    data["sql"],
+                    data.sql,
                     sqlite_dir=sqlite_dir,
                     allowed_tables=allowed,
                     blocked_columns=blocked,
@@ -186,14 +227,14 @@ def create_app(
                 }
             elif action == "distinct":
                 try:
-                    wanted = int(data.get("max_distinct") or 5000)
+                    wanted = int(data.max_distinct or 5000)
                 except (TypeError, ValueError):
                     wanted = 5000
                 result = sqlengine.distinct_values(
                     conn,
                     sqlite_dir=sqlite_dir,
-                    table=data["table"],
-                    column=data["column"],
+                    table=data.table,
+                    column=data.column,
                     allowed_tables=allowed,
                     blocked_columns=blocked,
                     max_distinct=min(max(wanted, 1), max_distinct),
@@ -215,30 +256,33 @@ def create_app(
                     conn, sqlite_dir=sqlite_dir, timeout_s=min(caps["timeout_s"], 15)
                 )
         except (SqlRejected, sqlengine.SqlError) as e:
-            return jsonify(ok=False, error=str(e))
+            return {"ok": False, "error": str(e)}
         except Exception:
             log.exception("SQL-Lauf fehlgeschlagen")
-            return jsonify(error="Interner Fehler"), 500
-        return jsonify(ok=True, **result)
+            return _error("Interner Fehler", 500)
+        return {
+            "ok": True,
+            **result,
+        }  # Zellwerte sind schon JSON-tauglich (sqlengine._cell)
 
     @app.post("/v1/sql/query")
-    def sql_query_route():
-        return sql_run("query")
+    def sql_query_route(data: SqlRequest):
+        return sql_run("query", data)
 
     @app.post("/v1/sql/schema")
-    def sql_schema_route():
-        return sql_run("schema")
+    def sql_schema_route(data: SqlRequest):
+        return sql_run("schema", data)
 
     @app.post("/v1/sql/distinct")
-    def sql_distinct_route():
-        return sql_run("distinct")
+    def sql_distinct_route(data: SqlRequest):
+        return sql_run("distinct", data)
 
     @app.post("/v1/sql/profile")
-    def sql_profile_route():
-        return sql_run("profile")
+    def sql_profile_route(data: SqlRequest):
+        return sql_run("profile", data)
 
     @app.post("/v1/sql/test")
-    def sql_test_route():
-        return sql_run("test")
+    def sql_test_route(data: SqlRequest):
+        return sql_run("test", data)
 
     return app

@@ -8,9 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.ingest import prompts, tasks
 from app.ingest import table_vision as tv
 from app.llm import connections as store
@@ -18,6 +16,7 @@ from app.llm import registry
 from app.llm.local_llm import VisionLLM
 from tests.test_access import add_user, client_for
 from tests.test_web_and_vision import ADMIN, put_tasks
+from tests.web import make_app
 
 
 @pytest.fixture
@@ -25,10 +24,7 @@ def app(db, monkeypatch):
     monkeypatch.setattr(
         registry, "fetch_remote_models", lambda c, force=False: ["m1", "m2"]
     )
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -205,7 +201,7 @@ def test_the_renderer_crops_the_table_area_from_a_real_pdf(tmp_path):
 
 def test_tables_task_is_configurable_resettable_and_admin_only(app, db):
     admin = client_for(app, ADMIN)
-    over = admin.get("/api/admin/embedding").json["tasks"]["tables"]
+    over = admin.get("/api/admin/embedding").json()["tasks"]["tables"]
     assert (
         over["enabled"] is True
         and over["prompt"] == over["default_prompt"] == prompts.TABLES_PROMPT
@@ -230,7 +226,7 @@ def test_tables_task_is_configurable_resettable_and_admin_only(app, db):
     )
     assert put_tasks(admin, tables={"max_row_deviation": 500}).status_code == 400
     assert put_tasks(admin, tables={"prompt": "  "}).status_code == 400
-    back = put_tasks(admin, tables={"prompt": over["default_prompt"]}).json["tasks"][
+    back = put_tasks(admin, tables={"prompt": over["default_prompt"]}).json()["tasks"][
         "tables"
     ]
     assert back["prompt"] == prompts.TABLES_PROMPT

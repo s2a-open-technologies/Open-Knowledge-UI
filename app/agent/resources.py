@@ -20,7 +20,7 @@
 Laden von Embedding-Modellen, Vectorstore, Retriever und Agent.
 
 ``load_resources()`` ist eine reine Funktion — sie laedt alle KI-Ressourcen
-und speichert sie in ``app.extensions``. Bei Fehlern wird eine Exception
+und speichert sie im Laufzeit-Zustand (``app/core/runtime.py``). Bei Fehlern wird eine Exception
 ausgeloest; der Aufrufer (``__init__.py``) entscheidet ueber Sync/Async,
 Event-Handling und Fehler-Logging.
 """
@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 
 def load_resources(
-    app,
     qdrant_client,
     collection_name,
     retriever_k,
@@ -49,11 +48,10 @@ def load_resources(
 ):
     """Laedt Embedding-Modelle, Vectorstore, Retriever und Agent.
 
-    Alle Ressourcen werden in ``app.extensions`` abgelegt. Bei Fehlern
+    Alle Ressourcen werden in ``runtime.state`` abgelegt. Bei Fehlern
     (z.B. Modell-Download gescheitert) wird eine Exception ausgeloest.
 
     Args:
-        app: Flask-Applikation (fuer ``app.extensions``).
         qdrant_client: Bereits verbundener Qdrant-Client.
         collection_name: Name der Qdrant-Collection.
         retriever_k: Anzahl MMR-Ergebnisse.
@@ -90,9 +88,11 @@ def load_resources(
     )
     tools = custom_tools.get_tools() + SqlTools().get_tools()
 
-    app.extensions["sparse_embeddings"] = sparse_embeddings
-    app.extensions["llm"] = llm
+    from app.core import runtime
+
+    runtime.state.sparse_embeddings = sparse_embeddings
+    runtime.state.llm = llm
     # Geteilte Tools fuer die modellabhaengigen Agents (app/llm/registry.py).
-    app.extensions["agent_tools"] = tools
+    runtime.state.agent_tools = tools
 
     logger.info("Ressourcen bereit (Embedding-Modell + Agent).")

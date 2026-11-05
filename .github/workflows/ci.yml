@@ -26,10 +26,10 @@ jobs:
           enable-cache: true
 
       - name: Abhängigkeiten installieren
-        run: uv sync --frozen --extra worker
+        run: uv sync --frozen --extra worker --extra test
 
       - name: Tests
-        run: uv run --with pytest pytest tests -q
+        run: uv run --extra worker --extra test --with pytest pytest tests -q
 
       - name: "Ruff-Gate: Basis-Regelwerk E4/E7/E9/F"
         run: uv run ruff check . --select E4,E7,E9,F

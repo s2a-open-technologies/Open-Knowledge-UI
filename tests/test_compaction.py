@@ -20,23 +20,19 @@
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agent import context_guard
-from app.api import register_blueprints
 from app.chat import compaction
 from tests.test_access import add_user, client_for
+from tests.web import make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -286,7 +282,7 @@ def test_settings_api_is_admin_only_and_validates(app, db):
     assert client_for(app, ed).get("/api/admin/compaction").status_code == 403
     assert client_for(app, ed).put("/api/admin/compaction", json={}).status_code == 403
     admin = client_for(app, ADMIN)
-    got = admin.get("/api/admin/compaction").json
+    got = admin.get("/api/admin/compaction").json()
     assert (
         got["enabled"] is True
         and got["headroom_percent"] == 5
@@ -313,16 +309,16 @@ def test_settings_api_is_admin_only_and_validates(app, db):
     )
     assert (
         ok.status_code == 200
-        and ok.json["headroom_percent"] == 10
-        and ok.json["enabled"] is False
+        and ok.json()["headroom_percent"] == 10
+        and ok.json()["enabled"] is False
     )
     assert (
-        ok.json["default_prompt"] == compaction.DEFAULT_PROMPT
+        ok.json()["default_prompt"] == compaction.DEFAULT_PROMPT
     )  # Zuruecksetzen moeglich
     reset = admin.put(
-        "/api/admin/compaction", json={"prompt": ok.json["default_prompt"]}
+        "/api/admin/compaction", json={"prompt": ok.json()["default_prompt"]}
     )
-    assert reset.json["prompt"] == compaction.DEFAULT_PROMPT
+    assert reset.json()["prompt"] == compaction.DEFAULT_PROMPT
 
 
 def test_default_instructions_api_is_admin_only_and_resettable(app, db):
@@ -337,7 +333,7 @@ def test_default_instructions_api_is_admin_only_and_resettable(app, db):
         == 403
     )
     admin = client_for(app, ADMIN)
-    got = admin.get("/api/admin/agent-behavior").json
+    got = admin.get("/api/admin/agent-behavior").json()
     assert got["prompt"] == got["default_prompt"] == behavior.DEFAULT_BEHAVIOR
     assert (
         admin.put("/api/admin/agent-behavior", json={"prompt": "x" * 9000}).status_code
@@ -348,13 +344,13 @@ def test_default_instructions_api_is_admin_only_and_resettable(app, db):
     )
     assert (
         ok.status_code == 200
-        and ok.json["prompt"] == "Sprich wie die Marke."
-        and ok.json["default_prompt"] == behavior.DEFAULT_BEHAVIOR
+        and ok.json()["prompt"] == "Sprich wie die Marke."
+        and ok.json()["default_prompt"] == behavior.DEFAULT_BEHAVIOR
     )
     assert (
         admin.put(
-            "/api/admin/agent-behavior", json={"prompt": ok.json["default_prompt"]}
-        ).json["prompt"]
+            "/api/admin/agent-behavior", json={"prompt": ok.json()["default_prompt"]}
+        ).json()["prompt"]
         == behavior.DEFAULT_BEHAVIOR
     )
 

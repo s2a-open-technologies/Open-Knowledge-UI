@@ -19,140 +19,68 @@
 """Dokumente eines Knowledge: Upload, Einlesen, Markdown, Datendateien, Vektordatenbank, eigene Uploads."""
 
 import os
-from functools import wraps
 from logging import getLogger
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import (
-    Blueprint,
-    Response,
-    abort,
-    current_app,
-    g,
-    jsonify,
-    make_response,
-    request,
-    send_file,
-)
+from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.responses import FileResponse, Response
 from qdrant_client import models
 
 from app import resources_ready, wait_for_resources
-from app.api._common import _abort_if_reindexing
-from app.auth.access import (
-    can_access_knowledge,
+from app.api._common import ScopedKnowledge, Upload
+from app.api.errors import ApiError
+from app.api.schemas.common import Success
+from app.api.schemas.documents import (
+    BatchDelete,
+    ClearAll,
+    Cleared,
+    DataFile,
+    DataPreview,
+    DocumentRow,
+    IngestionStatus,
+    IngestResult,
+    KnowledgeBody,
+    MarkdownView,
+    MyUpload,
+    UploadResult,
+    VectorDetail,
+    VectorList,
 )
-from app.auth.auth import auth_required_api, current_user, require_role
+from app.auth.access import can_access_knowledge
+from app.auth.auth import CurrentUser
 from app.chat import my_uploads
+from app.core import runtime
 from app.core.database_service import get_db_service
 from app.ingest import reindex
 from app.knowledge.files import check_data_file_exists, delete_associated_file
 from app.knowledge.index_doc import refresh_index
-from app.knowledge.service import (
-    get_knowledge,
-    is_remote,
-    knowledge_paths,
-)
+from app.knowledge.service import get_knowledge, knowledge_paths
 from app.rag import model_settings
 
-bp = Blueprint("documents", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["documents"])
 logger = getLogger(__name__)
 
+_NO_CLIENT = "Qdrant Client nicht initialisiert"
 
-@bp.route("/ingestion-status", methods=["GET"])
-@auth_required_api
-def ingestion_status():
+
+@router.get("/ingestion-status", response_model=IngestionStatus)
+def ingestion_status(_user: CurrentUser):
     """Geteilter Ingestion-Status fuer den Navbar-Indikator per Polling."""
-    return jsonify(current_app.extensions["ingestion_status"])
+    return runtime.state.ingestion_status
 
 
-def _current_knowledge() -> dict:
-    """Knowledge-Bereich des Requests (``knowledge_id`` als Query-/Form-/JSON-Feld);
-    ohne Angabe gilt der Standard-Bereich. Pro Request gecacht."""
-    cached = getattr(g, "_knowledge", None)
-    if cached is not None:
-        return cached
-    kid = request.args.get("knowledge_id", type=int)
-    if kid is None:
-        kid = request.form.get("knowledge_id", type=int)
-    if kid is None and request.is_json:
-        raw = (request.get_json(silent=True) or {}).get("knowledge_id")
-        kid = int(raw) if str(raw or "").isdigit() else None
-    knowledge = get_knowledge(kid)
-    # Lesende Aufrufe brauchen Lese-, aendernde Schreibrechte auf dieses Knowledge.
-    level = "read" if request.method in ("GET", "HEAD") else "write"
-    if knowledge is None or not can_access_knowledge(
-        current_user(), knowledge["id"], level
-    ):
-        abort(
-            make_response(
-                jsonify({"success": False, "error": "Knowledge nicht gefunden"}), 404
-            )
-        )
-    if is_remote(knowledge) and (
-        level == "write" or request.path.startswith("/api/vectordb")
-    ):
-        abort(
-            make_response(
-                jsonify(
-                    {"success": False, "error": "Diese Quelle ist schreibgeschützt"}
-                ),
-                409,
-            )
-        )
-    if level == "write":
-        _abort_if_reindexing(knowledge["id"])
-    g._knowledge = knowledge
-    return knowledge
-
-
-def knowledge_scoped(f):
-    """Prueft den Zugriff auf das Knowledge des Requests *vor* dem eigentlichen
-    Handler. Die Pruefung allein in ``_kb_col()`` wuerde teils erst in einem
-    ``try/except Exception`` greifen (dort wird der Abbruch zu einem 500)."""
-
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        _current_knowledge()
-        return f(*args, **kwargs)
-
-    return decorated
-
-
-def _kb_col() -> str:
-    return _current_knowledge()["collection_name"]
-
-
-def _get_collection_and_embeddings():
-    """Liefert (dense_embeddings, sparse, collection) oder None, wenn die
-    Embedding-Ressourcen noch nicht geladen sind."""
-
-    if not resources_ready():
-        return None
-
-    sparse = current_app.extensions.get("sparse_embeddings")
-    if not sparse:
-        return None
-    # Modell des aktuellen Knowledge (nicht blind das globale)
-    return (
-        model_settings.embedder_for(_current_knowledge()),
-        sparse,
-        "open_knowledge_ui",
-    )
-
-
-def _index_data_references_best_effort() -> None:
+def _index_data_references_best_effort(knowledge: dict) -> None:
     """Indexiert Verweis-Chunks für alle strukturierten Dateien. Fehler werden
     geloggt, aber nie an den Upload-Request weitergereicht."""
     try:
-        resources = _get_collection_and_embeddings()
-        if resources is None:
+        sparse = runtime.state.sparse_embeddings
+        if not resources_ready() or not sparse:
             return
-        dense, sparse, _ = resources
+        dense = model_settings.embedder_for(knowledge)  # Modell dieses Knowledge
         from app.ingest.pipeline import index_data_references
         from app.rag import sparse as sparse_lang
 
-        knowledge = _current_knowledge()
         paths = knowledge_paths(knowledge)
         index_data_references(
             dense,
@@ -165,15 +93,12 @@ def _index_data_references_best_effort() -> None:
         logger.warning(f"Verweis-Indexierung nach Upload fehlgeschlagen: {e}")
 
 
-@bp.route("/documents", methods=["GET"])
-@require_role("user")
-@knowledge_scoped
-def documents():
+@router.get("/documents", response_model=list[DocumentRow])
+def documents(knowledge: ScopedKnowledge):
     db = get_db_service()
-    knowledge = _current_knowledge()
     user_docs = db.get_all_documents(knowledge_id=knowledge["id"])
 
-    client = current_app.extensions.get("client")
+    client = runtime.state.client
     result = []
 
     for user_doc in user_docs:
@@ -181,19 +106,17 @@ def documents():
             "id": user_doc.id,
             "document_id": user_doc.document_id,
             "filename": user_doc.filename,
-            "uploaded_at": user_doc.uploaded_at.isoformat()
-            if user_doc.uploaded_at
-            else None,
+            "uploaded_at": user_doc.uploaded_at.isoformat() if user_doc.uploaded_at else None,
             "content_preview": "[Nicht mehr in Qdrant]",
             "source": "N/A",
             "has_data_file": False,
-            "has_markdown": _markdown_path(user_doc) is not None,
+            "has_markdown": my_uploads.markdown_path(user_doc) is not None,
         }
 
         if client:
             try:
                 points, _ = client.scroll(
-                    collection_name=_kb_col(),
+                    collection_name=knowledge["collection_name"],
                     scroll_filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -209,8 +132,7 @@ def documents():
                 if points:
                     payload = points[0].payload or {}
                     entry["content_preview"] = (
-                        payload.get("page_content", "")
-                        or payload.get("original_content", "")
+                        payload.get("page_content", "") or payload.get("original_content", "")
                     )[:100] + "..."
                     entry["source"] = payload.get("source", "N/A")
                     entry["has_data_file"] = check_data_file_exists(user_doc.filename)
@@ -219,12 +141,11 @@ def documents():
 
         result.append(entry)
 
-    return jsonify(result)
+    return result
 
 
-@bp.route("/documents/<int:doc_id>", methods=["DELETE"])
-@require_role("user")
-def delete_document(doc_id):
+@router.delete("/documents/{doc_id:int}", response_model=Success)
+def delete_document(doc_id: int, user: CurrentUser):
     from app.core.models import UserDocument
 
     db_session = get_db_service().get_session()
@@ -235,84 +156,66 @@ def delete_document(doc_id):
     finally:
         db_session.close()
     if not user_doc:
-        return jsonify({"success": False, "error": "Dokument nicht gefunden"}), 404
+        raise ApiError(404, "Dokument nicht gefunden", success=False)
 
     # Collection des Bereichs, dem das Dokument gehoert (nicht des Requests).
-    doc_knowledge = get_knowledge(user_doc.knowledge_id) or _current_knowledge()
+    doc_knowledge = get_knowledge(user_doc.knowledge_id) or get_knowledge(None)
     if reindex.is_locked(doc_knowledge["id"]):
-        return jsonify(
-            {"success": False, "error": "Das Knowledge wird gerade neu indexiert"}
-        ), 409
-    user = current_user()
+        raise ApiError(409, "Das Knowledge wird gerade neu indexiert", success=False)
     # Schreibrecht, oder: wer das Dokument hochgeladen hat, darf es auch loeschen (und sieht das Knowledge)
     uploader = user_doc.uploaded_by is not None and user_doc.uploaded_by == user["id"]
     if not (
         can_access_knowledge(user, doc_knowledge["id"], "write")
         or (uploader and can_access_knowledge(user, doc_knowledge["id"], "read"))
     ):
-        return jsonify({"success": False, "error": "Dokument nicht gefunden"}), 404
+        raise ApiError(404, "Dokument nicht gefunden", success=False)
     try:
-        my_uploads.delete_knowledge_document(
-            user_doc, doc_knowledge, current_app.extensions.get("client")
-        )
+        my_uploads.delete_knowledge_document(user_doc, doc_knowledge, runtime.state.client)
     except my_uploads.UploadError as e:
-        return jsonify({"success": False, "error": e.message}), e.status
-    return jsonify({"success": True})
+        raise ApiError(e.status, e.message, success=False)
+    return Success()
 
 
-MARKDOWN_ROOT = Path("./data/markdown")
+def _markdown_download(text: str, stem: str) -> Response:
+    return Response(
+        text,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(stem)}.md"},
+    )
 
 
-def _markdown_path(user_doc) -> Path | None:
-    return my_uploads.markdown_path(user_doc)
+@router.get("/my-uploads", response_model=list[MyUpload])
+def my_uploads_list(user: CurrentUser):
+    return my_uploads.list_uploads(user["id"])
 
 
-def _upload_error(e):
-    return jsonify({"success": False, "error": e.message}), e.status
-
-
-@bp.route("/my-uploads", methods=["GET"])
-@auth_required_api
-def my_uploads_list():
-    return jsonify(my_uploads.list_uploads(current_user()["id"]))
-
-
-@bp.route("/my-uploads/<kind>/<item_id>/markdown", methods=["GET"])
-@auth_required_api
-def my_uploads_markdown(kind, item_id):
+@router.get("/my-uploads/{kind}/{item_id}/markdown", response_model=MarkdownView)
+def my_uploads_markdown(kind: str, item_id: str, user: CurrentUser, download: str | None = None):
     try:
-        row = my_uploads.get_owned(kind, item_id, current_user()["id"])
+        row = my_uploads.get_owned(kind, item_id, user["id"])
     except my_uploads.UploadError as e:
-        return _upload_error(e)
+        raise ApiError(e.status, e.message, success=False)
     text = my_uploads.read_markdown(kind, row)
     if text is None:
-        return jsonify({"success": False, "error": "Kein Markdown gespeichert"}), 404
+        raise ApiError(404, "Kein Markdown gespeichert", success=False)
     name = Path(row.filename).stem
-    if request.args.get("download") == "1":
-        return Response(
-            text,
-            mimetype="text/markdown; charset=utf-8",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}.md"
-            },
-        )
-    return jsonify({"filename": f"{name}.md", "markdown": text})
+    if download == "1":
+        return _markdown_download(text, name)
+    return {"filename": f"{name}.md", "markdown": text}
 
 
-@bp.route("/my-uploads/<kind>/<item_id>", methods=["DELETE"])
-@auth_required_api
-def my_uploads_delete(kind, item_id):
+@router.delete("/my-uploads/{kind}/{item_id}", response_model=Success)
+def my_uploads_delete(kind: str, item_id: str, user: CurrentUser):
     try:
-        row = my_uploads.get_owned(kind, item_id, current_user()["id"])
-        my_uploads.delete_upload(kind, row, current_app.extensions.get("client"))
+        row = my_uploads.get_owned(kind, item_id, user["id"])
+        my_uploads.delete_upload(kind, row, runtime.state.client)
     except my_uploads.UploadError as e:
-        return _upload_error(e)
-    return jsonify({"success": True})
+        raise ApiError(e.status, e.message, success=False)
+    return Success()
 
 
-@bp.route("/documents/<int:doc_id>/markdown", methods=["GET"])
-@require_role("user")
-def document_markdown(doc_id):
+@router.get("/documents/{doc_id:int}/markdown", response_model=MarkdownView)
+def document_markdown(doc_id: int, user: CurrentUser, download: str | None = None):
     """Das beim Einlesen erzeugte Markdown (so sieht der Splitter das Dokument).
     ``?download=1`` liefert eine Datei."""
     from app.core.models import UserDocument
@@ -321,67 +224,57 @@ def document_markdown(doc_id):
     try:
         user_doc = db_session.query(UserDocument).filter_by(id=doc_id).first()
         knowledge = get_knowledge(user_doc.knowledge_id) if user_doc else None
-        if (
-            not user_doc
-            or not knowledge
-            or not can_access_knowledge(current_user(), knowledge["id"], "read")
-        ):
-            return jsonify({"success": False, "error": "Dokument nicht gefunden"}), 404
-        path = _markdown_path(user_doc)
+        if not user_doc or not knowledge or not can_access_knowledge(user, knowledge["id"], "read"):
+            raise ApiError(404, "Dokument nicht gefunden", success=False)
+        path = my_uploads.markdown_path(user_doc)
         filename = user_doc.filename
     finally:
         db_session.close()
 
+
     if path is None:
-        return jsonify(
-            {
-                "success": False,
-                "error": "Für dieses Dokument ist kein Markdown gespeichert "
-                "(früher eingelesen). Es entsteht beim Neu-Indexieren.",
-            }
-        ), 404
+        raise ApiError(
+            404,
+            "Für dieses Dokument ist kein Markdown gespeichert "
+            "(früher eingelesen). Es entsteht beim Neu-Indexieren.",
+            success=False,
+        )
 
     text = path.read_text(encoding="utf-8")
-    if request.args.get("download") == "1":
-        return Response(
-            text,
-            mimetype="text/markdown; charset=utf-8",
-            headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(Path(filename).stem)}.md"
-            },
-        )
-    return jsonify({"filename": filename, "markdown": text})
+    if download == "1":
+        return _markdown_download(text, Path(filename).stem)
+    return {"filename": filename, "markdown": text}
 
 
-@bp.route("/documents/upload", methods=["POST"])
-@require_role("user")
-@knowledge_scoped
-def upload_document():
+@router.post("/documents/upload", response_model=UploadResult)
+def upload_document(
+    knowledge: ScopedKnowledge,
+    user: CurrentUser,
+    files: list[UploadFile] = File(default=[]),
+    knowledge_id: str | None = Form(default=None),
+):
     from app.knowledge.files import store_uploaded_files
 
     result = store_uploaded_files(
-        request.files.getlist("files"),
-        paths=knowledge_paths(_current_knowledge()),
-        uploader_id=current_user()["id"],
+        [Upload(f) for f in files],
+        paths=knowledge_paths(knowledge),
+        uploader_id=user["id"],
     )
 
     if result["duplicate"]:
-        return jsonify(
-            {
-                "success": False,
-                "error": (
-                    f'Datei "{result["duplicate"]}" wurde bereits hochgeladen und '
-                    f"verarbeitet. Bitte zuerst das bestehende Dokument löschen, "
-                    f"um es zu ersetzen."
-                ),
-            }
-        ), 409
+        raise ApiError(
+            409,
+            f'Datei "{result["duplicate"]}" wurde bereits hochgeladen und '
+            f"verarbeitet. Bitte zuerst das bestehende Dokument löschen, "
+            f"um es zu ersetzen.",
+            success=False,
+        )
 
     documents = result["documents"]
     data_files = result["data_files"]
 
     if not documents and not data_files:
-        return jsonify({"success": False, "error": "Keine gültigen Dateien"}), 400
+        raise ApiError(400, "Keine gültigen Dateien", success=False)
 
     if data_files and not documents:
         message = (
@@ -401,26 +294,22 @@ def upload_document():
     # sind. Falls die Embedding-Ressourcen noch nicht geladen sind, werden sie
     # beim nächsten "Ingestion starten" nachgezogen.
     if data_files:
-        _index_data_references_best_effort()
-        refresh_index(_current_knowledge()["id"])
+        _index_data_references_best_effort(knowledge)
+        refresh_index(knowledge["id"])
 
-    return jsonify(
-        {
-            "success": True,
-            "documents": documents,
-            "data_files": data_files,
-            "skipped": result["skipped"],
-            "files": documents + data_files,
-            "message": message,
-        }
-    )
+    return {
+        "success": True,
+        "documents": documents,
+        "data_files": data_files,
+        "skipped": result["skipped"],
+        "files": documents + data_files,
+        "message": message,
+    }
 
 
-@bp.route("/documents/upload/clear", methods=["POST"])
-@require_role("user")
-@knowledge_scoped
-def clear_uploaded_files():
-    target_dir = knowledge_paths(_current_knowledge()).files_dir
+@router.post("/documents/upload/clear", response_model=Cleared)
+def clear_uploaded_files(knowledge: ScopedKnowledge, _body: KnowledgeBody | None = None):
+    target_dir = knowledge_paths(knowledge).files_dir
     deleted = 0
     errors = []
 
@@ -434,153 +323,139 @@ def clear_uploaded_files():
             except Exception as e:
                 errors.append(str(e))
 
-    return jsonify({"success": True, "deleted": deleted, "errors": errors})
+    return {"success": True, "deleted": deleted, "errors": errors}
 
 
-@bp.route("/data-files", methods=["GET"])
-@require_role("user")
-@knowledge_scoped
-def data_files():
+@router.get("/data-files", response_model=list[DataFile])
+def data_files(knowledge: ScopedKnowledge):
     from app.knowledge.files import list_data_files
 
-    return jsonify(list_data_files(knowledge_paths(_current_knowledge()).data_dir))
+    return list_data_files(knowledge_paths(knowledge).data_dir)
 
 
 DATA_PREVIEW_ROWS = 200
 
 
-def _data_file_path(filename: str) -> Path | None:
-    """Strukturierte Datei im Datenordner des aktuellen Knowledge (nie ausserhalb)."""
+def _data_file_path(knowledge: dict, filename: str) -> Path | None:
+    """Strukturierte Datei im Datenordner des Knowledge (nie ausserhalb)."""
     from app.knowledge.files import STRUCTURED_EXTS
 
-    folder = knowledge_paths(_current_knowledge()).data_dir.resolve()
+    folder = knowledge_paths(knowledge).data_dir.resolve()
     path = (folder / os.path.basename(filename)).resolve()
-    if (
-        path.parent != folder
-        or path.suffix.lower() not in STRUCTURED_EXTS
-        or not path.is_file()
-    ):
+    if path.parent != folder or path.suffix.lower() not in STRUCTURED_EXTS or not path.is_file():
         return None
     return path
 
 
-@bp.route("/data-files/<path:filename>", methods=["GET"])
-@require_role("user")
-@knowledge_scoped
-def data_file_view(filename):
+@router.get("/data-files/{filename:path}", response_model=DataPreview)
+def data_file_view(filename: str, knowledge: ScopedKnowledge, download: str | None = None):
     """Vorschau (erste Zeilen) einer CSV/Excel-Datei; ``?download=1`` liefert die Datei selbst."""
-    path = _data_file_path(filename)
+    path = _data_file_path(knowledge, filename)
     if path is None:
-        return jsonify({"success": False, "error": "Datei nicht gefunden"}), 404
-    if request.args.get("download") == "1":
-        return send_file(path, as_attachment=True, download_name=path.name)
+        raise ApiError(404, "Datei nicht gefunden", success=False)
+    if download == "1":
+        return FileResponse(path, filename=path.name)
 
     from app.ingest.pipeline import _load_dataframe
 
     try:
         df = _load_dataframe(str(path))
     except Exception as e:
-        return jsonify({"success": False, "error": f"Datei nicht lesbar: {e}"}), 422
+        raise ApiError(422, f"Datei nicht lesbar: {e}", success=False)
     head = df.head(DATA_PREVIEW_ROWS)
-    return jsonify(
-        {
-            "filename": path.name,
-            "columns": [str(c) for c in df.columns],
-            "rows": [
-                ["" if v != v else str(v) for v in row]
-                for row in head.itertuples(index=False)
-            ],
-            "total_rows": len(df),
-            "truncated": len(df) > DATA_PREVIEW_ROWS,
-        }
-    )
+    return {
+        "filename": path.name,
+        "columns": [str(c) for c in df.columns],
+        "rows": [["" if v != v else str(v) for v in row] for row in head.itertuples(index=False)],
+        "total_rows": len(df),
+        "truncated": len(df) > DATA_PREVIEW_ROWS,
+    }
 
 
-@bp.route("/data-files/<path:filename>", methods=["DELETE"])
-@require_role("user")
-@knowledge_scoped
-def delete_data_file_route(filename):
+@router.delete("/data-files/{filename:path}", response_model=Success)
+def delete_data_file_route(filename: str, knowledge: ScopedKnowledge):
     from app.knowledge.files import delete_data_file
 
-    paths = knowledge_paths(_current_knowledge())
+    paths = knowledge_paths(knowledge)
     if not delete_data_file(filename, data_dir=paths.data_dir):
-        return jsonify({"success": False, "error": "Datei nicht gefunden"}), 404
+        raise ApiError(404, "Datei nicht gefunden", success=False)
 
     # Zugehörigen Verweis-Chunk aus der Vektordatenbank entfernen (best-effort).
     try:
         from app.ingest.pipeline import delete_data_reference
 
-        delete_data_reference(_kb_col(), f"{paths.name_prefix}{filename}")
+        delete_data_reference(knowledge["collection_name"], f"{paths.name_prefix}{filename}")
     except Exception as e:
-        logger.warning(
-            f"Verweis-Chunk für {filename} konnte nicht gelöscht werden: {e}"
-        )
+        logger.warning(f"Verweis-Chunk für {filename} konnte nicht gelöscht werden: {e}")
 
-    refresh_index(_current_knowledge()["id"])
-    return jsonify({"success": True})
+    refresh_index(knowledge["id"])
+    return Success()
 
 
-@bp.route("/documents/ingest", methods=["POST"])
-@require_role("user")
-@knowledge_scoped
-def trigger_ingestion():
+@router.post("/documents/ingest", response_model=IngestResult)
+def trigger_ingestion(knowledge: ScopedKnowledge, _body: KnowledgeBody | None = None):
     from app.ingest.pipeline import DocumentIngestion
 
     try:
         if not wait_for_resources(timeout=180):
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "RAG-System wird noch initialisiert (Embedding-Modell "
-                    "lädt). Bitte in wenigen Sekunden erneut versuchen.",
-                }
-            ), 503
+            raise ApiError(
+                503,
+                "RAG-System wird noch initialisiert (Embedding-Modell "
+                "lädt). Bitte in wenigen Sekunden erneut versuchen.",
+                success=False,
+            )
     except RuntimeError as e:
-        return jsonify({"success": False, "error": str(e)}), 503
+        raise ApiError(503, str(e), success=False)
 
-    knowledge = _current_knowledge()
-    status = current_app.extensions["ingestion_status"]
+    status = runtime.state.ingestion_status
     if status["is_ingesting"]:
-        return jsonify({"success": False, "error": "Ingestion läuft bereits"}), 409
+        raise ApiError(409, "Ingestion läuft bereits", success=False)
 
     status["is_ingesting"] = True
     status["knowledge_id"] = knowledge["id"]
     try:
         ingest = DocumentIngestion(
-            sparse_embeddings=current_app.extensions.get("sparse_embeddings"),
+            sparse_embeddings=runtime.state.sparse_embeddings,
             knowledge=knowledge,
         )
         ingest.ingest_documents()
         # Fehler und Warnungen einzelner Dateien gehen an die Oberflaeche (nichts schlaegt stumm fehl).
-        return jsonify(
-            {
-                "success": not ingest.errors or ingest.processed > 0,
-                "message": f"{ingest.processed} Datei(en) eingelesen"
-                + (f", {len(ingest.errors)} fehlgeschlagen" if ingest.errors else ""),
-                "processed": ingest.processed,
-                "errors": ingest.errors,
-                "warnings": ingest.warnings,
-            }
-        )
+        return {
+            "success": not ingest.errors or ingest.processed > 0,
+            "message": f"{ingest.processed} Datei(en) eingelesen"
+            + (f", {len(ingest.errors)} fehlgeschlagen" if ingest.errors else ""),
+            "processed": ingest.processed,
+            "errors": ingest.errors,
+            "warnings": ingest.warnings,
+        }
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        raise ApiError(500, str(e), success=False)
     finally:
         status["is_ingesting"] = False
         status["knowledge_id"] = None
 
 
-@bp.route("/vectordb", methods=["GET"])
-@require_role("user")
-@knowledge_scoped
-def vectordb():
-    client = current_app.extensions.get("client")
+def _client(success_flag: bool = True):
+    client = runtime.state.client
     if not client:
-        return jsonify({"error": "Qdrant Client nicht initialisiert"}), 503
+        if success_flag:
+            raise ApiError(503, _NO_CLIENT, success=False)
+        raise ApiError(503, _NO_CLIENT)
+    return client
 
-    limit = request.args.get("limit", 20, type=int)
-    offset = request.args.get("offset", None)
-    filename_filter = request.args.get("filename", "").strip()
-    file_status_filter = request.args.get("file_status", "").strip()
+
+@router.get("/vectordb", response_model=VectorList)
+def vectordb(
+    knowledge: ScopedKnowledge,
+    limit: int = 20,
+    offset: str | None = None,
+    filename: str = "",
+    file_status: str = "",
+):
+    client = _client(success_flag=False)
+    filename_filter = filename.strip()
+    file_status_filter = file_status.strip()
+    collection = knowledge["collection_name"]
 
     try:
         scroll_filter = None
@@ -594,7 +469,7 @@ def vectordb():
             )
 
         points, next_offset = client.scroll(
-            collection_name=_kb_col(),
+            collection_name=collection,
             limit=limit,
             offset=offset,
             with_payload=True,
@@ -605,10 +480,8 @@ def vectordb():
         documents = []
         for point in points:
             payload = point.payload or {}
-            filename = payload.get("filename", "N/A")
-            has_data_file = (
-                check_data_file_exists(filename) if filename != "N/A" else False
-            )
+            name = payload.get("filename", "N/A")
+            has_data_file = check_data_file_exists(name) if name != "N/A" else False
 
             if file_status_filter == "has_file" and not has_data_file:
                 continue
@@ -618,11 +491,10 @@ def vectordb():
             documents.append(
                 {
                     "id": str(point.id),
-                    "filename": filename,
+                    "filename": name,
                     "source": payload.get("source", "N/A"),
                     "content_preview": (
-                        payload.get("page_content", "")
-                        or payload.get("original_content", "")
+                        payload.get("page_content", "") or payload.get("original_content", "")
                     )[:50]
                     + "...",
                     "has_data_file": has_data_file,
@@ -630,119 +502,85 @@ def vectordb():
             )
 
         all_points, _ = client.scroll(
-            collection_name=_kb_col(),
+            collection_name=collection,
             limit=1000,
             with_payload=True,
             with_vectors=False,
         )
-        filenames = sorted(
-            {p.payload.get("filename", "N/A") for p in all_points if p.payload}
-        )
+        filenames = sorted({p.payload.get("filename", "N/A") for p in all_points if p.payload})
     except Exception as e:
-        return jsonify({"error": f"Fehler beim Laden der Dokumente: {e!s}"}), 500
+        raise ApiError(500, f"Fehler beim Laden der Dokumente: {e!s}")
 
-    return jsonify(
-        {
-            "documents": documents,
-            "next_offset": next_offset,
-            "filenames": filenames,
-            "limit": limit,
-        }
-    )
+    return {
+        "documents": documents,
+        "next_offset": next_offset,
+        "filenames": filenames,
+        "limit": limit,
+    }
 
 
-@bp.route("/vectordb/<doc_id>", methods=["GET"])
-@require_role("user")
-@knowledge_scoped
-def vectordb_detail(doc_id):
-    client = current_app.extensions.get("client")
-    if not client:
-        return jsonify({"error": "Qdrant Client nicht initialisiert"}), 503
-
+@router.get("/vectordb/{doc_id}", response_model=VectorDetail)
+def vectordb_detail(doc_id: str, knowledge: ScopedKnowledge):
+    client = _client(success_flag=False)
     try:
         result = client.retrieve(
-            collection_name=_kb_col(),
+            collection_name=knowledge["collection_name"],
             ids=[doc_id],
             with_payload=True,
             with_vectors=False,
         )
-        if not result:
-            return jsonify({"error": "Dokument nicht gefunden"}), 404
-
-        point = result[0]
-        payload = point.payload or {}
-        document = {
-            "id": str(point.id),
-            "page_content": payload.get("page_content", ""),
-            "original_content": payload.get("original_content", ""),
-            "metadata": {
-                k: v
-                for k, v in payload.items()
-                if k not in ["page_content", "original_content"]
-            },
-        }
     except Exception as e:
-        return jsonify({"error": f"Fehler beim Laden des Dokuments: {e!s}"}), 500
+        raise ApiError(500, f"Fehler beim Laden des Dokuments: {e!s}")
+    if not result:
+        raise ApiError(404, "Dokument nicht gefunden")
 
-    return jsonify(document)
+    point = result[0]
+    payload = point.payload or {}
+    return {
+        "id": str(point.id),
+        "page_content": payload.get("page_content", ""),
+        "original_content": payload.get("original_content", ""),
+        "metadata": {
+            k: v for k, v in payload.items() if k not in ["page_content", "original_content"]
+        },
+    }
 
 
-@bp.route("/vectordb/<doc_id>", methods=["DELETE"])
-@require_role("user")
-@knowledge_scoped
-def delete_vectordb_document(doc_id):
-    client = current_app.extensions.get("client")
-    if not client:
-        return jsonify(
-            {"success": False, "error": "Qdrant Client nicht initialisiert"}
-        ), 503
-
+@router.delete("/vectordb/{doc_id}", response_model=Success)
+def delete_vectordb_document(doc_id: str, knowledge: ScopedKnowledge):
+    client = _client()
+    collection = knowledge["collection_name"]
     try:
         result = client.retrieve(
-            collection_name=_kb_col(),
-            ids=[doc_id],
-            with_payload=True,
-            with_vectors=False,
+            collection_name=collection, ids=[doc_id], with_payload=True, with_vectors=False
         )
         payload = result[0].payload if result else None
 
         client.delete(
-            collection_name=_kb_col(),
+            collection_name=collection,
             points_selector=models.PointIdsList(points=[doc_id]),
         )
 
         if payload:
             delete_associated_file(payload)
-
-        return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        raise ApiError(500, str(e), success=False)
+    return Success()
 
 
-@bp.route("/vectordb/batch-delete", methods=["POST"])
-@require_role("user")
-@knowledge_scoped
-def vectordb_batch_delete():
-    client = current_app.extensions.get("client")
-    if not client:
-        return jsonify(
-            {"success": False, "error": "Qdrant Client nicht initialisiert"}
-        ), 503
-
-    data = request.get_json() or {}
-    filename = data.get("filename")
+@router.post("/vectordb/batch-delete", response_model=Success)
+def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None = None):
+    client = _client()
+    filename = body.filename if body else None
     if not filename:
-        return jsonify({"success": False, "error": "Filename erforderlich"}), 400
+        raise ApiError(400, "Filename erforderlich", success=False)
+    collection = knowledge["collection_name"]
 
     try:
         points, _ = client.scroll(
-            collection_name=_kb_col(),
+            collection_name=collection,
             filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="filename", match=models.MatchValue(value=filename)
-                    )
-                ]
+                must=[models.FieldCondition(key="filename", match=models.MatchValue(value=filename))]
             ),
             limit=1000,
             with_payload=True,
@@ -755,36 +593,25 @@ def vectordb_batch_delete():
 
             point_ids = [str(p.id) for p in points]
             client.delete(
-                collection_name=_kb_col(),
+                collection_name=collection,
                 points_selector=models.PointIdsList(points=point_ids),
             )
-
-        return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        raise ApiError(500, str(e), success=False)
+    return Success()
 
 
-@bp.route("/vectordb/clear", methods=["POST"])
-@require_role("user")
-@knowledge_scoped
-def vectordb_clear_all():
-    client = current_app.extensions.get("client")
-    if not client:
-        return jsonify(
-            {"success": False, "error": "Qdrant Client nicht initialisiert"}
-        ), 503
-
-    data = request.get_json() or {}
-    if data.get("confirmation", "") != "DELETE_ALL":
-        return jsonify({"success": False, "error": "Bestätigung erforderlich"}), 400
+@router.post("/vectordb/clear", response_model=Success)
+def vectordb_clear_all(knowledge: ScopedKnowledge, body: ClearAll | None = None):
+    client = _client()
+    if (body.confirmation if body else "") != "DELETE_ALL":
+        raise ApiError(400, "Bestätigung erforderlich", success=False)
 
     try:
         from app.rag.collections import ensure_collection
 
-        client.delete_collection(_kb_col())
-        ensure_collection(
-            client, _kb_col(), _current_knowledge()["embedding_dimension"]
-        )
-        return jsonify({"success": True})
+        client.delete_collection(knowledge["collection_name"])
+        ensure_collection(client, knowledge["collection_name"], knowledge["embedding_dimension"])
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        raise ApiError(500, str(e), success=False)
+    return Success()

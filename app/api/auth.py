@@ -20,16 +20,20 @@
 
 from logging import getLogger
 
-from flask import (
-    Blueprint,
-    Response,
-    jsonify,
-    redirect,
-    request,
-    session,
-)
+from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse, Response
 
-from app.auth.auth import auth_required_api, current_user
+from app.api.errors import ApiError
+from app.api.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    Me,
+    Providers,
+    Version,
+)
+from app.api.schemas.common import Success
+from app.auth.auth import CurrentUser, login_session
 from app.auth.users import (
     LoginThrottledError,
     authenticate,
@@ -38,100 +42,98 @@ from app.auth.users import (
 )
 from app.chat import data_export
 
-bp = Blueprint("auth_api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["auth"])
 logger = getLogger(__name__)
 
 
-@bp.route("/version", methods=["GET"])
+@router.get("/version", response_model=Version)
 def app_version():
     """Version der Anwendung (öffentlich, z. B. für Support und Monitoring)."""
     from app.core.version import get_version
 
-    return jsonify({"version": get_version()})
+    return Version(version=get_version())
 
 
-@bp.route("/auth/me", methods=["GET"])
-@auth_required_api
-def auth_me():
-    return jsonify({"authenticated": True, "user": current_user()})
+@router.get("/auth/me", response_model=Me)
+def auth_me(user: CurrentUser):
+    return {"authenticated": True, "user": user}
 
 
-@bp.route("/auth/login", methods=["POST"])
-def auth_login():
-    data = request.get_json() or {}
+@router.post("/auth/login", response_model=LoginResponse)
+def auth_login(request: Request, body: LoginRequest | None = None):
+    body = body or LoginRequest()
     try:
         user = authenticate(
-            data.get("username", ""),
-            data.get("password", ""),
-            client_ip=request.remote_addr,
+            body.username,
+            body.password,
+            client_ip=request.client.host if request.client else None,
         )
     except LoginThrottledError:
-        return jsonify(
-            {
-                "success": False,
-                "error": "Zu viele Fehlversuche. Bitte in einigen Minuten erneut versuchen.",
-            }
-        ), 429
+        raise ApiError(
+            429,
+            "Zu viele Fehlversuche. Bitte in einigen Minuten erneut versuchen.",
+            success=False,
+        )
 
     if user is None:
-        return jsonify(
-            {"success": False, "error": "Benutzername oder Passwort falsch"}
-        ), 401
+        raise ApiError(401, "Benutzername oder Passwort falsch", success=False)
 
     # Neue Session statt Wiederverwendung (verhindert Session-Fixation).
-    session.clear()
-    session["user_id"] = user["id"]
-    return jsonify({"success": True, "user": user})
+    login_session(request, user["id"])
+    return {"success": True, "user": user}
 
 
-@bp.route("/auth/providers", methods=["GET"])
+@router.get("/auth/providers", response_model=Providers)
 def auth_providers():
     """Welche externen Anmeldungen der Login-Bildschirm anbieten soll (ohne Anmeldung abrufbar)."""
     from app.auth import external as auth_external
 
     cfg = auth_external.load_config()
-    return jsonify(
-        {
-            "ldap": bool(cfg["ldap"]["enabled"]),
-            "oidc": {
-                "enabled": bool(cfg["oidc"]["enabled"]),
-                "name": cfg["oidc"]["name"] or "SSO",
-            },
-        }
-    )
+    return {
+        "ldap": bool(cfg["ldap"]["enabled"]),
+        "oidc": {
+            "enabled": bool(cfg["oidc"]["enabled"]),
+            "name": cfg["oidc"]["name"] or "SSO",
+        },
+    }
 
 
-def _public_base_url() -> str:
+def _public_base_url(request: Request) -> str:
     from app.auth import external as auth_external
 
-    return auth_external.load_config()["base_url"] or request.host_url.rstrip("/")
+    return auth_external.load_config()["base_url"] or str(request.base_url).rstrip("/")
 
 
-@bp.route("/auth/oidc/login", methods=["GET"])
-def auth_oidc_login():
+@router.get("/auth/oidc/login", include_in_schema=False)
+def auth_oidc_login(request: Request):
     from app.auth import external as auth_external
     from app.auth import oidc as auth_oidc
 
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
-        return redirect("/?login_error=oidc_off")
+        return RedirectResponse("/?login_error=oidc_off", status_code=302)
     try:
-        return redirect(auth_oidc.start_login(cfg, _public_base_url(), session))
+        return RedirectResponse(
+            auth_oidc.start_login(cfg, _public_base_url(request), request.session),
+            status_code=302,
+        )
     except auth_oidc.OidcError as e:
         logger.warning(f"OIDC-Start fehlgeschlagen: {e}")
-        return redirect("/?login_error=oidc")
+        return RedirectResponse("/?login_error=oidc", status_code=302)
 
 
-@bp.route("/auth/oidc/callback", methods=["GET"])
-def auth_oidc_callback():
+@router.get("/auth/oidc/callback", include_in_schema=False)
+def auth_oidc_callback(request: Request):
     from app.auth import external as auth_external
     from app.auth import oidc as auth_oidc
 
     cfg = auth_external.load_config()["oidc"]
     if not cfg["enabled"]:
-        return redirect("/?login_error=oidc_off")
+        return RedirectResponse("/?login_error=oidc_off", status_code=302)
     try:
-        found = auth_oidc.finish_login(cfg, _public_base_url(), session, request.args)
+        found = auth_oidc.finish_login(
+            cfg, _public_base_url(request), request.session, dict(request.query_params)
+        )
         user = auth_external.login_external_user(
             "oidc",
             found["external_id"],
@@ -141,39 +143,31 @@ def auth_oidc_callback():
         )
     except (auth_oidc.OidcError, auth_external.ExternalLoginError) as e:
         logger.warning(f"OIDC-Anmeldung abgelehnt: {e}")
-        session.pop("oidc", None)
-        return redirect("/?login_error=oidc")
-    session.clear()  # neue Session (verhindert Session-Fixation)
-    session["user_id"] = user["id"]
-    return redirect("/")
+        request.session.pop("oidc", None)
+        return RedirectResponse("/?login_error=oidc", status_code=302)
+    login_session(request, user["id"])  # neue Session (verhindert Session-Fixation)
+    return RedirectResponse("/", status_code=302)
 
 
-@bp.route("/auth/logout", methods=["POST"])
-def auth_logout():
+@router.post("/auth/logout", response_model=Success)
+def auth_logout(request: Request):
     from app.auth import audit
 
     audit.record(audit.LOGOUT)
-    session.clear()
-    return jsonify({"success": True})
+    request.session.clear()
+    return Success()
 
 
-@bp.route("/settings/change-password", methods=["POST"])
-@auth_required_api
-def change_password():
-    data = request.get_json() or {}
-    old_password = data.get("old_password", "")
-    new_password = data.get("new_password", "")
+@router.post("/settings/change-password", response_model=Success)
+def change_password(user: CurrentUser, body: ChangePasswordRequest | None = None):
+    body = body or ChangePasswordRequest()
+    if not body.new_password or len(body.new_password) < 4:
+        raise ApiError(400, "Passwort muss mindestens 4 Zeichen haben", success=False)
 
-    if not new_password or len(new_password) < 4:
-        return jsonify(
-            {"success": False, "error": "Passwort muss mindestens 4 Zeichen haben"}
-        ), 400
+    if not verify_password(user["id"], body.old_password):
+        raise ApiError(403, "Altes Passwort ist falsch", success=False)
 
-    user = current_user()
-    if not verify_password(user["id"], old_password):
-        return jsonify({"success": False, "error": "Altes Passwort ist falsch"}), 403
-
-    set_password(user["id"], new_password)
+    set_password(user["id"], body.new_password)
     from app.auth import audit
 
     audit.record(
@@ -182,24 +176,24 @@ def change_password():
         object_type="user",
         object_id=user["id"],
     )
-    return jsonify({"success": True})
+    return Success()
 
 
-@bp.route("/me/export", methods=["GET"])
-@auth_required_api
-def export_my_data():
+@router.get("/me/export")
+def export_my_data(user: CurrentUser):
     """Alle persoenlichen Daten des angemeldeten Kontos als JSON (Auskunft/Übertragbarkeit)."""
-    user = current_user()
     try:
         data = data_export.build_export(user["id"])
     except LookupError:
-        return jsonify({"success": False, "error": "Konto nicht gefunden"}), 404
+        raise ApiError(404, "Konto nicht gefunden", success=False)
     response = Response(
         data_export.to_response_bytes(data),
-        content_type="application/json",
-    )
-    response.headers["Content-Disposition"] = (
-        f'attachment; filename="{data_export.export_filename(user["username"])}"'
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{data_export.export_filename(user["username"])}"'
+            )
+        },
     )
     from app.auth import audit
 

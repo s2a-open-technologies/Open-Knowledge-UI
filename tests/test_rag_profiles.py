@@ -1,9 +1,7 @@
 import pytest
-from flask import Flask
 from qdrant_client import QdrantClient
 from werkzeug.security import generate_password_hash
 
-from app.api import register_blueprints
 from app.auth import access
 from app.core.models import User
 from app.knowledge import service as knowledge
@@ -12,6 +10,7 @@ from app.rag import profiles as prof
 from app.rag.collections import ensure_collection
 from app.rag.profiles import ProfileError
 from tests.test_rag import FakeDense, FakeSparse, add_point
+from tests.web import client_for, make_app, set_state
 
 # --- Konfiguration ---------------------------------------------------------
 
@@ -194,10 +193,7 @@ def add_user(db, username, role):
 
 @pytest.fixture
 def app(db, monkeypatch):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     # Standardprofil enthaelt Reranking: Tests duerfen kein Modell laden.
     monkeypatch.setattr(
         model_settings,
@@ -210,17 +206,10 @@ def app(db, monkeypatch):
         ["Dach Sanierung", "Dach Reparatur", "Dach Garantie", "Dach Daemmung"]
     ):
         add_point(qd, "open_knowledge_ui", i + 1, t, filename=f"d{i}.md")
-    app.extensions.update(client=qd, sparse_embeddings=FakeSparse())
+    set_state(client=qd, sparse_embeddings=FakeSparse())
     # Retrieval-Test und Suche nutzen den Embedder des Knowledge: hier der Fake
     monkeypatch.setattr(model_settings, "embedder_for", lambda k: FakeDense())
     return app
-
-
-def client_for(app, user):
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["user_id"] = user["id"]
-    return c
 
 
 ADMIN = {"id": 1}
@@ -251,7 +240,7 @@ def test_profile_api_permissions(app, db):
         "/api/retrieval/profiles",
         json={"name": "Neu", "description": "d", "config": {"final_k": 7}},
     )
-    assert created.status_code == 201 and created.json["config"]["final_k"] == 7
+    assert created.status_code == 201 and created.json()["config"]["final_k"] == 7
 
 
 def test_profile_api_validates(app):
@@ -259,7 +248,7 @@ def test_profile_api_validates(app):
     bad = admin.post(
         "/api/retrieval/profiles", json={"name": "Bad", "config": {"final_k": 0}}
     )
-    assert bad.status_code == 400 and "final_k" in bad.json["error"]
+    assert bad.status_code == 400 and "final_k" in bad.json()["error"]
     assert (
         admin.post("/api/retrieval/profiles", json={"name": "Standard"}).status_code
         == 409
@@ -270,7 +259,7 @@ def test_profile_api_validates(app):
         "/api/retrieval/profiles",
         json={"name": "Alt", "config": {"rerank": {"model": "irgendwas"}}},
     )
-    assert ok.status_code == 201 and ok.json["config"]["rerank"]["model"] == "default"
+    assert ok.status_code == 201 and ok.json()["config"]["rerank"]["model"] == "default"
 
 
 def test_assigning_a_profile_needs_write_access_on_the_knowledge(app, db):
@@ -297,7 +286,7 @@ def test_pipeline_test_endpoint_returns_documents_and_trace(app):
     admin = client_for(app, ADMIN)
     res = admin.post("/api/retrieval/test", json={"question": "Dach"})
     assert res.status_code == 200
-    result = res.json["results"][0]
+    result = res.json()["results"][0]
     assert result["knowledge"] == "Standard" and result["documents"]
     stages = [s["stage"] for s in result["trace"]["stages"]]
     assert stages[0] == "search" and stages[-1] == "final"
@@ -309,11 +298,11 @@ def test_switching_the_knowledge_profile_changes_the_result_immediately(app):
     few = admin.post(
         "/api/retrieval/profiles",
         json={"name": "Knapp", "config": {"final_k": 1, "mmr": {"enabled": False}}},
-    ).json
+    ).json()
     many = admin.post(
         "/api/retrieval/profiles",
         json={"name": "Breit", "config": {"final_k": 4, "mmr": {"enabled": False}}},
-    ).json
+    ).json()
     kid = knowledge.get_knowledge(None)["id"]
     access.add_grant(
         "knowledge", kid, "user", 1, "write"
@@ -321,7 +310,7 @@ def test_switching_the_knowledge_profile_changes_the_result_immediately(app):
 
     def count():
         return len(
-            admin.post("/api/retrieval/test", json={"question": "Dach"}).json[
+            admin.post("/api/retrieval/test", json={"question": "Dach"}).json()[
                 "results"
             ][0]["documents"]
         )
@@ -339,11 +328,11 @@ def test_test_endpoint_can_try_other_profiles_without_assigning_them(app):
     few = admin.post(
         "/api/retrieval/profiles",
         json={"name": "Knapp", "config": {"final_k": 1, "mmr": {"enabled": False}}},
-    ).json
+    ).json()
     res = admin.post(
         "/api/retrieval/test", json={"question": "Dach", "profile_id": few["id"]}
     )
-    assert len(res.json["results"][0]["documents"]) == 1
+    assert len(res.json()["results"][0]["documents"]) == 1
     assert (
         knowledge.get_knowledge(None)["retrieval_profile_id"] is None
     )  # nichts zugewiesen
@@ -360,7 +349,7 @@ def test_drafts_are_admin_only_and_validated(app, db):
     )
     admin = client_for(app, ADMIN)
     ok = admin.post("/api/retrieval/test", json={"question": "Dach", "config": draft})
-    assert ok.status_code == 200 and len(ok.json["results"][0]["documents"]) == 2
+    assert ok.status_code == 200 and len(ok.json()["results"][0]["documents"]) == 2
     assert (
         admin.post(
             "/api/retrieval/test", json={"question": "Dach", "config": {"final_k": 0}}
@@ -380,7 +369,7 @@ def test_test_endpoint_respects_knowledge_access(app, db):
     ok = ed.post(
         "/api/retrieval/test", json={"question": "Dach"}
     )  # Standard ist oeffentlich
-    assert [r["knowledge"] for r in ok.json["results"]] == ["Standard"]
+    assert [r["knowledge"] for r in ok.json()["results"]] == ["Standard"]
     assert ed.post("/api/retrieval/test", json={"question": " "}).status_code == 400
 
 
@@ -391,6 +380,6 @@ def test_normal_users_run_pipeline_tests_only_on_readable_knowledge(app, db):
         "/api/retrieval/test",
         json={"question": "Dach", "knowledge_ids": [private["id"]]},
     )
-    assert res.status_code in (400, 404) or not res.json.get(
+    assert res.status_code in (400, 404) or not res.json().get(
         "results"
     )  # fremdes Knowledge wird nie getestet

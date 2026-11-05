@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
 
 from app.core import database_service
+from tests import contract
 
 
 @pytest.fixture
@@ -44,6 +45,16 @@ def fixed_encryption_key(monkeypatch):
     crypto.reset()
     yield
     crypto.reset()
+
+
+@pytest.fixture(autouse=True)
+def fresh_runtime_state():
+    """Laufzeit-Zustand (Qdrant-Client, Tools, Ingestion-Status, ...) pro Test leeren."""
+    from app.core import runtime
+
+    runtime.reset()
+    yield
+    runtime.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -87,3 +98,54 @@ def sql_worker(monkeypatch, db, tmp_path):
     worker_support.install_sql(monkeypatch, folder)
     yield folder
     worker_client.set_override(None, "sql")
+
+
+# --- API-Vertrag (nur mit RECORD_API_CONTRACT=<datei>, siehe tests/contract.py) ---------------
+if os.getenv("RECORD_API_CONTRACT"):
+    from fastapi.testclient import TestClient
+
+    _request = TestClient.request
+
+    def _route_path(app, path: str, method: str) -> str:
+        """Pfadmuster der Route, die ``path`` bedient (z. B. ``/api/knowledge/{knowledge_id}``)."""
+        import re
+
+        def walk(routes):
+            for r in routes:
+                if hasattr(r, "effective_route_contexts"):
+                    for ctx in r.effective_route_contexts():
+                        yield ctx.path, ctx.original_route
+                else:
+                    yield getattr(r, "path", ""), r
+
+        for pattern, route in walk(app.routes):
+            if not pattern or method not in (getattr(route, "methods", None) or set()):
+                continue
+            regex = re.sub(
+                r"\{[^}:]+(:[a-z]+)?\}",
+                lambda m: ".+" if m.group(1) == ":path" else "[^/]+",
+                pattern,
+            )
+            if re.fullmatch(regex, path):
+                return re.sub(r":[a-z]+\}", "}", pattern)
+        return path
+
+    def _recording_request(self, method, url, *args, **kwargs):
+        response = _request(self, method, url, *args, **kwargs)
+        path = response.request.url.path
+        if path.startswith(("/api/", "/history/", "/health")):
+            try:
+                payload = response.json()
+            except ValueError:
+                return response
+            rule = _route_path(self.app, path, method.upper())
+            contract.record(method.upper(), rule, response.status_code, payload)
+        return response
+
+    TestClient.request = _recording_request
+
+
+def pytest_sessionfinish(session):
+    target = os.getenv("RECORD_API_CONTRACT")
+    if target:
+        contract.dump(target)

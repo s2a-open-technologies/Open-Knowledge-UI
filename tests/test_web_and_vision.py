@@ -1,13 +1,12 @@
 import pytest
-from flask import Flask
 
 from app.agent.tools import web_access
-from app.api import register_blueprints
 from app.core.settings_service import SettingsService
 from app.llm import connections as store
 from app.llm import registry
 from app.llm.local_llm import VisionLLM
 from tests.test_access import client_for
+from tests.web import make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
@@ -17,10 +16,7 @@ def app(db, monkeypatch):
     monkeypatch.setattr(
         registry, "fetch_remote_models", lambda c, force=False: ["m1", "m2"]
     )
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -52,16 +48,16 @@ def test_web_search_per_model_is_off_by_default_and_blocked_without_pii(app, db)
     assert registry.resolve_model(ref).web_search is False
 
     blocked = admin.put("/api/models/config", json={"ref": ref, "web_search": True})
-    assert blocked.status_code == 400 and "PII-Filter" in blocked.json["error"]
+    assert blocked.status_code == 400 and "PII-Filter" in blocked.json()["error"]
     assert registry.resolve_model(ref).web_search is False
-    assert admin.get("/api/models").json["web_search_available"] is False
+    assert admin.get("/api/models").json()["web_search_available"] is False
 
     set_settings(
         db, SEARCH_SEARXNG_URL="http://sx:8080", PII_FILTER_URL="http://pii:9500/x"
     )
-    assert admin.get("/api/models").json["web_search_available"] is True
+    assert admin.get("/api/models").json()["web_search_available"] is True
     ok = admin.put("/api/models/config", json={"ref": ref, "web_search": True})
-    assert ok.status_code == 200 and ok.json["web_search"] is True
+    assert ok.status_code == 200 and ok.json()["web_search"] is True
     resolved = registry.resolve_model(ref)
     assert resolved.web_search is True
 
@@ -182,7 +178,7 @@ def test_vision_model_comes_from_connections(app, db, monkeypatch):
     assert llm.vision_model == "m1"  # ohne Auswahl: Standardmodell
 
     assert (
-        put_tasks(admin, vision={"model_ref": vision_ref}).json["tasks"]["vision"][
+        put_tasks(admin, vision={"model_ref": vision_ref}).json()["tasks"]["vision"][
             "model_ref"
         ]
         == vision_ref
@@ -192,7 +188,9 @@ def test_vision_model_comes_from_connections(app, db, monkeypatch):
 
     assert put_tasks(admin, vision={"model_ref": "base:99:x"}).status_code == 400
     assert (
-        put_tasks(admin, vision={"model_ref": ""}).json["tasks"]["vision"]["model_ref"]
+        put_tasks(admin, vision={"model_ref": ""}).json()["tasks"]["vision"][
+            "model_ref"
+        ]
         == ""
     )
 
@@ -240,7 +238,7 @@ def test_prompts_live_in_the_database_with_seed_fallback_and_reset(app, db):
     from app.llm.local_llm import TaskLLM
 
     admin = client_for(app, ADMIN)
-    overview = admin.get("/api/admin/embedding").json["tasks"]
+    overview = admin.get("/api/admin/embedding").json()["tasks"]
     assert (
         overview["vision"]["prompt"]
         == prompts.VISION_PROMPT
@@ -265,8 +263,8 @@ def test_prompts_live_in_the_database_with_seed_fallback_and_reset(app, db):
     )
     # Zuruecksetzen: der Standard steht in der Datenbank (default_value) und kommt mit der Antwort
     back = put_tasks(
-        admin, vision={"prompt": r.json["tasks"]["vision"]["default_prompt"]}
-    ).json["tasks"]["vision"]
+        admin, vision={"prompt": r.json()["tasks"]["vision"]["default_prompt"]}
+    ).json()["tasks"]["vision"]
     assert back["prompt"] == prompts.VISION_PROMPT
 
 
@@ -308,7 +306,7 @@ def test_vision_can_be_switched_off(app, db):
     admin = client_for(app, ADMIN)
     assert _vision_enabled() is True
     r = put_tasks(admin, vision={"enabled": False})
-    assert r.status_code == 200 and r.json["tasks"]["vision"]["enabled"] is False
+    assert r.status_code == 200 and r.json()["tasks"]["vision"]["enabled"] is False
     assert _vision_enabled() is False
 
 
@@ -318,15 +316,15 @@ def test_hidden_models_stay_selectable_for_vision(app, db):
     ref = store.make_base_ref(conn["id"], "m2")
     admin.put("/api/models/config", json={"ref": ref, "visible": False})
     assert ref not in [
-        m["ref"] for m in admin.get("/api/models?visible=1").json["models"]
+        m["ref"] for m in admin.get("/api/models?visible=1").json()["models"]
     ]
-    assert ref in [m["ref"] for m in admin.get("/api/models").json["models"]]
+    assert ref in [m["ref"] for m in admin.get("/api/models").json()["models"]]
     assert put_tasks(admin, vision={"model_ref": ref}).status_code == 200
 
 
 def test_models_response_names_the_default_parameters_for_the_config_dialog(app, db):
     r = client_for(app, ADMIN).get("/api/models")
-    defaults = r.json["param_defaults"]
+    defaults = r.json()["param_defaults"]
     assert (
         defaults["temperature"] == 0.1
         and defaults["top_k"] == 40
@@ -334,6 +332,8 @@ def test_models_response_names_the_default_parameters_for_the_config_dialog(app,
     )
     set_settings(db, CHAT_TEMPERATURE="0.5")
     assert (
-        client_for(app, ADMIN).get("/api/models").json["param_defaults"]["temperature"]
+        client_for(app, ADMIN)
+        .get("/api/models")
+        .json()["param_defaults"]["temperature"]
         == 0.5
     )

@@ -18,7 +18,7 @@
 
 """
 macOS Entry Point (App nativ, Hilfsdienste in Docker)
-- Gunicorn auf 127.0.0.1:5000
+- Uvicorn auf 127.0.0.1:5000
 - Hilfsdienste (Postgres, Qdrant, SearXNG, entityguard, Parakeet, Tool-Worker) in Docker, siehe docker-compose.mac.yml
 - Embedding, Reranking und Docling rechnen auf Apple Silicon ueber Metal (MPS);
   ONNX-Modelle nutzen CoreML. Mit RAG_DEVICE=cpu abschaltbar.
@@ -45,6 +45,7 @@ COMPOSE_FILE = "docker-compose.mac.yml"
 SERVICE_DEFAULTS = {
     "DATABASE_URL": "postgresql+psycopg://rag:rag@localhost:5432/rag",
     "QDRANT_HOST": "localhost",
+    "REDIS_URL": "redis://localhost:6379/0",
     "SEARCH_SEARXNG_URL": "http://localhost:8081",
     "PII_FILTER_URL": "http://localhost:8082/api/v1/sanitize",
     "STT_BASEURL": "http://localhost:5001/v1",
@@ -159,12 +160,13 @@ def main():
     )
     point_workers_to_localhost()
 
-    print("🚀 Starte Gunicorn auf http://127.0.0.1:5000")
-    # Ein Worker (In-Memory-State), Threads fuer parallele Requests, siehe run_linux.py.
-    # Auf dem Mac erlaubt PyTorch/MPS kein fork() nach dem Laden der Modelle: kein --preload.
-    os.system(
-        "gunicorn -w 1 --threads 4 -k gthread -b 127.0.0.1:5000 --timeout 240 'app:create_app(preload=True)'"
-    )
+    print("🚀 Starte Uvicorn auf http://127.0.0.1:5000")
+    # Ein Worker (In-Memory-State), siehe run_linux.py. Ohne fork: PyTorch/MPS vertraegt kein
+    # fork() nach dem Laden der Modelle, Uvicorn mit workers=1 laeuft im selben Prozess.
+    import uvicorn
+
+    os.environ.setdefault("APP_PRELOAD", "1")
+    uvicorn.run("app:create_app", factory=True, host="127.0.0.1", port=5000, workers=1)
 
 
 if __name__ == "__main__":

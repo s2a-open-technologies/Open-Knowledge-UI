@@ -17,7 +17,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Sicherheits-Header auf jeder Antwort (in ``create_app`` nach ``init_csrf`` registriert).
+Sicherheits-Header auf jeder Antwort (Middleware, in ``create_app`` registriert).
 
 Setzt pro Antwort:
 
@@ -59,16 +59,40 @@ def enabled() -> bool:
     return (os.getenv("SECURITY_HEADERS") or "on").strip().lower() != "off"
 
 
-def init_security_headers(app) -> None:
-    @app.after_request
-    def add_headers(response):
-        if not enabled():
-            return response
-        # Nicht ueberschreiben, wenn ein Proxy schon einen CSP setzt.
-        response.headers.setdefault("Content-Security-Policy", CSP)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        if app.config.get("SESSION_COOKIE_SECURE"):
-            response.headers.setdefault("Strict-Transport-Security", HSTS)
-        return response
+class SecurityHeadersMiddleware:
+    """Setzt die Header auf jeder HTTP-Antwort (ASGI)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not enabled():
+            return await self.app(scope, receive, send)
+        from app.core.csrf import cookie_secure
+
+        secure = getattr(scope["app"].state, "cookie_secure", None)
+        secure = cookie_secure() if secure is None else secure
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v) for k, v in message.get("headers", []) if k.lower() not in _SET
+                ]
+                present = {k.lower() for k, _ in headers}
+                # Nicht ueberschreiben, wenn ein Proxy/Handler schon einen CSP bzw. HSTS setzt.
+                if b"content-security-policy" not in present:
+                    headers.append((b"content-security-policy", CSP.encode()))
+                headers += [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                ]
+                if secure and b"strict-transport-security" not in present:
+                    headers.append((b"strict-transport-security", HSTS.encode()))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+_SET = {b"x-content-type-options", b"x-frame-options", b"referrer-policy"}

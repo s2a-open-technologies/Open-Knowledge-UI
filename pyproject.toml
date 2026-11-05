@@ -17,7 +17,7 @@
 [project]
 name = "open-knowledge-ui"
 version = "0.2.6"
-description = "German Flask RAG app with SSE chat, SQLAlchemy multi-user management, Qdrant hybrid search, Pandas analytics tools, and Ollama/OpenAI-compatible LLMs."
+description = "German FastAPI RAG app with WebSocket chat, SQLAlchemy multi-user management, Qdrant hybrid search, Pandas analytics tools, and Ollama/OpenAI-compatible LLMs."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "AGPL-3.0-or-later" }
@@ -32,15 +32,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Framework :: Flask",
+    "Framework :: FastAPI",
 ]
 dependencies = [
     "chardet>=5.2.0",
     "snowballstemmer>=2.2.0",
     "docling>=2.0.0",
     "fastembed>=0.8.0",
-    "flask>=3.0.0",
-    "flask-sock>=0.7.0",
     "langchain>=1.2.13",
     "langchain-community>=0.4.1",
     "langchain-ollama>=1.0.1",
@@ -66,20 +64,28 @@ dependencies = [
     "markdown>=3.7.0",
     "torch",
     "torchvision",
-    "waitress>=3.0.2",
-    "gunicorn>=25.3.0",
     "alembic>=1.18.4",
-    "websocket-client>=1.8.0",
     "psycopg[binary]>=3.2",
     "ldap3>=2.9.1",
     "pyjwt[crypto]>=2.15.1",
     "cryptography>=42.0.0",
     "pytest>=9.1.1",
+    "fastapi>=0.162.0",
+    "uvicorn[standard]>=0.54.0",
+    "python-multipart>=0.0.32",
+    "itsdangerous>=2.2.0",
+    "redis>=8.1.0",
+    "websockets>=16.1.1",
+    "werkzeug>=3.1.9",
 ]
 
 [project.optional-dependencies]
 # Nur fuer Tests des Tool-Workers (SQL-Rolle); das Worker-Image installiert sie selbst
 worker = ["sqlglot>=30.24.0", "pymysql>=1.1", "pymssql>=2.3"]
+test = [
+    "fakeredis>=2.40.0",
+    "httpx>=0.28.1",
+]
 
 # torch/torchvision auf den CPU-only-Wheel-Index pinnen (kein CUDA-Download).
 # Docling nutzt torch fuer Layout-/TableFormer-Modelle; sentence-transformers

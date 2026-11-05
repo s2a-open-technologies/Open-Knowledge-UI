@@ -60,11 +60,11 @@ def test_admin_audit_endpoint(db, admin, app):  # noqa: F811
     admin_client = client_for(app, admin)
     res = admin_client.get("/api/admin/audit?limit=10")
     assert res.status_code == 200
-    payload = json.loads(res.get_data(as_text=True))
+    payload = json.loads(res.text)
     assert any(e["action"] == "login_ok" for e in payload["events"])
 
     res = admin_client.get("/api/admin/audit?limit=10&action=user_create")
-    payload = json.loads(res.get_data(as_text=True))
+    payload = json.loads(res.text)
     assert all(e["action"] == "user_create" for e in payload["events"])
     assert "login_ok" not in [e["action"] for e in payload["events"]]
 

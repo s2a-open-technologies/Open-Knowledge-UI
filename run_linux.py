@@ -58,15 +58,13 @@ def main():
     print("=" * 50)
     print()
 
-    # Gunicorn starten
-    # -w 1: ein Worker-Prozess, damit In-Memory-State (Qdrant-Client,
-    # Ressourcen-Init-Status, Upload-Status) prozessuebergreifend konsistent
-    # bleibt. --threads/-k gthread sorgt dafuer, dass innerhalb dieses einen
-    # Prozesses mehrere Requests parallel bedient werden koennen, damit ein
-    # lang laufender SSE-Chat-Stream nicht jede andere Anfrage blockiert.
-    os.system(
-        "gunicorn -w 1 --threads 4 -k gthread -b 0.0.0.0:5000 --timeout 240 'app:create_app(preload=True)'"
-    )
+    # Uvicorn starten (ASGI). Ein Worker-Prozess, damit In-Memory-State (Qdrant-Client,
+    # Ressourcen-Init-Status, Ingestion-Status) konsistent bleibt; Chat-Streams laufen als
+    # asyncio-Tasks, blockierende Handler im Threadpool. APP_PRELOAD laedt die Modelle vor dem Start.
+    import uvicorn
+
+    os.environ.setdefault("APP_PRELOAD", "1")
+    uvicorn.run("app:create_app", factory=True, host="0.0.0.0", port=5000, workers=1)
 
 
 if __name__ == "__main__":

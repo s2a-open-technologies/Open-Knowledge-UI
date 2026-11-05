@@ -1,4 +1,4 @@
-"""Produktiver Einstieg: ``gunicorn tool_worker.wsgi:app``. Ohne Token startet der Worker nicht."""
+"""Produktiver Einstieg: ``uvicorn tool_worker.wsgi:app``. Ohne Token startet der Worker nicht."""
 
 import os
 

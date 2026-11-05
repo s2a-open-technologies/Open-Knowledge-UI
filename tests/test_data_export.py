@@ -6,6 +6,7 @@ from app.chat import summaries as summaries_store
 from app.core import database_service
 from app.core.models import Message
 from tests.test_access import add_user, app, client_for  # noqa: F401
+from tests.web import anon
 
 
 def _add_message(session_id: str, role: str, content: str) -> None:
@@ -18,7 +19,7 @@ def _add_message(session_id: str, role: str, content: str) -> None:
 
 
 def test_export_requires_login(app):  # noqa: F811
-    assert app.test_client().get("/api/me/export").status_code == 401
+    assert anon(app).get("/api/me/export").status_code == 401
 
 
 def test_export_contains_only_own_data(db, app):  # noqa: F811
@@ -50,7 +51,7 @@ def test_export_contains_only_own_data(db, app):  # noqa: F811
         in res.headers["Content-Disposition"]
     )
 
-    payload = json.loads(res.get_data(as_text=True))
+    payload = json.loads(res.text)
     assert payload["format"] == "open-knowledge-ui-export"
     assert payload["profil"]["username"] == "alice"
     assert len(payload["chats"]) == 1
@@ -59,5 +60,5 @@ def test_export_contains_only_own_data(db, app):  # noqa: F811
     assert [m["inhalt"] for m in chat["nachrichten"]] == ["Was ist RAG?"]
     assert payload["meine_analysen"][0]["inhalt"] == "# Notiz\nInhalt von alice"
 
-    assert "Fremdinhalt" not in res.get_data(as_text=True)
+    assert "Fremdinhalt" not in res.text
     assert all(c["titel"] != "Bob-Geheimnis" for c in payload["chats"])

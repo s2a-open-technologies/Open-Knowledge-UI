@@ -6,6 +6,24 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Neu
+
+- **Chat sofort stoppbar.** Der Chat läuft über einen WebSocket (`/ws/chat`) statt über HTTP-Streaming. Jede Frage trägt eine im Browser erzeugte Kennung, deshalb lässt sich auch der allererste Chat sofort abbrechen, ohne auf das Modell zu warten. Ein Stopp beendet den Agenten und den Modell-Stream sofort; es wird nichts gespeichert, und ein dabei neu angelegter, leerer Chat verschwindet wieder. Ein gerade laufendes Pandas- oder SQL-Werkzeug rechnet im Tool-Worker noch bis zu seinem Zeitlimit weiter, sein Ergebnis wird verworfen. Bricht die Verbindung während einer Antwort ab, gilt sie als abgebrochen.
+- **Redis für den Chat-Stopp.** Neuer Dienst `redis` in Compose (ohne Persistenz). Er verteilt den Stopp an alle Server-Prozesse und ist damit die Grundlage für mehrere Worker. Ohne Redis (`REDIS_URL` leer oder nicht erreichbar) funktioniert der Stopp im eigenen Prozess weiter; `/health` meldet den Zustand im Feld `redis`.
+
+### Behoben
+
+- **Parakeet-Image baut wieder.** Im CPU-Image installierte `pip` in das Python des Basis-Images, gestartet wurde aber ein zusätzlich per apt installiertes Debian-Python (`No module named 'onnx_asr'`). Python kommt jetzt nur noch im GPU-Image per apt dazu. Außerdem installiert das GPU-Image jetzt `requirements.gpu.txt` (onnxruntime mit CUDA) statt der CPU-Pakete.
+
+### Geändert
+
+- **Backend auf FastAPI.** Flask, flask-sock, Gunicorn und Waitress sind ersetzt durch FastAPI und Uvicorn, auch im Tool-Worker. Alle Endpunkte haben Pydantic-Modelle für Anfrage und Antwort, das OpenAPI-Schema steht unter `/api/openapi.json`. URLs und Antworten bleiben gleich; ein vor dem Umbau aufgezeichneter API-Vertrag (`tests/fixtures/api_contract.json`) prüft das.
+- **Ungültige Eingaben liefern 422.** Schickt ein Client einen falschen Datentyp (z. B. Text statt Zahl), antwortet die API mit Status 422 und einer deutschen Meldung im Feld `error` plus der Liste der betroffenen Felder. Fachliche Prüfungen (Grenzen, Pflichtangaben) melden sich wie bisher mit 400.
+- **Einmal neu anmelden.** Das Session-Cookie hat ein neues Format; nach dem Update müssen sich alle einmal neu anmelden.
+- **Reverse Proxy muss WebSockets durchlassen.** Der Chat braucht `Upgrade`/`Connection`-Header und ausreichende Timeouts; ein bewusster Rückfall auf HTTP-Streaming existiert nicht. Die Live-Spracheingabe läuft jetzt auf allen Plattformen, auch unter Windows.
+- **Parakeet im CPU-Image mit int8-Modell.** Die Spracherkennung braucht ohne GPU etwa 0,7 statt 2,5 GB Arbeitsspeicher; das GPU-Image bleibt beim vollen Modell. Die Live-Spracheingabe sendet WebSocket-Pings, damit Proxys lange Aufnahmen nicht trennen.
+- **Entfernt:** das alte Formular-Login (`POST /login`, `GET /logout`), die Swagger-Seite und das CSRF-Token als Formularfeld (nur noch der Header `X-CSRF-Token` zählt).
+
 ## [0.2.6] - 2026-10-23
 
 ### Neu

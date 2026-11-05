@@ -109,7 +109,7 @@ CrossEncoder('${HF_RERANKER_MODEL}')"
 # Copy rest of application
 COPY . .
 
-# Gebaute React-SPA aus dem Frontend-Stage uebernehmen. Flask serviert
+# Gebaute React-SPA aus dem Frontend-Stage uebernehmen. Die App serviert
 # app/static/ und der 404-Catch-all liefert app/static/index.html.
 COPY --from=frontend /build/app/static ./app/static
 

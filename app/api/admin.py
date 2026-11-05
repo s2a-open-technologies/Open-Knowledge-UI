@@ -20,43 +20,55 @@
 
 from logging import getLogger
 
-from flask import (
-    Blueprint,
-    jsonify,
-    request,
-)
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
-from app.api._common import _error
-from app.auth.auth import require_role
+from app.api.errors import ApiError
+from app.api.schemas.admin import (
+    AuditEvents,
+    AuthTest,
+    EmbeddingSave,
+    ModelTest,
+    SettingsPatch,
+    ToolsSave,
+    ToolsTest,
+)
+from app.api.schemas.common import Loose
+from app.auth.auth import Admin
 from app.core.database_service import get_db_service
 from app.core.device import torch_device
 from app.core.settings_service import SettingsService
-from app.knowledge.service import (
-    list_knowledge,
-)
+from app.knowledge.service import list_knowledge
 from app.llm import connections as store
 from app.llm import registry
 from app.rag import model_settings
 
-bp = Blueprint("admin_api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["admin"])
 logger = getLogger(__name__)
 
 
-@bp.route("/admin/audit", methods=["GET"])
-@require_role("admin")
-def admin_audit():
+def _error(message: str, status: int) -> ApiError:
+    return ApiError(status, message, success=False)
+
+
+@router.get("/admin/audit", response_model=AuditEvents)
+def admin_audit(_user: Admin, limit: str | None = None, offset: str | None = None, action: str | None = None):
     """Neueste Protokolleinträge (Anmeldungen, Verwaltung, Freigaben)."""
     from app.auth import audit
 
-    return jsonify(
-        {
-            "events": audit.list_events(
-                limit=request.args.get("limit", type=int) or 100,
-                offset=request.args.get("offset", type=int) or 0,
-                action=request.args.get("action") or None,
-            )
-        }
-    )
+    def _int(raw):
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "events": audit.list_events(
+            limit=_int(limit) or 100,
+            offset=_int(offset) or 0,
+            action=action or None,
+        )
+    }
 
 
 INGEST_FIELDS = {
@@ -234,15 +246,13 @@ def _embedding_overview() -> dict:
     }
 
 
-@bp.route("/admin/embedding", methods=["GET"])
-@require_role("admin")
-def embedding_overview():
-    return jsonify(_embedding_overview())
+@router.get("/admin/embedding", response_model=Loose)
+def embedding_overview(_user: Admin):
+    return _embedding_overview()
 
 
-@bp.route("/admin/embedding", methods=["PUT"])
-@require_role("admin")
-def embedding_save():
+@router.put("/admin/embedding", response_model=Loose)
+def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
     """Speichert Modelle und Einlese-Einstellungen; neue Modelle werden im Hintergrund geladen.
 
     Ein anderes Embedding-Modell macht bestehende Knowledge "veraltet" (Neu indexieren); bis
@@ -250,22 +260,22 @@ def embedding_save():
     """
     from app.rag import model_settings, models_runtime
 
-    data = request.get_json() or {}
+    data = body.model_dump(exclude_unset=True) if body else {}
     try:
         emb = _parse_spec(data["embedding"]) if "embedding" in data else None
         rr = _parse_spec(data["reranker"]) if "reranker" in data else None
     except (ValueError, TypeError) as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
 
     values: dict[str, str] = {}
     task_values, error = _validate_tasks(data.get("tasks") or {})
     if error:
-        return _error(error, 400)
+        raise _error(error, 400)
     values.update(task_values)
     ingest = data.get("ingest") or {}
     for field, raw in ingest.items():
         if field not in INGEST_FIELDS:
-            return _error(f"Unbekannte Einstellung: {field}", 400)
+            raise _error(f"Unbekannte Einstellung: {field}", 400)
         key, kind, bounds = INGEST_FIELDS[field]
         if kind is bool:
             values[key] = "true" if bool(raw) else "false"
@@ -273,22 +283,22 @@ def embedding_save():
             from app.rag import sparse as sparse_lang
 
             if str(raw) not in sparse_lang.supported_languages():
-                return _error(f"{field}: unbekannte Sprache", 400)
+                raise _error(f"{field}: unbekannte Sprache", 400)
             values[key] = str(raw)
         else:
             try:
                 number = int(raw)
             except (TypeError, ValueError):
-                return _error(f"{field}: ganze Zahl erwartet", 400)
+                raise _error(f"{field}: ganze Zahl erwartet", 400)
             if not bounds[0] <= number <= bounds[1]:
-                return _error(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
+                raise _error(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
             values[key] = str(number)
     size = int(values.get("INGEST_CHUNK_SIZE") or _ingest_values()["chunk_size"])
     overlap = int(
         values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"]
     )
     if overlap >= size:
-        return _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
+        raise _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
 
     db = get_db_service().get_session()
     try:
@@ -300,25 +310,24 @@ def embedding_save():
         models_runtime.load_in_background("embedding", emb)
     if rr:
         models_runtime.load_in_background("reranker", rr)
-    return jsonify(_embedding_overview())
+    return _embedding_overview()
 
 
-@bp.route("/admin/embedding/test", methods=["POST"])
-@require_role("admin")
-def embedding_test():
+@router.post("/admin/embedding/test", response_model=Loose)
+def embedding_test(_user: Admin, body: ModelTest | None = None):
     """Laedt das Modell (beim ersten Mal mit Download) und meldet Dimension bzw. Fehler."""
     import time
 
     from app.rag import models_runtime
 
-    data = request.get_json() or {}
-    kind = data.get("kind")
+    body = body or ModelTest()
+    kind = body.kind
     if kind not in ("embedding", "reranker"):
-        return _error("kind muss embedding oder reranker sein", 400)
+        raise _error("kind muss embedding oder reranker sein", 400)
     try:
-        spec = _parse_spec(data.get("spec"))
+        spec = _parse_spec(body.spec)
     except (ValueError, TypeError) as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
     started = time.time()
     try:
         if kind == "embedding":
@@ -331,38 +340,31 @@ def embedding_test():
             )
             result = {"ranking_ok": scores[0] > scores[1]}
     except models_runtime.ModelLoadError as e:
-        return jsonify({"success": False, "error": str(e)}), 502
-    return jsonify(
-        {"success": True, "seconds": round(time.time() - started, 1), **result}
-    )
+        raise _error(str(e), 502)
+    return {"success": True, "seconds": round(time.time() - started, 1), **result}
 
 
-@bp.route("/admin/embedding/remote-models", methods=["GET"])
-@require_role("admin")
-def embedding_remote_models():
+@router.get("/admin/embedding/remote-models", response_model=list[str])
+def embedding_remote_models(
+    _user: Admin, connection_id: str | None = None, capability: str | None = None
+):
     """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
     from app.rag import endpoints
 
     conn = store.get_connection(
-        request.args.get("connection_id", type=int) or 0, with_key=True
+        int(connection_id) if str(connection_id or "").isdigit() else 0, with_key=True
     )
     if not conn:
-        return _error("Connection nicht gefunden", 404)
+        raise _error("Connection nicht gefunden", 404)
     try:
         if conn.get("kind", "llm") == "llm":
-            return jsonify(registry.fetch_remote_models(conn))
-        wanted = request.args.get(
-            "capability"
-        )  # embedding | reranker: nur passende Modelle
-        return jsonify(
-            [
-                m["id"]
-                for m in endpoints.describe(conn)
-                if not wanted or wanted in m["capabilities"]
-            ]
-        )
+            return registry.fetch_remote_models(conn)
+        wanted = capability  # embedding | reranker: nur passende Modelle
+        return [
+            m["id"] for m in endpoints.describe(conn) if not wanted or wanted in m["capabilities"]
+        ]
     except (registry.RemoteModelsError, endpoints.EndpointError) as e:
-        return _error(str(e), 502)
+        raise _error(str(e), 502)
 
 
 class _FormSettings:
@@ -428,19 +430,17 @@ def _clean_url(raw, label: str) -> str:
     return url
 
 
-@bp.route("/admin/tools", methods=["GET"])
-@require_role("admin")
-def tools_overview():
-    return jsonify(_tools_overview())
+@router.get("/admin/tools", response_model=Loose)
+def tools_overview(_user: Admin):
+    return _tools_overview()
 
 
-@bp.route("/admin/tools", methods=["PUT"])
-@require_role("admin")
-def tools_save():
+@router.put("/admin/tools", response_model=Loose)
+def tools_save(_user: Admin, body: ToolsSave | None = None):
     """Speichert die Tool-Einstellungen. API-Keys werden nie ausgeliefert: ein leeres Feld
     behaelt den gespeicherten Key, ``clear_key`` loescht ihn."""
 
-    data = request.get_json() or {}
+    data = body.model_dump(exclude_unset=True) if body else {}
     values: dict[str, str] = {}
     try:
         if "stt" in data:
@@ -515,7 +515,7 @@ def tools_save():
             elif (pii.get("api_key") or "").strip():
                 values["PII_FILTER_API_KEY"] = pii["api_key"].strip()
     except ValueError as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
 
     if values:
         db = get_db_service().get_session()
@@ -528,21 +528,20 @@ def tools_save():
 
             stt_config.clear_probe_cache()
     # Ohne PII-Filter darf keine Websuche an Modellen haengen (sie steht dann nicht mehr bereit)
-    return jsonify(_tools_overview())
+    return _tools_overview()
 
 
-@bp.route("/admin/tools/test", methods=["POST"])
-@require_role("admin")
-def tools_test():
+@router.post("/admin/tools/test", response_model=Loose)
+def tools_test(_user: Admin, body: ToolsTest | None = None):
     """Testet die eingegebenen Werte (auch ungespeichert). Ein leeres Key-Feld nutzt den
     gespeicherten Key nur fuer die gespeicherte Adresse (sonst liesse er sich ausleiten)."""
     from app.api.tool_checks import check_pii_filter, check_search, check_stt
 
-    data = request.get_json() or {}
-    kind = data.get("kind")
-    values_in = data.get("values") or {}
+    body = body or ToolsTest()
+    kind = body.kind
+    values_in = body.values or {}
     if kind not in ("stt", "search", "pii"):
-        return _error("kind muss stt, search oder pii sein", 400)
+        raise _error("kind muss stt, search oder pii sein", 400)
 
     db = get_db_service().get_session()
     try:
@@ -589,42 +588,43 @@ def tools_test():
             try:
                 registry._reject_link_local(store.normalize_base_url(raw.strip()))
             except registry.RemoteModelsError as e:
-                return jsonify({"success": False, "error": str(e)}), 400
+                raise _error(str(e), 400)
     try:
         result = test(form)
     except Exception as e:
-        return jsonify({"success": False, "error": f"Unerwarteter Fehler: {e}"}), 500
-    return jsonify(result), 200 if result.get("success") else 502
+        raise _error(f"Unerwarteter Fehler: {e}", 500)
+    return JSONResponse(result, status_code=200 if result.get("success") else 502)
 
 
-@bp.route("/admin/auth", methods=["GET"])
-@require_role("admin")
-def auth_overview():
+def _auth_view(request: Request) -> dict:
     from app.auth import external as auth_external
 
     cfg = auth_external.load_config()
     pub = auth_external.public_config(cfg)
-    base = cfg["base_url"] or request.host_url.rstrip("/")
+    base = cfg["base_url"] or str(request.base_url).rstrip("/")
     pub["redirect_uri"] = f"{base}/api/auth/oidc/callback"
-    return jsonify(pub)
+    return pub
 
 
-@bp.route("/admin/auth", methods=["PUT"])
-@require_role("admin")
-def auth_save():
+@router.get("/admin/auth", response_model=Loose)
+def auth_overview(request: Request, _user: Admin):
+    return _auth_view(request)
+
+
+@router.put("/admin/auth", response_model=Loose)
+def auth_save(request: Request, _user: Admin, body: SettingsPatch | None = None):
     """Speichert die Einstellungen. Leere Geheimnis-Felder behalten den gespeicherten Wert."""
     from app.auth import external as auth_external
 
     try:
-        auth_external.save_config(request.get_json() or {})
+        auth_external.save_config(body.model_dump() if body else {})
     except auth_external.AuthConfigError as e:
-        return _error(str(e), 400)
-    return auth_overview()
+        raise _error(str(e), 400)
+    return _auth_view(request)
 
 
-@bp.route("/admin/auth/test", methods=["POST"])
-@require_role("admin")
-def auth_test():
+@router.post("/admin/auth/test", response_model=Loose)
+def auth_test(request: Request, _user: Admin, body: AuthTest | None = None):
     """Testet LDAP bzw. OIDC mit den eingegebenen Werten (ohne zu speichern, ohne Sitzung).
 
     Ein leeres Geheimnis-Feld nutzt das gespeicherte, aber nur bei unveraenderter Adresse."""
@@ -632,13 +632,13 @@ def auth_test():
     from app.auth import ldap as auth_ldap
     from app.auth import oidc as auth_oidc
 
-    data = request.get_json() or {}
-    kind = data.get("kind")
+    body = body or AuthTest()
+    kind = body.kind
     if kind not in ("ldap", "oidc"):
-        return _error("kind muss ldap oder oidc sein", 400)
+        raise _error("kind muss ldap oder oidc sein", 400)
     saved = auth_external.load_config()
     current = saved[kind]
-    incoming = dict(data.get("values") or {})
+    incoming = dict(body.values or {})
     target_key = "url" if kind == "ldap" else "issuer"
     same_target = (incoming.get(target_key) or "").strip() == current.get(target_key)
     merged = {**current}
@@ -651,67 +651,63 @@ def auth_test():
             else {**current, **{s: "" for s in auth_external.SECRET_FIELDS[kind]}},
         )
     except auth_external.AuthConfigError as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
     try:
         if kind == "ldap":
             result = auth_ldap.probe_ldap(
                 merged,
-                str(data.get("test_user") or ""),
-                str(data.get("test_password") or ""),
+                str(body.test_user or ""),
+                str(body.test_password or ""),
             )
         else:
             result = auth_oidc.probe_oidc(
-                merged, saved["base_url"] or request.host_url.rstrip("/")
+                merged, saved["base_url"] or str(request.base_url).rstrip("/")
             )
     except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
-        return jsonify({"success": False, "error": str(e)}), 502
-    return jsonify({"success": True, **result})
+        raise _error(str(e), 502)
+    return {"success": True, **result}
 
 
-@bp.route("/admin/compaction", methods=["GET"])
-@require_role("admin")
-def compaction_overview():
+@router.get("/admin/compaction", response_model=Loose)
+def compaction_overview(_user: Admin):
     from app.chat import compaction
 
-    return jsonify(compaction.load_settings())
+    return compaction.load_settings()
 
 
-@bp.route("/admin/compaction", methods=["PUT"])
-@require_role("admin")
-def compaction_save():
+@router.put("/admin/compaction", response_model=Loose)
+def compaction_save(_user: Admin, body: SettingsPatch | None = None):
     """Speichert die Compaction-Einstellungen (nur genannte Felder)."""
     from app.chat import compaction
     from app.llm import registry
 
     try:
-        compaction.save_settings(request.get_json() or {})
+        compaction.save_settings(body.model_dump() if body else {})
     except compaction.CompactionConfigError as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen das alte Budget
-    return jsonify(compaction.load_settings())
+    return compaction.load_settings()
 
 
-@bp.route("/admin/agent-behavior", methods=["GET"])
-@require_role("admin")
-def agent_behavior_overview():
+@router.get("/admin/agent-behavior", response_model=Loose)
+def agent_behavior_overview(_user: Admin):
     from app.agent import behavior
 
-    return jsonify(behavior.load())
+    return behavior.load()
 
 
-@bp.route("/admin/agent-behavior", methods=["PUT"])
-@require_role("admin")
-def agent_behavior_save():
+@router.put("/admin/agent-behavior", response_model=Loose)
+def agent_behavior_save(_user: Admin, body: SettingsPatch | None = None):
     """Speichert die Standard-Anweisungen; ein leerer Text heisst: nur Basis-Prompt und Modell-Zusatz."""
     from app.agent import behavior
     from app.llm import registry
 
     try:
-        behavior.save(request.get_json() or {})
+        behavior.save(body.model_dump() if body else {})
     except behavior.BehaviorConfigError as e:
-        return _error(str(e), 400)
+        raise _error(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen den alten Prompt
-    return jsonify(behavior.load())
+    return behavior.load()
 
 
 def _tool_worker_view():
@@ -727,20 +723,18 @@ def _tool_worker_view():
     }
 
 
-@bp.route("/admin/tool-worker", methods=["GET"])
-@require_role("admin")
-def tool_worker_overview():
-    return jsonify(_tool_worker_view())
+@router.get("/admin/tool-worker", response_model=Loose)
+def tool_worker_overview(_user: Admin):
+    return _tool_worker_view()
 
 
-@bp.route("/admin/tool-worker", methods=["PUT"])
-@require_role("admin")
-def tool_worker_save():
+@router.put("/admin/tool-worker", response_model=Loose)
+def tool_worker_save(_user: Admin, body: SettingsPatch | None = None):
     """Speichert Adresse und Limits des Tool-Workers (nur genannte Felder)."""
     from app.agent.toolworker import config as worker_config
 
     try:
-        worker_config.save(request.get_json() or {})
+        worker_config.save(body.model_dump() if body else {})
     except worker_config.ConfigError as e:
-        return _error(str(e), 400)
-    return jsonify(_tool_worker_view())
+        raise _error(str(e), 400)
+    return _tool_worker_view()

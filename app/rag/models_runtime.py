@@ -140,7 +140,7 @@ class HFEmbedder(_Embedder):
         fn = (
             getattr(self._model, name, None) or self._model.encode
         )  # aeltere Versionen: nur encode
-        with self._lock:  # Inferenz serialisieren (gunicorn --threads 4)
+        with self._lock:  # Inferenz serialisieren (parallele Requests im Threadpool)
             vectors = fn(
                 texts, batch_size=16, normalize_embeddings=True, show_progress_bar=False
             )

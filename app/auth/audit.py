@@ -33,7 +33,6 @@ Rollen liegen schon im Klartext in der Tabelle, Passwoerter werden nie gespeiche
 import json
 from logging import getLogger
 
-from flask import has_request_context, request
 
 from app.core.database_service import get_db_service
 from app.core.models import AuditLog
@@ -60,9 +59,9 @@ ACCESS_SET = "access_set"
 
 
 def _request_ip():
-    if not has_request_context():
-        return None
-    return request.remote_addr
+    from app.core import request_context
+
+    return request_context.client_ip()
 
 
 def record(
@@ -81,11 +80,11 @@ def record(
     Commit — der Aufrufer committet sein Vorgangs-Update atomar mit dem Protokoll);
     ohne ``db`` geht der Eintrag über eine eigene kurze Sitzung.
     """
-    if has_request_context() and (actor_user_id is None or actor_name is None):
+    if actor_user_id is None or actor_name is None:
         try:
-            from app.auth.auth import current_user
+            from app.core import request_context
 
-            user = current_user()
+            user = request_context.actor()
             if user:
                 if actor_user_id is None:
                     actor_user_id, actor_name = user["id"], user["username"]

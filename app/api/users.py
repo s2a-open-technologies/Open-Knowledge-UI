@@ -20,27 +20,34 @@
 
 from logging import getLogger
 
-from flask import Blueprint, current_app, jsonify, request
+from fastapi import APIRouter
 
+from app.api.errors import ApiError
+from app.api.schemas.auth import ChangePasswordRequest
+from app.api.schemas.common import Success
+from app.api.schemas.users import (
+    Access,
+    AccessUpdate,
+    AdminUser,
+    Group,
+    GroupCreate,
+    GroupMembers,
+    GroupUpdate,
+    ModelAccessUpdate,
+    Principals,
+    UserCreate,
+    UserUpdate,
+)
 from app.auth import access, user_admin
-from app.auth.auth import auth_required_api, current_user, require_role
-from app.auth.user_admin import AdminError
+from app.auth.auth import Admin, CurrentUser, Editor
 from app.auth.users import set_password, verify_password
 from app.chat.attachments import cleanup_session_attachments
+from app.core import runtime
 from app.llm import connections as models_store
 
-bp = Blueprint("users_api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["users"])
 
 logger = getLogger(__name__)
-
-
-def _error(message: str, status: int):
-    return jsonify({"success": False, "error": message}), status
-
-
-@bp.errorhandler(AdminError)
-def _admin_error(e: AdminError):
-    return _error(e.message, e.status)
 
 
 # =============================================================================
@@ -48,21 +55,19 @@ def _admin_error(e: AdminError):
 # =============================================================================
 
 
-@bp.route("/auth/change-password", methods=["POST"])
-@auth_required_api
-def change_own_password():
-    data = request.get_json() or {}
-    user = current_user()
-    new_password = data.get("new_password", "")
-    if len(new_password) < user_admin.MIN_PASSWORD_LENGTH:
-        return _error(
-            f"Passwort muss mindestens {user_admin.MIN_PASSWORD_LENGTH} Zeichen haben",
+@router.post("/auth/change-password", response_model=Success)
+def change_own_password(user: CurrentUser, body: ChangePasswordRequest | None = None):
+    body = body or ChangePasswordRequest()
+    if len(body.new_password) < user_admin.MIN_PASSWORD_LENGTH:
+        raise ApiError(
             400,
+            f"Passwort muss mindestens {user_admin.MIN_PASSWORD_LENGTH} Zeichen haben",
+            success=False,
         )
-    if not verify_password(user["id"], data.get("old_password", "")):
-        return _error("Altes Passwort ist falsch", 403)
-    set_password(user["id"], new_password)
-    return jsonify({"success": True})
+    if not verify_password(user["id"], body.old_password):
+        raise ApiError(403, "Altes Passwort ist falsch", success=False)
+    set_password(user["id"], body.new_password)
+    return Success()
 
 
 # =============================================================================
@@ -70,41 +75,29 @@ def change_own_password():
 # =============================================================================
 
 
-@bp.route("/users", methods=["GET"])
-@require_role("admin")
-def users_list():
-    return jsonify(user_admin.list_users())
+@router.get("/users", response_model=list[AdminUser])
+def users_list(_user: Admin):
+    return user_admin.list_users()
 
 
-@bp.route("/users", methods=["POST"])
-@require_role("admin")
-def users_create():
-    data = request.get_json() or {}
-    created = user_admin.create_user(
-        data.get("username", ""),
-        data.get("display_name", ""),
-        data.get("password", ""),
-        data.get("role", "user"),
-    )
-    return jsonify(created), 201
+@router.post("/users", response_model=AdminUser, status_code=201)
+def users_create(_user: Admin, body: UserCreate | None = None):
+    body = body or UserCreate()
+    return user_admin.create_user(body.username, body.display_name, body.password, body.role)
 
 
-@bp.route("/users/<int:user_id>", methods=["PATCH"])
-@require_role("admin")
-def users_update(user_id):
-    return jsonify(
-        user_admin.update_user(user_id, current_user()["id"], request.get_json() or {})
-    )
+@router.patch("/users/{user_id}", response_model=AdminUser)
+def users_update(user_id: int, user: Admin, body: UserUpdate | None = None):
+    data = body.model_dump(exclude_unset=True) if body else {}
+    return user_admin.update_user(user_id, user["id"], data)
 
 
-@bp.route("/users/<int:user_id>", methods=["DELETE"])
-@require_role("admin")
-def users_delete(user_id):
-    session_ids = user_admin.delete_user(user_id, current_user()["id"])
-    client = current_app.extensions.get("client")
+@router.delete("/users/{user_id}", response_model=Success)
+def users_delete(user_id: int, user: Admin):
+    session_ids = user_admin.delete_user(user_id, user["id"])
     for sid in session_ids:
-        cleanup_session_attachments(sid, client)
-    return jsonify({"success": True})
+        cleanup_session_attachments(sid, runtime.state.client)
+    return Success()
 
 
 # =============================================================================
@@ -112,38 +105,31 @@ def users_delete(user_id):
 # =============================================================================
 
 
-@bp.route("/groups", methods=["GET"])
-@require_role("admin")
-def groups_list():
-    return jsonify(user_admin.list_groups())
+@router.get("/groups", response_model=list[Group])
+def groups_list(_user: Admin):
+    return user_admin.list_groups()
 
 
-@bp.route("/groups", methods=["POST"])
-@require_role("admin")
-def groups_create():
-    data = request.get_json() or {}
-    created = user_admin.create_group(data.get("name", ""), data.get("description", ""))
-    return jsonify(created), 201
+@router.post("/groups", response_model=Group, status_code=201)
+def groups_create(_user: Admin, body: GroupCreate | None = None):
+    body = body or GroupCreate()
+    return user_admin.create_group(body.name, body.description)
 
 
-@bp.route("/groups/<int:group_id>", methods=["PATCH"])
-@require_role("admin")
-def groups_update(group_id):
-    return jsonify(user_admin.update_group(group_id, request.get_json() or {}))
+@router.patch("/groups/{group_id}", response_model=Group)
+def groups_update(group_id: int, _user: Admin, body: GroupUpdate | None = None):
+    return user_admin.update_group(group_id, body.model_dump(exclude_unset=True) if body else {})
 
 
-@bp.route("/groups/<int:group_id>", methods=["DELETE"])
-@require_role("admin")
-def groups_delete(group_id):
+@router.delete("/groups/{group_id}", response_model=Success)
+def groups_delete(group_id: int, _user: Admin):
     user_admin.delete_group(group_id)
-    return jsonify({"success": True})
+    return Success()
 
 
-@bp.route("/groups/<int:group_id>/members", methods=["PUT"])
-@require_role("admin")
-def groups_set_members(group_id):
-    data = request.get_json() or {}
-    return jsonify(user_admin.set_group_members(group_id, data.get("user_ids", [])))
+@router.put("/groups/{group_id}/members", response_model=Group)
+def groups_set_members(group_id: int, _user: Admin, body: GroupMembers | None = None):
+    return user_admin.set_group_members(group_id, (body or GroupMembers()).user_ids)
 
 
 # =============================================================================
@@ -151,83 +137,70 @@ def groups_set_members(group_id):
 # =============================================================================
 
 
-@bp.route("/principals", methods=["GET"])
-@require_role("editor")
-def principals():
+@router.get("/principals", response_model=Principals)
+def principals(_user: Editor):
     """Namen aller aktiven Nutzer und Gruppen fuer den Freigabe-Dialog."""
-    return jsonify(
-        {
-            "users": [
-                {"id": u["id"], "name": u["display_name"], "username": u["username"]}
-                for u in user_admin.list_users()
-                if u["is_active"]
-            ],
-            "groups": [
-                {"id": g["id"], "name": g["name"]} for g in user_admin.list_groups()
-            ],
-        }
-    )
+    return {
+        "users": [
+            {"id": u["id"], "name": u["display_name"], "username": u["username"]}
+            for u in user_admin.list_users()
+            if u["is_active"]
+        ],
+        "groups": [{"id": g["id"], "name": g["name"]} for g in user_admin.list_groups()],
+    }
 
 
-def _access_payload() -> tuple[bool, list[dict]]:
-    data = request.get_json() or {}
-    return bool(data.get("is_public", False)), data.get("grants") or []
+def _grants(body: AccessUpdate) -> list[dict]:
+    return [g.model_dump() for g in body.grants]
 
 
-@bp.route("/knowledge/<int:knowledge_id>/access", methods=["GET"])
-@require_role("editor")
-def knowledge_access_get(knowledge_id):
-    if not access.can_access_knowledge(current_user(), knowledge_id, "write"):
-        return _error("Knowledge nicht gefunden", 404)
-    return jsonify(access.get_access("knowledge", knowledge_id))
+@router.get("/knowledge/{knowledge_id}/access", response_model=Access)
+def knowledge_access_get(knowledge_id: int, user: Editor):
+    if not access.can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, "Knowledge nicht gefunden", success=False)
+    return access.get_access("knowledge", knowledge_id)
 
 
-@bp.route("/knowledge/<int:knowledge_id>/access", methods=["PUT"])
-@require_role("editor")
-def knowledge_access_set(knowledge_id):
-    if not access.can_access_knowledge(current_user(), knowledge_id, "write"):
-        return _error("Knowledge nicht gefunden", 404)
-    is_public, grants = _access_payload()
-    user = current_user()
+@router.put("/knowledge/{knowledge_id}/access", response_model=Access)
+def knowledge_access_set(knowledge_id: int, user: Editor, body: AccessUpdate | None = None):
+    if not access.can_access_knowledge(user, knowledge_id, "write"):
+        raise ApiError(404, "Knowledge nicht gefunden", success=False)
+    body = body or AccessUpdate()
     try:
-        access.set_access("knowledge", knowledge_id, is_public, grants)
+        access.set_access("knowledge", knowledge_id, body.is_public, _grants(body))
     except ValueError as e:
-        return _error(str(e), 400)
+        raise ApiError(400, str(e), success=False)
     # Wer ein Knowledge verwaltet, soll sich beim Speichern nicht selbst
     # aussperren (z. B. Zeile in der Liste entfernt): Schreibrecht bleibt erhalten.
     if not access.can_access_knowledge(user, knowledge_id, "write"):
         access.add_grant("knowledge", knowledge_id, "user", user["id"], "write")
-    return jsonify(access.get_access("knowledge", knowledge_id))
+    return access.get_access("knowledge", knowledge_id)
 
 
-@bp.route("/models/access", methods=["GET"])
-@require_role("admin")
-def model_access_get():
-    ref = request.args.get("ref", "")
+@router.get("/models/access", response_model=Access)
+def model_access_get(_user: Admin, ref: str = ""):
     try:
         rid = access.model_resource_id(ref)
     except ValueError as e:
-        return _error(str(e), 400)
+        raise ApiError(400, str(e), success=False)
     if rid is None:
         # Nie angepasstes Basismodell: oeffentlich, ohne Grants.
-        return jsonify({"is_public": True, "grants": []})
-    return jsonify(access.get_access("model", rid))
+        return {"is_public": True, "grants": []}
+    return access.get_access("model", rid)
 
 
-@bp.route("/models/access", methods=["PUT"])
-@require_role("admin")
-def model_access_set():
-    ref = (request.get_json() or {}).get("ref", "")
-    is_public, grants = _access_payload()
+@router.put("/models/access", response_model=Access)
+def model_access_set(_user: Admin, body: ModelAccessUpdate | None = None):
+    body = body or ModelAccessUpdate()
     try:
-        rid = access.model_resource_id(ref)
+        rid = access.model_resource_id(body.ref)
         if rid is None:
             # Freigabe braucht eine Konfigurationszeile; sie entsteht hier.
-            saved = models_store.save_model_config(ref, {"is_public": is_public})
+            saved = models_store.save_model_config(body.ref, {"is_public": body.is_public})
             if not saved:
-                return _error("Modell oder Connection nicht gefunden", 404)
+                raise ApiError(404, "Modell oder Connection nicht gefunden", success=False)
             rid = saved["id"]
-        access.set_access("model", rid, is_public, grants)
+        access.set_access("model", rid, body.is_public, _grants(body))
     except ValueError as e:
-        return _error(str(e), 400)
-    return jsonify(access.get_access("model", rid))
+        raise ApiError(400, str(e), success=False)
+    return access.get_access("model", rid)

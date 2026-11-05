@@ -23,12 +23,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.chat import stt as stt_config
 from app.core.settings_service import SettingsService
 from tests.test_access import add_user, client_for
+from tests.web import anon, make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
@@ -75,10 +74,7 @@ def whisper():
 @pytest.fixture
 def app(db):
     stt_config.clear_probe_cache()
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -90,7 +86,7 @@ def set_stt(db, **values):
 
 
 def audio(content=b"RIFFxxxxWAVEdata"):
-    return {"audio": (io.BytesIO(content), "recording.webm")}
+    return {"audio": ("recording.webm", io.BytesIO(content))}
 
 
 def test_stream_url_is_built_from_the_base_url():
@@ -129,22 +125,24 @@ def test_config_endpoint_tells_the_browser_what_to_do_without_secrets(
 ):
     c = client_for(app, add_user(db, "ed", "editor"))
     set_stt(db, STT_BASEURL="", STT_MODE="auto")
-    assert c.get("/api/stt/config").json == {"available": False, "mode": "upload"}
+    assert c.get("/api/stt/config").json() == {"available": False, "mode": "upload"}
     set_stt(db, STT_BASEURL="http://stt:9/v1", STT_MODE="upload", STT_API_KEY="geheim")
     got = c.get("/api/stt/config")
-    assert got.json == {
-        "available": True,
-        "mode": "upload",
-    } and "geheim" not in got.get_data(as_text=True)
-    assert app.test_client().get("/api/stt/config").status_code == 401
+    assert (
+        got.json()
+        == {
+            "available": True,
+            "mode": "upload",
+        }
+        and "geheim" not in got.text
+    )
+    assert anon(app).get("/api/stt/config").status_code == 401
 
 
 def test_upload_sends_the_audio_to_an_openai_compatible_endpoint(app, db, whisper):
     set_stt(db, STT_BASEURL=whisper, STT_MODEL="whisper-large-v3", STT_API_KEY="k1")
-    r = client_for(app, add_user(db, "ed", "editor")).post(
-        "/api/stt", data=audio(), content_type="multipart/form-data"
-    )
-    assert r.status_code == 200 and r.json == {"text": "Hallo Welt"}
+    r = client_for(app, add_user(db, "ed", "editor")).post("/api/stt", files=audio())
+    assert r.status_code == 200 and r.json() == {"text": "Hallo Welt"}
     call = FakeWhisper.seen[0]
     assert (
         call["path"].endswith("/audio/transcriptions") and call["auth"] == "Bearer k1"
@@ -157,62 +155,42 @@ def test_upload_rejects_missing_empty_and_oversized_audio(
 ):
     set_stt(db, STT_BASEURL=whisper)
     c = client_for(app, add_user(db, "ed", "editor"))
-    assert (
-        c.post("/api/stt", data={}, content_type="multipart/form-data").status_code
-        == 400
-    )
-    assert (
-        c.post(
-            "/api/stt", data=audio(b""), content_type="multipart/form-data"
-        ).status_code
-        == 400
-    )
+    assert c.post("/api/stt").status_code == 400
+    assert c.post("/api/stt", files=audio(b"")).status_code == 400
     monkeypatch.setattr(stt_config, "MAX_AUDIO_BYTES", 10)
-    assert (
-        c.post(
-            "/api/stt", data=audio(b"x" * 11), content_type="multipart/form-data"
-        ).status_code
-        == 413
-    )
+    assert c.post("/api/stt", files=audio(b"x" * 11)).status_code == 413
     assert FakeWhisper.seen == []  # nichts weitergereicht
 
 
 def test_upload_errors_do_not_leak_internals(app, db, whisper):
     set_stt(db, STT_BASEURL=whisper)
     c = client_for(app, add_user(db, "ed", "editor"))
-    r = c.post("/api/stt", data=audio(b"fehler"), content_type="multipart/form-data")
+    r = c.post("/api/stt", files=audio(b"fehler"))
     assert (
         r.status_code == 502
-        and "HTTP 500" in r.json["error"]
-        and "Traceback" not in r.get_data(as_text=True)
+        and "HTTP 500" in r.json()["error"]
+        and "Traceback" not in r.text
     )
     set_stt(db, STT_BASEURL="http://127.0.0.1:9/v1")
-    gone = c.post("/api/stt", data=audio(), content_type="multipart/form-data")
-    assert gone.status_code == 502 and "nicht erreichbar" in gone.json["error"]
+    gone = c.post("/api/stt", files=audio())
+    assert gone.status_code == 502 and "nicht erreichbar" in gone.json()["error"]
 
 
 def test_upload_requires_a_login_and_refuses_link_local_targets(app, db):
-    assert (
-        app.test_client()
-        .post("/api/stt", data=audio(), content_type="multipart/form-data")
-        .status_code
-        == 401
-    )
+    assert anon(app).post("/api/stt", files=audio()).status_code == 401
     set_stt(db, STT_BASEURL="http://169.254.169.254/v1")
-    r = client_for(app, add_user(db, "ed", "editor")).post(
-        "/api/stt", data=audio(), content_type="multipart/form-data"
-    )
+    r = client_for(app, add_user(db, "ed", "editor")).post("/api/stt", files=audio())
     assert r.status_code == 502
 
 
 def test_tools_api_saves_and_validates_the_mode(app, db):
     admin = client_for(app, ADMIN)
-    assert admin.get("/api/admin/tools").json["stt"]["mode"] == "auto"
+    assert admin.get("/api/admin/tools").json()["stt"]["mode"] == "auto"
     ok = admin.put(
         "/api/admin/tools",
         json={"stt": {"base_url": "http://stt:9/v1", "mode": "upload"}},
     )
-    assert ok.status_code == 200 and ok.json["stt"]["mode"] == "upload"
+    assert ok.status_code == 200 and ok.json()["stt"]["mode"] == "upload"
     assert (
         admin.put(
             "/api/admin/tools",
@@ -236,8 +214,8 @@ def test_the_test_button_does_a_real_transcription_and_reports_both_modes(
     )
     assert (
         r.status_code == 200
-        and "Aufnehmen & senden: ok" in r.json["details"]
-        and "nicht angeboten" in r.json["details"]
+        and "Aufnehmen & senden: ok" in r.json()["details"]
+        and "nicht angeboten" in r.json()["details"]
     )
     assert FakeWhisper.seen and FakeWhisper.seen[0]["path"].endswith(
         "/audio/transcriptions"
@@ -246,7 +224,7 @@ def test_the_test_button_does_a_real_transcription_and_reports_both_modes(
     both = client_for(app, ADMIN).post(
         "/api/admin/tools/test", json={"kind": "stt", "values": {"base_url": whisper}}
     )
-    assert "Live-Streaming" in both.json["message"]
+    assert "Live-Streaming" in both.json()["message"]
 
 
 def test_the_test_button_keeps_ports_ending_in_one_intact(app, db, monkeypatch):
@@ -272,38 +250,31 @@ def test_silent_wav_is_a_valid_one_second_wav():
 
 
 def test_stream_proxy_sends_the_key_to_the_upstream(monkeypatch):
+    import asyncio
+
+    import websockets.asyncio.client as ws_client
+
     import app.chat.stt_stream as stream
 
     captured = {}
-    monkeypatch.setattr(
-        stream.websocket,
-        "create_connection",
-        lambda url, timeout=10, header=None: captured.update(url=url, header=header),
-    )
-    stream._connect_upstream("ws://stt:9/v1/audio/stream", "geheim")
-    assert captured["header"] == ["Authorization: Bearer geheim"]
-    stream._connect_upstream("ws://stt:9/v1/audio/stream", "")
-    assert captured["header"] == []
+
+    async def fake_connect(url, open_timeout=10, additional_headers=None):
+        captured.update(url=url, headers=additional_headers)
+
+    monkeypatch.setattr(ws_client, "connect", fake_connect)
+    asyncio.run(stream._connect_upstream("ws://stt:9/v1/audio/stream", "geheim"))
+    assert captured["headers"] == {"Authorization": "Bearer geheim"}
+    asyncio.run(stream._connect_upstream("ws://stt:9/v1/audio/stream", ""))
+    assert captured["headers"] is None
 
 
 def test_probe_detects_a_real_websocket_stream_endpoint_and_a_plain_http_one(whisper):
-    from flask_sock import Sock
-    from werkzeug.serving import make_server
+    from websockets.sync.server import serve
 
-    flask_app = Flask("fake-parakeet")
-    sock = Sock(flask_app)
-
-    @sock.route("/v1/audio/stream")
-    def stream(ws):
-        ws.close()
-
-    server = make_server("127.0.0.1", 0, flask_app, threaded=True)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        assert (
-            stt_config.probe_stream(f"http://127.0.0.1:{server.server_port}/v1") is True
-        )
-    finally:
+    with serve(lambda ws: ws.close(), "127.0.0.1", 0) as server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        port = server.socket.getsockname()[1]
+        assert stt_config.probe_stream(f"http://127.0.0.1:{port}/v1") is True
         server.shutdown()
     assert (
         stt_config.probe_stream(whisper) is False

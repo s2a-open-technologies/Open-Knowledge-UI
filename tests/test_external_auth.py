@@ -8,16 +8,15 @@ from urllib.parse import parse_qs, urlparse
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from flask import Flask
 from ldap3 import MOCK_SYNC, OFFLINE_AD_2012_R2, Connection, Server
 
-from app.api import register_blueprints
 from app.auth import external as auth_external
 from app.auth import ldap as auth_ldap
 from app.auth import oidc as auth_oidc
 from app.auth import users
 from app.core.models import Group, GroupMember, User
 from tests.test_access import add_user, client_for
+from tests.web import anon, make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
@@ -31,10 +30,7 @@ def fresh():
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -114,12 +110,12 @@ LDAP = {
 
 def enable_ldap(app, **over):
     r = client_for(app, ADMIN).put("/api/admin/auth", json={"ldap": {**LDAP, **over}})
-    assert r.status_code == 200, r.json
+    assert r.status_code == 200, r.json()
     return r
 
 
 def login(app, username, password):
-    return app.test_client().post(
+    return anon(app).post(
         "/api/auth/login", json={"username": username, "password": password}
     )
 
@@ -129,13 +125,13 @@ def test_first_ldap_login_creates_the_account_with_the_default_role(
 ):
     enable_ldap(app)
     r = login(app, "alice", "alicepw")
-    assert r.status_code == 200 and r.json["user"]["role"] == "user"
+    assert r.status_code == 200 and r.json()["user"]["role"] == "user"
     assert (
-        r.json["user"]["display_name"] == "Alice Muster"
-        and r.json["user"]["auth_source"] == "ldap"
+        r.json()["user"]["display_name"] == "Alice Muster"
+        and r.json()["user"]["auth_source"] == "ldap"
     )
     again = login(app, "alice", "alicepw")
-    assert again.json["user"]["id"] == r.json["user"]["id"]  # kein zweites Konto
+    assert again.json()["user"]["id"] == r.json()["user"]["id"]  # kein zweites Konto
 
 
 def test_wrong_password_and_unknown_user_are_refused(app, db, ldap_server):
@@ -238,16 +234,16 @@ def test_external_accounts_have_no_password_login_or_password_change(
     app, db, ldap_server
 ):
     enable_ldap(app)
-    c = app.test_client()
+    c = anon(app)
     c.post("/api/auth/login", json={"username": "alice", "password": "alicepw"})
-    me = c.get("/api/auth/me").json
+    me = c.get("/api/auth/me").json()
     assert me["user"]["auth_source"] == "ldap"
     r = c.post(
         "/api/auth/change-password",
         json={"old_password": "alicepw", "new_password": "neuesPasswort"},
     )
     assert r.status_code in (400, 403)
-    ids = client_for(app, ADMIN).get("/api/users").json
+    ids = client_for(app, ADMIN).get("/api/users").json()
     uid = next(u["id"] for u in ids if u["username"] == "alice")
     assert (
         client_for(app, ADMIN)
@@ -272,16 +268,14 @@ def test_secrets_never_leave_the_server_and_empty_fields_keep_them(
     app, db, ldap_server
 ):
     r = enable_ldap(app)
-    text = r.get_data(as_text=True)
-    assert "svcpw" not in text and r.json["ldap"]["has_bind_password"] is True
+    text = r.text
+    assert "svcpw" not in text and r.json()["ldap"]["has_bind_password"] is True
     client_for(app, ADMIN).put(
         "/api/admin/auth",
         json={"ldap": {"base_dn": "dc=firma,dc=test", "bind_password": ""}},
     )
     assert auth_external.load_config()["ldap"]["bind_password"] == "svcpw"
-    assert "svcpw" not in client_for(app, ADMIN).get("/api/admin/auth").get_data(
-        as_text=True
-    )
+    assert "svcpw" not in client_for(app, ADMIN).get("/api/admin/auth").text
 
 
 def test_auth_settings_are_admin_only_and_validated(app, db):
@@ -347,11 +341,11 @@ def test_ldap_test_endpoint_reports_facts_and_does_not_log_in(app, db, ldap_serv
     )
     assert (
         r.status_code == 200
-        and r.json["service_bind"]
-        and r.json["user_found"]
-        and r.json["login_ok"]
+        and r.json()["service_bind"]
+        and r.json()["user_found"]
+        and r.json()["login_ok"]
     )
-    assert "Vertrieb" in r.json["groups"]
+    assert "Vertrieb" in r.json()["groups"]
     s = db.get_session()
     assert (
         s.query(User).filter_by(username="alice").count() == 0
@@ -483,25 +477,25 @@ def enable_oidc(app, idp, **over):
     r = client_for(app, ADMIN).put(
         "/api/admin/auth", json={"oidc": block, "base_url": "http://app.test"}
     )
-    assert r.status_code == 200, r.json
+    assert r.status_code == 200, r.json()
 
 
 def sso(app, idp):
-    c = app.test_client()
+    c = anon(app)
     first = c.get("/api/auth/oidc/login")
-    assert first.status_code == 302 and first.location.startswith(
+    assert first.status_code == 302 and first.headers["location"].startswith(
         idp.url + "/authorize"
     )
-    return c, c.get(idp.authorize(first.location))
+    return c, c.get(idp.authorize(first.headers["location"]))
 
 
 def test_providers_endpoint_tells_the_login_page_what_to_show(app, db, idp):
-    assert app.test_client().get("/api/auth/providers").json == {
+    assert anon(app).get("/api/auth/providers").json() == {
         "ldap": False,
         "oidc": {"enabled": False, "name": "SSO"},
     }
     enable_oidc(app, idp)
-    assert app.test_client().get("/api/auth/providers").json["oidc"] == {
+    assert anon(app).get("/api/auth/providers").json()["oidc"] == {
         "enabled": True,
         "name": "Firma-SSO",
     }
@@ -513,8 +507,8 @@ def test_oidc_login_creates_the_account_matches_groups_by_name_and_signs_in(
     add_group(db, "VERTRIEB")
     enable_oidc(app, idp)
     c, done = sso(app, idp)
-    assert done.status_code == 302 and done.location.endswith("/")
-    me = c.get("/api/auth/me").json["user"]
+    assert done.status_code == 302 and done.headers["location"].endswith("/")
+    me = c.get("/api/auth/me").json()["user"]
     assert (
         me["username"] == "carol"
         and me["auth_source"] == "oidc"
@@ -531,12 +525,13 @@ def test_oidc_rejects_bad_state_wrong_audience_wrong_nonce_and_expired_tokens(
     app, db, idp
 ):
     enable_oidc(app, idp)
-    c = app.test_client()
+    c = anon(app)
     first = c.get("/api/auth/oidc/login")
-    cb = idp.authorize(first.location)
+    cb = idp.authorize(first.headers["location"])
     bad_state = c.get(cb.split("state=")[0] + "state=falsch")
     assert (
-        "login_error" in bad_state.location and c.get("/api/auth/me").status_code == 401
+        "login_error" in bad_state.headers["location"]
+        and c.get("/api/auth/me").status_code == 401
     )
 
     for override in (
@@ -546,9 +541,9 @@ def test_oidc_rejects_bad_state_wrong_audience_wrong_nonce_and_expired_tokens(
         {"iss": "http://boese.test"},
     ):
         idp.override = override
-        c2 = app.test_client()
-        done = c2.get(idp.authorize(c2.get("/api/auth/oidc/login").location))
-        assert "login_error" in done.location, override
+        c2 = anon(app)
+        done = c2.get(idp.authorize(c2.get("/api/auth/oidc/login").headers["location"]))
+        assert "login_error" in done.headers["location"], override
         assert c2.get("/api/auth/me").status_code == 401
     s = db.get_session()
     assert s.query(User).filter_by(username="carol").count() == 0
@@ -564,9 +559,12 @@ def test_oidc_token_signed_with_another_key_is_refused(app, db, idp, monkeypatch
         return real(claims, other, algorithm=algorithm, headers=headers)
 
     monkeypatch.setattr("tests.test_external_auth.jwt.encode", forge)
-    c = app.test_client()
-    done = c.get(idp.authorize(c.get("/api/auth/oidc/login").location))
-    assert "login_error" in done.location and c.get("/api/auth/me").status_code == 401
+    c = anon(app)
+    done = c.get(idp.authorize(c.get("/api/auth/oidc/login").headers["location"]))
+    assert (
+        "login_error" in done.headers["location"]
+        and c.get("/api/auth/me").status_code == 401
+    )
 
 
 def test_oidc_accounts_cannot_use_the_password_form_and_local_accounts_cannot_be_taken_over(
@@ -578,16 +576,16 @@ def test_oidc_accounts_cannot_use_the_password_form_and_local_accounts_cannot_be
     add_user(db, "dave", "editor", password="lokal")
     idp.claims = {**idp.claims, "sub": "u-2", "preferred_username": "dave"}
     c, done = sso(app, idp)
-    assert "login_error" in done.location  # Name gehoert einem lokalen Konto
+    assert "login_error" in done.headers["location"]  # Name gehoert einem lokalen Konto
     assert c.get("/api/auth/me").status_code == 401
 
 
 def test_oidc_disabled_or_unreachable_sends_the_user_back_to_the_login(app, db, idp):
-    assert "login_error" in app.test_client().get("/api/auth/oidc/login").location
+    assert "login_error" in anon(app).get("/api/auth/oidc/login").headers["location"]
     enable_oidc(app, idp)
     idp.srv.shutdown()
     auth_oidc._discovery.clear()
-    assert "login_error" in app.test_client().get("/api/auth/oidc/login").location
+    assert "login_error" in anon(app).get("/api/auth/oidc/login").headers["location"]
 
 
 def test_oidc_test_endpoint_shows_the_callback_url(app, db, idp):
@@ -595,9 +593,11 @@ def test_oidc_test_endpoint_shows_the_callback_url(app, db, idp):
         "/api/admin/auth/test", json={"kind": "oidc", "values": {"issuer": idp.url}}
     )
     assert (
-        r.status_code == 200 and r.json["jwks_reachable"] and r.json["pkce_supported"]
+        r.status_code == 200
+        and r.json()["jwks_reachable"]
+        and r.json()["pkce_supported"]
     )
-    assert r.json["redirect_uri"].endswith("/api/auth/oidc/callback")
+    assert r.json()["redirect_uri"].endswith("/api/auth/oidc/callback")
     bad = client_for(app, ADMIN).post(
         "/api/admin/auth/test",
         json={"kind": "oidc", "values": {"issuer": "http://127.0.0.1:9"}},
@@ -622,7 +622,10 @@ def test_oidc_never_links_an_existing_account_by_name_only(app, db, idp):
         "sub": "u-evil",
     }  # anderer Mensch, gleicher preferred_username
     c, done = sso(app, idp)
-    assert "login_error" in done.location and c.get("/api/auth/me").status_code == 401
+    assert (
+        "login_error" in done.headers["location"]
+        and c.get("/api/auth/me").status_code == 401
+    )
     s = db.get_session()
     user = s.query(User).filter_by(username="carol").first()
     assert user.id == first_id and user.external_id == "u-1"  # nicht umgebogen

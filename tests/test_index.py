@@ -2,12 +2,11 @@
 from pathlib import Path
 
 import pytest
-from flask import Flask
 from werkzeug.security import generate_password_hash
 
 from app.agent.tools.custom_tools import CustomTools
-from app.api import register_blueprints
 from app.auth import access
+from app.core import runtime
 from app.core.models import User
 from app.knowledge import index_doc
 from app.knowledge import service as knowledge
@@ -27,6 +26,7 @@ from tests.test_ingest import (  # noqa: F401
     qd,
     set_setting,
 )
+from tests.web import chat_ws, client_for, make_app
 
 
 def add_doc(db, kb, name, markdown, fg="0123456789abcdef", **kw):
@@ -201,18 +201,8 @@ def add_user(db, username, role):
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
-
-
-def client_for(app, user):
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["user_id"] = user["id"]
-    return c
 
 
 def test_api_changes_refresh_the_index(app, db, qd):
@@ -220,7 +210,7 @@ def test_api_changes_refresh_the_index(app, db, qd):
 
     kb = default_kb()
     ensure_collection(qd, "open_knowledge_ui", 7)
-    app.extensions["client"] = qd
+    runtime.state.client = qd
     add_doc(db, kb, "Bericht.pdf", "# Bericht", fg="22222222-bbbb")
     index_doc.refresh_index(kb["id"])
     admin = client_for(app, {"id": 1})
@@ -244,7 +234,7 @@ def test_api_changes_refresh_the_index(app, db, qd):
     (Path("./data")).mkdir(exist_ok=True)
     admin.post(
         "/api/documents/upload",
-        data={"files": (__import__("io").BytesIO(b"a,b\n1,2\n"), "neu.csv")},
+        files={"files": ("neu.csv", __import__("io").BytesIO(b"a,b\n1,2\n"))},
     )
     assert "`neu.csv`" in stored(kb)
 
@@ -323,21 +313,19 @@ class CapturingAgent:
 
 @pytest.fixture
 def chat_env(app, db, monkeypatch):
-    from app.api import chat as routes
+    from app.chat import service as routes
     from app.llm import connections as store
 
     CapturingAgent.messages = []
     conn = store.create_connection("C", "http://x/v1", "k")
     monkeypatch.setattr(routes, "get_agent", lambda resolved, tools: CapturingAgent())
     monkeypatch.setattr(routes, "resources_ready", lambda: True)
-    app.extensions["agent_tools"] = []
+    runtime.state.agent_tools = []
     return store.make_base_ref(conn["id"], "m")
 
 
 def chat(client, ref, **body):
-    client.post(
-        "/chat", json={"message": "Welche Dokumente gibt es?", "model": ref, **body}
-    ).get_data()
+    chat_ws(client, **{"message": "Welche Dokumente gibt es?", "model": ref, **body})
     return CapturingAgent.messages[-1]
 
 

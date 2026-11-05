@@ -1,14 +1,13 @@
 import json
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.knowledge import service as knowledge
 from app.llm import connections as store
 from app.rag import model_settings
 from app.rag import models_runtime as mr
 from tests.test_access import add_user, client_for
+from tests.web import make_app
 
 
 @pytest.fixture(autouse=True)
@@ -20,10 +19,7 @@ def clean():
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -70,7 +66,7 @@ def test_save_validates_and_switches_model(app, db, monkeypatch):
             }
         },
     )
-    assert back.status_code == 200 and back.json["embedding"]["source"] == "fastembed"
+    assert back.status_code == 200 and back.json()["embedding"]["source"] == "fastembed"
     assert (
         admin.put(
             "/api/admin/embedding", json={"ingest": {"chunk_size": 50}}
@@ -102,7 +98,7 @@ def test_save_validates_and_switches_model(app, db, monkeypatch):
         ("embedding", "BAAI/bge-m3"),
         ("reranker", "BAAI/bge-reranker-v2-m3"),
     ]
-    body = r.json
+    body = r.json()
     assert (
         body["embedding"]["model"] == "BAAI/bge-m3"
         and body["ingest"]["chunk_size"] == 800
@@ -145,7 +141,7 @@ def test_test_endpoint_reports_dimension_and_errors(app, db, monkeypatch):
         "/api/admin/embedding/test",
         json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}},
     )
-    assert ok.status_code == 200 and ok.json["dimension"] == 5
+    assert ok.status_code == 200 and ok.json()["dimension"] == 5
 
     def boom(spec):
         raise mr.ModelLoadError("kein Netz")
@@ -155,7 +151,7 @@ def test_test_endpoint_reports_dimension_and_errors(app, db, monkeypatch):
         "/api/admin/embedding/test",
         json={"kind": "embedding", "spec": {"source": "hf", "model": "x/y"}},
     )
-    assert bad.status_code == 502 and "kein Netz" in bad.json["error"]
+    assert bad.status_code == 502 and "kein Netz" in bad.json()["error"]
     assert (
         admin.post(
             "/api/admin/embedding/test", json={"kind": "x", "spec": {}}
@@ -182,4 +178,4 @@ def test_endpoint_spec_needs_an_existing_connection(app, db):
             }
         },
     )
-    assert r.status_code == 200 and r.json["embedding"]["connection_id"] == conn["id"]
+    assert r.status_code == 200 and r.json()["embedding"]["connection_id"] == conn["id"]

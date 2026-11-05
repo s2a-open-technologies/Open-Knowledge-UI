@@ -1,10 +1,9 @@
 import pytest
-from flask import Flask
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.api import register_blueprints
 from app.auth import users
 from app.core.models import ChatSession, User
+from tests.web import anon, make_app, session_cookie
 
 
 @pytest.fixture(autouse=True)
@@ -31,15 +30,12 @@ def add_user(db, username, password, role="user", active=True):
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "test"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
 def login(app, username, password):
-    c = app.test_client()
+    c = anon(app)
     res = c.post("/api/auth/login", json={"username": username, "password": password})
     return c, res
 
@@ -80,8 +76,8 @@ def test_orphan_chats_are_assigned_to_admin(db):
 
 def test_login_succeeds_and_me_returns_user(app):
     c, res = login(app, "admin", "admin")
-    assert res.status_code == 200 and res.json["user"]["role"] == "admin"
-    me = c.get("/api/auth/me").json
+    assert res.status_code == 200 and res.json()["user"]["role"] == "admin"
+    me = c.get("/api/auth/me").json()
     assert me["user"]["username"] == "admin" and "password_hash" not in str(me)
 
 
@@ -124,9 +120,8 @@ def test_deactivating_a_user_ends_the_existing_session(app, db):
 
 
 def test_old_style_session_cookie_is_no_longer_valid(app):
-    c = app.test_client()
-    with c.session_transaction() as s:
-        s["authenticated"] = True
+    c = anon(app)
+    c.cookies.set("session", session_cookie(app, {"authenticated": True}))
     assert c.get("/api/auth/me").status_code == 401
 
 
@@ -161,7 +156,7 @@ def test_role_matrix(app, db, method, path, expected):
 
 
 def test_anonymous_is_rejected_everywhere(app):
-    c = app.test_client()
+    c = anon(app)
     for path in ("/api/connections", "/api/models", "/api/sessions", "/api/knowledge"):
         assert c.get(path).status_code == 401
 
@@ -184,11 +179,11 @@ def test_normal_user_sees_models_without_prompts_or_config(app, db, monkeypatch)
     add_user(db, "u", "pw")
 
     c, _ = login(app, "u", "pw")
-    body = c.get("/api/models").get_data(as_text=True)
+    body = c.get("/api/models").text
     assert "GEHEIM" not in body and '"config"' not in body
     mine = {
         m["model_id"]: m
-        for m in c.get("/api/models").json["models"]
+        for m in c.get("/api/models").json()["models"]
         if m["connection_name"] == "C"
     }
     assert "hidden" not in mine  # versteckte Modelle bleiben verborgen
@@ -198,7 +193,7 @@ def test_normal_user_sees_models_without_prompts_or_config(app, db, monkeypatch)
     store.save_model_config(ref, {"allow_extra_knowledge": False})
     locked = {
         m["model_id"]: m
-        for m in c.get("/api/models").json["models"]
+        for m in c.get("/api/models").json()["models"]
         if m["connection_name"] == "C"
     }
     assert (
@@ -206,7 +201,7 @@ def test_normal_user_sees_models_without_prompts_or_config(app, db, monkeypatch)
     )  # Admin hat zusaetzliches Knowledge ausgeschaltet
 
     admin, _ = login(app, "admin", "admin")
-    assert "GEHEIM" in admin.get("/api/models").get_data(as_text=True)
+    assert "GEHEIM" in admin.get("/api/models").text
 
 
 # --- Chats pro Nutzer ------------------------------------------------------
@@ -218,9 +213,9 @@ def test_chats_are_private_per_user(app, db):
     ca, _ = login(app, "a", "pw")
     cb, _ = login(app, "b", "pw")
 
-    sid = ca.post("/api/sessions").json["id"]
-    assert [s["id"] for s in ca.get("/api/sessions").json] == [sid]
-    assert cb.get("/api/sessions").json == []
+    sid = ca.post("/api/sessions").json()["id"]
+    assert [s["id"] for s in ca.get("/api/sessions").json()] == [sid]
+    assert cb.get("/api/sessions").json() == []
 
     assert cb.get(f"/api/sessions/{sid}").status_code == 404
     assert cb.get(f"/history/{sid}").status_code == 404
@@ -235,7 +230,7 @@ def test_attachments_of_foreign_chats_are_not_accessible(app, db):
     add_user(db, "b", "pw")
     ca, _ = login(app, "a", "pw")
     cb, _ = login(app, "b", "pw")
-    sid = ca.post("/api/sessions").json["id"]
+    sid = ca.post("/api/sessions").json()["id"]
     att = db.create_attachment(sid, "x.pdf")
 
     assert ca.get(f"/api/chat/attachments/{att.id}").status_code == 200

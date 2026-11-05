@@ -2,14 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Open Knowledge UI is a German-language RAG app (Flask backend, React SPA, Qdrant, Postgres). [`AGENTS.md`](./AGENTS.md) is the detailed source of truth (architecture facts, gotchas, per-feature sections); this file keeps the commands, the big picture and the rules you need first.
+Open Knowledge UI is a German-language RAG app (FastAPI backend, React SPA, Qdrant, Postgres, Redis). [`AGENTS.md`](./AGENTS.md) is the detailed source of truth (architecture facts, gotchas, per-feature sections); this file keeps the commands, the big picture and the rules you need first.
 
 ## Commands
 
 ```bash
 # tests (the `worker` extra is required: sqlglot, pymysql, pymssql). Full suite takes ~7 min, run it in the background with a log.
-uv run --extra worker --with pytest pytest tests -q -p no:cacheprovider
-uv run --extra worker --with pytest pytest tests/test_sql_values.py::test_full_flow_suggest_save_build_and_search -q   # one test
+uv run --extra worker --extra test --with pytest pytest tests -q -p no:cacheprovider
+uv run --extra worker --extra test --with pytest pytest tests/test_sql_values.py::test_full_flow_suggest_save_build_and_search -q   # one test
 SQL_TEST_PG=host:port:db:user:pw SQL_TEST_MYSQL=... SQL_TEST_MSSQL=... # also run the real-server tests in tests/test_tool_worker_sqlengine.py
 TEST_DATABASE_URL=postgresql+psycopg://... # run the suite against Postgres instead of SQLite
 
@@ -23,11 +23,12 @@ python run_mac.py                   # macOS: app native, helpers + workers in Do
 
 ## Big picture
 
-- **Packages** in `app/`: `core` (DB, settings, security), `auth`, `llm`, `ingest` (file -> chunks -> Qdrant), `knowledge` (areas, external, `sql/`), `rag` (retrieval), `agent` (agent, `tools/`, `toolworker/`), `chat`, `api` (all blueprints, one per area, registered by `app/api/__init__.py:register_blueprints`). Package map in `AGENTS.md`.
-- **Chat request** (`app/api/chat.py`, `POST /chat`, SSE): resolves the model (`app/llm/registry.py`), builds a per-request `RetrievalScope` (ContextVar in `app/rag/retrieval.py`: document collections, foreign Qdrants, `sql_sources`), picks tools with `select_tools` (`app/agent/document_agent.py`), masks the whole context through the PII filter (`app/chat/pii_session.py`, fail-closed) and streams the LangChain agent. Tools read the scope, never the request.
+- **Packages** in `app/`: `core` (DB, settings, security), `auth`, `llm`, `ingest` (file -> chunks -> Qdrant), `knowledge` (areas, external, `sql/`), `rag` (retrieval), `agent` (agent, `tools/`, `toolworker/`), `chat`, `api` (all routers, one per area, registered by `app/api/__init__.py:include_routers`). Package map in `AGENTS.md`.
+- **Chat request** (WebSocket `/ws/chat` in `app/api/chat.py`, core in `app/chat/service.py`): resolves the model (`app/llm/registry.py`), builds a per-request `RetrievalScope` (ContextVar in `app/rag/retrieval.py`: document collections, foreign Qdrants, `sql_sources`), picks tools with `select_tools` (`app/agent/document_agent.py`), masks the whole context through the PII filter (`app/chat/pii_session.py`, fail-closed) and streams the LangChain agent as an asyncio task. Stop = task cancel by `stream_id` (`app/chat/streams.py`, across processes via Redis `app/core/redis_bus.py`); nothing is saved before `done`. Tools read the scope, never the request.
 - **Knowledge has three kinds** (`knowledge.kind`): `local` (own Qdrant collection, ingestion pipeline in `app/ingest/`), `external` (foreign Qdrant, read-only), `sql` (`app/knowledge/sql/`: live read-only SQL, value directory for spellings). `app/knowledge/service.py:is_remote` marks the read-only kinds; access is grants + `is_public` in `app/auth/access.py` (editors may write everything shared with their groups).
-- **Code and database access never runs in the app.** `tool_worker/` is a separate Flask service (same image, `TOOL_WORKER_ROLE=pandas|sql`): sandboxed Pandas and read-only SQL (`sqlcheck.py` AST validation + read-only sessions). The app only talks to it via `app/agent/toolworker/client.py`; there is no in-app fallback.
+- **Code and database access never runs in the app.** `tool_worker/` is a separate FastAPI service (same image, `TOOL_WORKER_ROLE=pandas|sql`): sandboxed Pandas and read-only SQL (`sqlcheck.py` AST validation + read-only sessions). The app only talks to it via `app/agent/toolworker/client.py`; there is no in-app fallback.
 - **Embedding/rerank backends** are a registry (`app/rag/models_runtime.py`); remote ones go through `app/rag/endpoints.py` per connection kind (`llm` OpenAI-style, `tei`, `infinity`).
+- **HTTP layer** (`app/api/`): one `APIRouter` per area with Pydantic models in `app/api/schemas/`, auth via dependencies (`CurrentUser`/`Editor`/`Admin` in `app/auth/auth.py`), errors via `ApiError` (always an `error` field). Per-process state (Qdrant client, tools, ingestion status) is `app/core/runtime.py:state`, not the request. Tests build the app with `tests/web.py:make_app()` (needs the `db` fixture) and log in with `client_for(app, user)`.
 - **Settings live in the DB** (`settings` table, seeded by Alembic migrations and `SETTINGS` lists such as `app/agent/toolworker/config.py`), not in env vars; a DB value silently beats `.env`. Infra keys (`DATA_DIR`, `QDRANT_*`) are env-only.
 
 ## Rules

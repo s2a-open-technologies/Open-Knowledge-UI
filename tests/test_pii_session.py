@@ -24,9 +24,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.chat import compaction
 from app.chat.pii_client import PIIFilterClient, PIIFilterUnavailable
 from app.chat.pii_session import (
@@ -36,11 +34,13 @@ from app.chat.pii_session import (
     split_texts,
     timeout_for,
 )
+from app.core import runtime
 from app.core.settings_service import SettingsService
 from app.llm import connections as store
 from app.llm import registry
 from tests.test_access import add_user, client_for
 from tests.test_sanitizer import FakeAgent
+from tests.web import chat_ws, make_app
 
 NAMES = ["Max Mustermann", "Anna Schmidt", "Karl Otto"]
 EMAIL = re.compile(r"[\w.]+@[\w.]+\.\w+")
@@ -273,17 +273,14 @@ def test_the_summarizer_sees_only_masked_text_and_the_stored_summary_is_plain(
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    app.extensions["agent_tools"] = []
-    register_blueprints(app)
+    app = make_app()
+    runtime.state.agent_tools = []
     return app
 
 
 def setup_chat(app, db, monkeypatch, pii_url, chunks):
     monkeypatch.setattr(registry, "fetch_remote_models", lambda c, force=False: ["m1"])
-    monkeypatch.setattr("app.api.chat.resources_ready", lambda: True)
+    monkeypatch.setattr("app.chat.service.resources_ready", lambda: True)
     conn = store.create_connection("C", "http://127.0.0.1:9/v1", "k")
     store.set_default_model(store.make_base_ref(conn["id"], "m1"))
     s = db.get_session()
@@ -296,16 +293,8 @@ def setup_chat(app, db, monkeypatch, pii_url, chunks):
     )
     s.close()
     agent = FakeAgent(chunks)
-    monkeypatch.setattr("app.api.chat.get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr("app.chat.service.get_agent", lambda *a, **k: agent)
     return agent
-
-
-def sse_events(response):
-    return [
-        json.loads(line[6:])
-        for line in response.get_data(as_text=True).split("\n\n")
-        if line.startswith("data: ")
-    ]
 
 
 def test_history_and_question_reach_the_model_masked_and_the_stream_comes_back_in_plain_text(
@@ -320,9 +309,7 @@ def test_history_and_question_reach_the_model_masked_and_the_stream_comes_back_i
     )
     user = add_user(db, "ed", "editor")
     c = client_for(app, user)
-    first = sse_events(
-        c.post("/chat", json={"message": "Max Mustermann (max@firma.de) braucht Hilfe"})
-    )
+    first = chat_ws(c, message="Max Mustermann (max@firma.de) braucht Hilfe")
     sid = next(e["session_id"] for e in first if e.get("done"))
     assert (
         agent.inputs[0]["messages"][-1]["content"]
@@ -330,8 +317,8 @@ def test_history_and_question_reach_the_model_masked_and_the_stream_comes_back_i
     )
 
     EntityGuardLike.calls.clear()
-    second = c.post("/chat", json={"message": "Und Anna Schmidt?", "session_id": sid})
-    events = sse_events(second)
+    second = chat_ws(c, message="Und Anna Schmidt?", session_id=sid)
+    events = second
     sent = json.dumps(agent.inputs[1], ensure_ascii=False)
     assert (
         not any(n in sent for n in NAMES) and "max@firma.de" not in sent
@@ -355,14 +342,12 @@ def test_unreachable_filter_or_destroyed_markers_block_the_whole_chat(
     c = client_for(app, add_user(db, "ed", "editor"))
     sid = next(
         e["session_id"]
-        for e in sse_events(c.post("/chat", json={"message": "Hallo Max Mustermann"}))
+        for e in chat_ws(c, message="Hallo Max Mustermann")
         if e.get("done")
     )
     agent.inputs.clear()
     EntityGuardLike.mode = "drop_marker"
-    body = c.post(
-        "/chat", json={"message": "Noch eine Frage", "session_id": sid}
-    ).get_data(as_text=True)
+    body = chat_ws(c, message="Noch eine Frage", session_id=sid).text
     assert (
         "Trennmarken" in body and "nicht gesendet" in body
     )  # die Ursache wird genannt, nicht pauschal "nicht erreichbar"
@@ -381,11 +366,7 @@ def test_the_chat_error_names_a_short_reason_and_never_an_internal_address(
 
     monkeypatch.setattr("app.chat.pii_client.requests.post", refuse)
     agent = setup_chat(app, db, monkeypatch, "http://10.0.0.5:9500/sanitize", ["x"])
-    body = (
-        client_for(app, add_user(db, "ed", "editor"))
-        .post("/chat", json={"message": "Hallo"})
-        .get_data(as_text=True)
-    )
+    body = chat_ws(client_for(app, add_user(db, "ed", "editor")), message="Hallo").text
     assert (
         "PII-Filter ist nicht erreichbar" in body
         and "10.0.0.5" not in body
@@ -603,8 +584,8 @@ def test_admin_sets_timeout_and_max_length_and_the_client_uses_them(app, db):
 
     admin = client_for(app, ADMIN)
     assert (
-        admin.get("/api/admin/tools").json["pii"]["timeout_s"] == 10
-        and admin.get("/api/admin/tools").json["pii"]["max_chars"] == 12000
+        admin.get("/api/admin/tools").json()["pii"]["timeout_s"] == 10
+        and admin.get("/api/admin/tools").json()["pii"]["max_chars"] == 12000
     )
     res = admin.put(
         "/api/admin/tools",
@@ -618,8 +599,8 @@ def test_admin_sets_timeout_and_max_length_and_the_client_uses_them(app, db):
     )
     assert (
         res.status_code == 200
-        and res.json["pii"]["timeout_s"] == 25
-        and res.json["pii"]["max_chars"] == 8000
+        and res.json()["pii"]["timeout_s"] == 25
+        and res.json()["pii"]["max_chars"] == 8000
     )
     client = web_access.pii_client()
     assert client.timeout == 25 and client.max_chars == 8000

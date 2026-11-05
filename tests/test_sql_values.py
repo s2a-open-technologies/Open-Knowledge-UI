@@ -2,9 +2,7 @@ import sqlite3
 import time
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.chat.pii_session import PIISession, set_session
 from app.knowledge import service as knowledge
 from app.knowledge.sql import valueindex
@@ -13,16 +11,14 @@ from app.rag import retrieval
 from app.rag.retrieval import RetrievalScope
 from tests.test_access import add_user, client_for
 from tests.test_pii_tools import FakeFilter
+from tests.web import chat_ws, make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -61,15 +57,15 @@ def make_source(app, **over):
     r = client_for(app, ADMIN).post(
         "/api/knowledge", json={"name": "Shop", "kind": "sql", "source": src}
     )
-    assert r.status_code == 201, r.json
-    return r.json["id"]
+    assert r.status_code == 201, r.json()
+    return r.json()["id"]
 
 
 def wait_built(app, kid, timeout=15):
     c = client_for(app, ADMIN)
     end = time.time() + timeout
     while time.time() < end:
-        st = c.get(f"/api/knowledge/{kid}/sql-values").json
+        st = c.get(f"/api/knowledge/{kid}/sql-values").json()
         if st["status"] in ("ready", "error"):
             return st
         time.sleep(0.1)
@@ -155,7 +151,7 @@ def test_suggestions_include_categories_and_exclude_keys_contacts_and_free_text(
 def test_full_flow_suggest_save_build_and_search(app, db, shop):
     kid = make_source(app)
     admin = client_for(app, ADMIN)
-    sug = admin.post(f"/api/knowledge/{kid}/sql-values/suggest").json
+    sug = admin.post(f"/api/knowledge/{kid}/sql-values/suggest").json()
     by = {(c["table"], c["column"]): c for c in sug["columns"]}
     assert by[("items", "name")]["include"] and by[("items", "category")]["include"]
     assert by[("items", "email")]["include"] is False
@@ -164,7 +160,7 @@ def test_full_flow_suggest_save_build_and_search(app, db, shop):
         f"/api/knowledge/{kid}/sql-values",
         json={"columns": {"items": ["name", "category"]}},
     )
-    assert saved.status_code == 200 and saved.json["columns"] == {
+    assert saved.status_code == 200 and saved.json()["columns"] == {
         "items": ["name", "category"]
     }
     assert admin.post(f"/api/knowledge/{kid}/sql-values/build").status_code == 202
@@ -177,7 +173,7 @@ def test_full_flow_suggest_save_build_and_search(app, db, shop):
 
     res = admin.post(
         f"/api/knowledge/{kid}/sql-values/search", json={"term": "Stühle"}
-    ).json["results"]
+    ).json()["results"]
     values = [r["value"] for r in res]
     assert values[:2] == ["Stühle", "Stuhl"] or set(values[:3]) == {
         "Stühle",
@@ -215,7 +211,7 @@ def test_a_failed_rebuild_keeps_the_old_directory(app, db, shop):
     assert st["status"] == "error" and st["error"]
     assert admin.post(
         f"/api/knowledge/{kid}/sql-values/search", json={"term": "Stuhl"}
-    ).json["results"]  # altes Verzeichnis
+    ).json()["results"]  # altes Verzeichnis
 
 
 def test_columns_that_are_not_categories_are_skipped_with_a_note(
@@ -302,7 +298,7 @@ def test_editing_the_source_keeps_the_column_selection_and_deleting_removes_the_
         json={"source": {"dialect": "sqlite", "database": "shop.db"}},
     )
     assert r.status_code == 200
-    assert admin.get(f"/api/knowledge/{kid}/sql-values").json["columns"] == {
+    assert admin.get(f"/api/knowledge/{kid}/sql-values").json()["columns"] == {
         "items": ["name"]
     }  # Dialog kennt sie nicht
     assert admin.delete(f"/api/knowledge/{kid}").status_code == 200
@@ -410,16 +406,12 @@ def test_the_chat_hint_mentions_the_value_search_only_when_a_directory_exists(
     agent = chat_setup(app, db, monkeypatch, "")
     ed = add_user(db, "ed2", "editor")
     access.add_grant("knowledge", kid, "user", ed["id"], "read")
-    client_for(app, ed).post(
-        "/chat", json={"message": "Wie viele Stühle?", "knowledge_ids": [kid]}
-    ).get_data()
+    chat_ws(client_for(app, ed), message="Wie viele Stühle?", knowledge_ids=[kid])
     assert wc.values_hint() in agent.inputs[0]["messages"][-1]["content"]
     other = make_source(app)  # ohne Verzeichnis
     access.add_grant("knowledge", other, "user", ed["id"], "read")
     agent.inputs.clear()
-    client_for(app, ed).post(
-        "/chat", json={"message": "Hallo", "knowledge_ids": [other]}
-    ).get_data()
+    chat_ws(client_for(app, ed), message="Hallo", knowledge_ids=[other])
     assert wc.values_hint() not in agent.inputs[0]["messages"][-1]["content"]
 
 
@@ -439,7 +431,7 @@ def search_values(app, kid, term):
         r["value"]
         for r in client_for(app, ADMIN)
         .post(f"/api/knowledge/{kid}/sql-values/search", json={"term": term})
-        .json["results"]
+        .json()["results"]
     ]
 
 
@@ -458,11 +450,11 @@ def test_blocking_a_column_later_removes_its_values_and_selection(app, db, shop)
             }
         },
     )
-    assert r.status_code == 200, r.json
+    assert r.status_code == 200, r.json()
     assert (
         search_values(app, kid, "Stuhl") == []
     )  # Werte der gesperrten Spalte sind weg
-    info = admin.get(f"/api/knowledge/{kid}/sql-values").json
+    info = admin.get(f"/api/knowledge/{kid}/sql-values").json()
     assert (
         info["columns"] == {"items": ["category"]} and info["value_count"] == 2
     )  # Auswahl und Zaehlung angepasst
@@ -480,7 +472,7 @@ def test_removing_a_table_from_the_allowed_list_removes_its_values(app, db, shop
         },
     )
     assert search_values(app, kid, "Stuhl") == []
-    assert admin.get(f"/api/knowledge/{kid}/sql-values").json["columns"] == {}
+    assert admin.get(f"/api/knowledge/{kid}/sql-values").json()["columns"] == {}
 
 
 def test_search_filters_by_the_current_config_even_if_rows_remain(app, db, shop):

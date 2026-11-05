@@ -24,8 +24,8 @@ Windows Entry Point
 - Qdrant.exe auf 127.0.0.1:6333 (keine Firewall-Abfrage)
 
 Usage:
-    python run_windows.py              # Auto-Start Qdrant + Flask
-    python run_windows.py --no-qdrant # Nur Flask (Qdrant manuell/docker)
+    python run_windows.py              # Auto-Start Qdrant + App
+    python run_windows.py --no-qdrant # Nur die App (Qdrant manuell/docker)
 """
 
 import atexit
@@ -107,10 +107,10 @@ def main():
     print()
 
     if no_qdrant:
-        print("   Flask: http://127.0.0.1:5000")
+        print("   App: http://127.0.0.1:5000")
         print("   Qdrant: Manuell/Docker (nicht automatisch)")
     else:
-        print("   Flask: http://127.0.0.1:5000")
+        print("   App: http://127.0.0.1:5000")
         print("   Qdrant: http://127.0.0.1:6333")
         print("   (Nur localhost - keine Firewall-Abfrage!)")
     print()
@@ -124,7 +124,7 @@ def main():
             signal.signal(signal.SIGINT, lambda s, f: cleanup())
         else:
             print("WARNUNG: Qdrant konnte nicht gestartet werden.")
-            print("   Starte trotzdem Flask...")
+            print("   Starte trotzdem die App...")
             print()
 
     # Migration
@@ -139,8 +139,8 @@ def main():
         print(result.stderr)
     print()
 
-    # Waitress starten (nur localhost!)
-    from waitress import serve
+    # Uvicorn starten (nur localhost!)
+    import uvicorn
 
     # Import app nach Alembic (wegen DB-Initialisierung)
     from app import create_app
@@ -155,7 +155,7 @@ def main():
     print("   Drücken Sie Ctrl+C zum Beenden")
     print()
 
-    serve(app, host="127.0.0.1", port=5000, threads=4)
+    uvicorn.run(app, host="127.0.0.1", port=5000)
 
 
 if __name__ == "__main__":

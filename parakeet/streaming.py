@@ -31,7 +31,14 @@ import onnxruntime as ort
 logger = logging.getLogger(__name__)
 
 # onnx-asr model name -> resolves to istupakov/parakeet-tdt-0.6b-v3-onnx on HF.
-MODEL_NAME = "nemo-parakeet-tdt-0.6b-v3"
+# One instance serves both the live WebSocket and the HTTP route (main.get_model).
+MODEL_NAME = os.getenv("PARAKEET_MODEL", "nemo-parakeet-tdt-0.6b-v3")
+
+# "int8" loads the dynamically quantized weights from the same HF repo (~0.7 GB
+# instead of ~2.5 GB). Set in the CPU image only: dynamic int8 is built for CPU
+# inference, and on the CUDA provider part of its ops fall back to the CPU, which
+# costs more in host<->device copies than it saves. Empty = FP32.
+QUANTIZATION = os.getenv("PARAKEET_QUANTIZATION", "").strip() or None
 
 # Audio format expected by the rest of the backend (PCM float32, mono, 16 kHz).
 PCM_SAMPLE_RATE = 16000
@@ -141,7 +148,9 @@ class ParakeetStreamEngine:
                 logger.info(
                     "Loading Parakeet TDT v3 ONNX model (first run downloads ~2.5 GB)..."
                 )
-                self._asr = onnx_asr.load_model(MODEL_NAME, providers=providers)
+                self._asr = onnx_asr.load_model(
+                    MODEL_NAME, quantization=QUANTIZATION, providers=providers
+                )
 
             # Raw Silero VAD session for incremental, stateful streaming. The
             # onnx-asr SileroVad class only processes whole waveforms, so we

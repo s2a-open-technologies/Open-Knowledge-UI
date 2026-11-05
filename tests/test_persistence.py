@@ -1,15 +1,14 @@
 """Alles, was ein Admin speichert, muss einen Neustart (neue DB-Verbindung) ueberleben."""
 
 import pytest
-from flask import Flask
 
-from app.api import register_blueprints
 from app.core import database_service
 from app.llm import connections as store
 from app.llm import registry
 from app.rag import model_settings
 from app.rag import models_runtime as mr
 from tests.test_access import client_for
+from tests.web import make_app
 
 ADMIN = {"id": 1, "role": "admin", "username": "admin"}
 
@@ -24,10 +23,7 @@ def no_background_loading(monkeypatch):
 
 @pytest.fixture
 def app(db):
-    app = Flask(__name__)
-    app.secret_key = "t"
-    app.extensions["ingestion_status"] = {"is_ingesting": False, "knowledge_id": None}
-    register_blueprints(app)
+    app = make_app()
     return app
 
 
@@ -71,17 +67,15 @@ def test_tool_settings_survive_restart_and_never_leak_keys(
         },
     )
     assert r.status_code == 200
-    assert "geheim" not in r.get_data(as_text=True) and "pii-key" not in r.get_data(
-        as_text=True
-    )
+    assert "geheim" not in r.text and "pii-key" not in r.text
     assert (
-        r.json["stt"]["has_key"]
-        and r.json["pii"]["has_key"]
-        and r.json["web_search_available"]
+        r.json()["stt"]["has_key"]
+        and r.json()["pii"]["has_key"]
+        and r.json()["web_search_available"]
     )
 
     restart(db, monkeypatch, tmp_path)
-    body = client_for(app, ADMIN).get("/api/admin/tools").json
+    body = client_for(app, ADMIN).get("/api/admin/tools").json()
     assert (
         body["stt"]["base_url"] == "http://stt:5001/v1"
         and body["search"]["categories"] == "general,news"
@@ -93,13 +87,15 @@ def test_tool_settings_survive_restart_and_never_leak_keys(
         "/api/admin/tools",
         json={"stt": {"base_url": "http://stt:5001/v1", "model": "p"}},
     )
-    assert client_for(app, ADMIN).get("/api/admin/tools").json["stt"]["has_key"] is True
+    assert (
+        client_for(app, ADMIN).get("/api/admin/tools").json()["stt"]["has_key"] is True
+    )
     client_for(app, ADMIN).put(
         "/api/admin/tools",
         json={"stt": {"base_url": "http://stt:5001/v1", "clear_key": True}},
     )
     assert (
-        client_for(app, ADMIN).get("/api/admin/tools").json["stt"]["has_key"] is False
+        client_for(app, ADMIN).get("/api/admin/tools").json()["stt"]["has_key"] is False
     )
 
 

@@ -11,9 +11,9 @@ import numpy as np
 import onnx_asr
 from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
-from streaming import PCM_SAMPLE_RATE, parakeet_stream_engine
+from streaming import MODEL_NAME, PCM_SAMPLE_RATE, QUANTIZATION, parakeet_stream_engine
 
-DEFAULT_MODEL = os.getenv("PARAKEET_MODEL", "nemo-parakeet-tdt-0.6b-v3")
+DEFAULT_MODEL = MODEL_NAME
 
 _models: dict[str, "onnx_asr.adapters.TextResultsAsrAdapter"] = {}
 
@@ -68,7 +68,7 @@ def get_model(name: str | None = None) -> "onnx_asr.adapters.TextResultsAsrAdapt
     print(f"[PARAKEET] Loading model: {model_name} ...")
     try:
         _models[model_name] = onnx_asr.load_model(
-            model_name, providers=_resolve_providers()
+            model_name, quantization=QUANTIZATION, providers=_resolve_providers()
         )
     except Exception as e:
         raise RuntimeError(f"Failed to load model '{model_name}': {e}") from e

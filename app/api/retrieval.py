@@ -20,30 +20,37 @@
 
 from logging import getLogger
 
-from flask import Blueprint, current_app, jsonify, request
+from fastapi import APIRouter
 
+from app.api.errors import ApiError
+from app.api.schemas.common import Success
+from app.api.schemas.retrieval import (
+    Defaults,
+    Profile,
+    ProfileAssign,
+    ProfileAssigned,
+    ProfileCreate,
+    ProfileUpdate,
+    RetrievalTestRequest,
+    RetrievalTestResponse,
+)
 from app.auth.access import accessible_knowledge_ids, can_access_knowledge
-from app.auth.auth import current_user, require_role
+from app.auth.auth import Admin, CurrentUser
 from app.auth.users import role_at_least
+from app.core import runtime
 from app.knowledge.service import list_knowledge
 from app.llm import registry
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
 from app.rag.helper import make_helper
-from app.rag.profiles import ProfileError
 
-bp = Blueprint("rag_api", __name__, url_prefix="/api")
+router = APIRouter(prefix="/api", tags=["retrieval"])
 
 logger = getLogger(__name__)
 
 
-def _error(message: str, status: int):
-    return jsonify({"success": False, "error": message}), status
-
-
-@bp.errorhandler(ProfileError)
-def _profile_error(e: ProfileError):
-    return _error(e.message, e.status)
+def _error(message: str, status: int) -> ApiError:
+    return ApiError(status, message, success=False)
 
 
 # =============================================================================
@@ -51,43 +58,32 @@ def _profile_error(e: ProfileError):
 # =============================================================================
 
 
-@bp.route("/retrieval/profiles", methods=["GET"])
-@require_role("user")
-def profiles_list():
-    return jsonify(profiles.list_profiles())
+@router.get("/retrieval/profiles", response_model=list[Profile])
+def profiles_list(_user: CurrentUser):
+    return profiles.list_profiles()
 
 
-@bp.route("/retrieval/profiles", methods=["POST"])
-@require_role("admin")
-def profiles_create():
-    data = request.get_json() or {}
-    created = profiles.create_profile(
-        data.get("name", ""), data.get("description", ""), data.get("config")
-    )
-    return jsonify(created), 201
+@router.post("/retrieval/profiles", response_model=Profile, status_code=201)
+def profiles_create(_user: Admin, body: ProfileCreate | None = None):
+    body = body or ProfileCreate()
+    return profiles.create_profile(body.name, body.description, body.config)
 
 
-@bp.route("/retrieval/profiles/<int:profile_id>", methods=["PATCH"])
-@require_role("admin")
-def profiles_update(profile_id):
-    data = request.get_json() or {}
-    return jsonify(profiles.update_profile(profile_id, data))
+@router.patch("/retrieval/profiles/{profile_id:int}", response_model=Profile)
+def profiles_update(profile_id: int, _user: Admin, body: ProfileUpdate | None = None):
+    return profiles.update_profile(profile_id, body.model_dump(exclude_unset=True) if body else {})
 
 
-@bp.route("/retrieval/profiles/<int:profile_id>", methods=["DELETE"])
-@require_role("admin")
-def profiles_delete(profile_id):
+@router.delete("/retrieval/profiles/{profile_id:int}", response_model=Success)
+def profiles_delete(profile_id: int, _user: Admin):
     profiles.delete_profile(profile_id)
-    return jsonify({"success": True})
+    return Success()
 
 
-@bp.route("/retrieval/defaults", methods=["GET"])
-@require_role("user")
-def profile_defaults():
+@router.get("/retrieval/defaults", response_model=Defaults)
+def profile_defaults(_user: CurrentUser):
     """Startwerte fuer ein neues Profil (das Standardprofil) und der Standard-Prompt."""
-    return jsonify(
-        {"config": profiles.default_config(), "prompt": profiles.DEFAULT_QUERY_PROMPT}
-    )
+    return {"config": profiles.default_config(), "prompt": profiles.DEFAULT_QUERY_PROMPT}
 
 
 # =============================================================================
@@ -95,18 +91,17 @@ def profile_defaults():
 # =============================================================================
 
 
-@bp.route("/knowledge/<int:knowledge_id>/retrieval-profile", methods=["PUT"])
-@require_role("user")
-def knowledge_set_profile(knowledge_id):
+@router.put("/knowledge/{knowledge_id:int}/retrieval-profile", response_model=ProfileAssigned)
+def knowledge_set_profile(knowledge_id: int, user: CurrentUser, body: ProfileAssign | None = None):
     """Wechselt das Profil eines Knowledge (``profile_id: null`` = Standard).
     Wirkt sofort; die gespeicherten Vektoren bleiben unveraendert."""
-    if not can_access_knowledge(current_user(), knowledge_id, "write"):
-        return _error("Knowledge nicht gefunden", 404)
-    profile_id = (request.get_json() or {}).get("profile_id")
+    if not can_access_knowledge(user, knowledge_id, "write"):
+        raise _error("Knowledge nicht gefunden", 404)
+    profile_id = body.profile_id if body else None
     if profile_id is not None and not isinstance(profile_id, int):
-        return _error("Ungültige Profil-ID", 400)
+        raise _error("Ungültige Profil-ID", 400)
     profiles.set_knowledge_profile(knowledge_id, profile_id)
-    return jsonify({"success": True, "profile_id": profile_id})
+    return {"success": True, "profile_id": profile_id}
 
 
 # =============================================================================
@@ -114,9 +109,8 @@ def knowledge_set_profile(knowledge_id):
 # =============================================================================
 
 
-@bp.route("/retrieval/test", methods=["POST"])
-@require_role("user")
-def retrieval_test():
+@router.post("/retrieval/test", response_model=RetrievalTestResponse)
+def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
     """Fuehrt die Pipeline mit einem Profil aus und liefert Treffer plus Ablaufprotokoll.
 
     Body: ``question``, ``knowledge_ids`` (Liste; leer/fehlend = alle lesbaren),
@@ -124,12 +118,11 @@ def retrieval_test():
     Knowledge) oder ``config`` (Entwurf, nur Admin), optional ``model`` (Modell
     fuers Query-Enhancement; sonst das Standardmodell).
     """
-    data = request.get_json() or {}
+    data = (body or RetrievalTestRequest()).model_dump()
     question = (data.get("question") or "").strip()
     if not question:
-        return _error("Frage erforderlich", 400)
+        raise _error("Frage erforderlich", 400)
 
-    user = current_user()
     readable = accessible_knowledge_ids(user, "read")
     wanted = data.get("knowledge_ids") or sorted(readable)
     targets = [
@@ -138,17 +131,17 @@ def retrieval_test():
         if k["id"] in readable and k["id"] in set(wanted) and k.get("kind") != "sql"
     ]
     if not targets:
-        return _error("Kein lesbares Knowledge ausgewählt", 400)
+        raise _error("Kein lesbares Knowledge ausgewählt", 400)
 
     override = None
     if data.get("config") is not None:
         if not role_at_least(user["role"], "admin"):
-            return _error("Entwürfe testen darf nur ein Admin", 403)
+            raise _error("Entwürfe testen darf nur ein Admin", 403)
         override = profiles.validate_config(data["config"])
     elif data.get("profile_id") is not None:
         found = profiles.get_profile(int(data["profile_id"]))
         if not found:
-            return _error("Profil nicht gefunden", 404)
+            raise _error("Profil nicht gefunden", 404)
         override = found["config"]
 
     # Helfer-LLM fuers Query-Enhancement
@@ -162,10 +155,10 @@ def retrieval_test():
         chat_model = None
     helper = make_helper(chat_model, user)
 
-    client = current_app.extensions.get("client")
-    sparse = current_app.extensions.get("sparse_embeddings")
+    client = runtime.state.client
+    sparse = runtime.state.sparse_embeddings
     if not (client and sparse):
-        return _error("RAG-System wird noch initialisiert. Bitte kurz warten.", 503)
+        raise _error("RAG-System wird noch initialisiert. Bitte kurz warten.", 503)
 
     results = []
     for k in targets:
@@ -174,7 +167,7 @@ def retrieval_test():
         try:
             dense = model_settings.embedder_for(k)
         except models_runtime.ModelLoadError as e:
-            return _error(
+            raise _error(
                 f"Embedding-Modell von „{k['name']}“ nicht verfügbar: {e}", 503
             )
         run_client, collection, layout = client, k["collection_name"], None
@@ -185,7 +178,7 @@ def retrieval_test():
             try:
                 run_client = sources.connect(src)
             except sources.SourceError as e:
-                return _error(f"„{k['name']}“: {e}", 502)
+                raise _error(f"„{k['name']}“: {e}", 502)
             collection, layout = src.collection, sources.layout_for(src)
         try:
             hits = pipeline.run(
@@ -206,7 +199,7 @@ def retrieval_test():
             )
         except Exception as e:
             logger.exception("Retrieval-Test fehlgeschlagen")
-            return _error(f"Pipeline-Fehler: {type(e).__name__}: {e}", 500)
+            raise _error(f"Pipeline-Fehler: {type(e).__name__}: {e}", 500)
         results.append(
             {
                 "knowledge_id": k["id"],
@@ -225,9 +218,7 @@ def retrieval_test():
                 "trace": trace.to_dict(),
             }
         )
-    return jsonify(
-        {
-            "results": results,
-            "helper_model": chat_model.display_name if chat_model else None,
-        }
-    )
+    return {
+        "results": results,
+        "helper_model": chat_model.display_name if chat_model else None,
+    }

@@ -6,7 +6,7 @@ WORKDIR /srv
 
 # Ein Image fuer beide Rollen (TOOL_WORKER_ROLE=pandas|sql). MSSQL ueber pymssql (FreeTDS im Wheel):
 # kein Microsoft-ODBC-Treiber noetig.
-RUN pip install "pandas>=2.2" "numpy>=1.26" "openpyxl>=3.1.5" "charset-normalizer>=3.3" "flask>=3.0" "gunicorn>=22" \
+RUN pip install "pandas>=2.2" "numpy>=1.26" "openpyxl>=3.1.5" "charset-normalizer>=3.3" "fastapi>=0.162" "uvicorn>=0.54" "pydantic>=2.12" \
     "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "pymysql>=1.1" "pymssql>=2.3" "sqlglot>=25.0"
 
 COPY tool_worker /srv/tool_worker
@@ -15,4 +15,4 @@ USER 10001
 
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"
-CMD ["gunicorn", "-b", "0.0.0.0:8090", "-w", "2", "--threads", "4", "--timeout", "180", "tool_worker.wsgi:app"]
+CMD ["uvicorn", "tool_worker.wsgi:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "2", "--timeout-keep-alive", "180"]

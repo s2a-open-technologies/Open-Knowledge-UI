@@ -6,7 +6,7 @@ Ein Open-Source-RAG für eigene Dokumente, gebaut auf **Qualität** und volle Ko
 
 ## Was es kann
 
-- **Chat mit Quellen** (SSE-Streaming, Spracheingabe per Parakeet oder Whisper). Dateien lassen sich anhängen und sind nur in diesem Chat durchsuchbar.
+- **Chat mit Quellen** (Streaming über WebSocket, sofort stoppbar; Spracheingabe per Parakeet oder Whisper). Dateien lassen sich anhängen und sind nur in diesem Chat durchsuchbar.
 - **Knowledge-Bereiche**: pro Bereich eine eigene Qdrant-Collection mit Upload, Dokumentliste, Vektoransicht und eigenem Retrieval-Profil.
 - **Markdown-first-Einlesen**: PDF, DOCX, DOC, ODT und MD werden mit Docling zu Markdown (Überschriften, Tabellen, Bildbeschreibungen per Vision-LLM), gespeichert und an den Überschriften zerlegt. Das gespeicherte Markdown ist in der Oberfläche einsehbar und die Grundlage zum Neu-Indexieren.
 - **Tabellen als CSV**: Tabellen aus Dokumenten und CSV/Excel-Dateien werden nicht in den Vektorindex gepresst, sondern vom Modell per Pandas ausgewertet (richtige Summen statt geratener Zahlen).
@@ -135,13 +135,13 @@ Datei ─► Docling ─► Markdown (gespeichert) ─► nach Überschriften ze
 ## Entwicklung
 
 ```bash
-uv run --extra worker --with pytest pytest tests -q   # Tests (inkl. Worker-Pakete)
+uv run --extra worker --extra test --with pytest pytest tests -q   # Tests (inkl. Worker-Pakete)
 uv run ruff check app tests                 # Lint
-cd frontend && npm run dev                  # Vite mit HMR auf :5173, Proxy auf Flask :5000
+cd frontend && npm run dev                  # Vite mit HMR auf :5173, Proxy auf das Backend :5000
 cd frontend && npm run build                # Produktions-Build nach app/static/
 ```
 
-- Backend: Flask, SQLAlchemy + Alembic (Postgres), Qdrant, LangChain. Die JSON-API liegt unter `/api/*`, der Chat unter `POST /chat` (SSE).
+- Backend: FastAPI (Uvicorn), Pydantic, SQLAlchemy + Alembic (Postgres), Qdrant, LangChain, Redis für den Chat-Stopp. Die JSON-API liegt unter `/api/*` (OpenAPI-Schema unter `/api/openapi.json`), der Chat läuft über den WebSocket `/ws/chat`. Ein Reverse Proxy muss WebSocket-Upgrades durchlassen (`Upgrade`/`Connection`-Header, ausreichende Timeouts).
 - Frontend: React 19, TypeScript, Vite, Tailwind v4, shadcn/ui.
 - Migrationen: `alembic revision --autogenerate -m "..."`, `alembic upgrade head`. Eine bestehende Datenbank ohne Migrationsstand markierst du mit `alembic stamp head`.
 - Releases: `scripts/release.py` (Version, Changelog, Tag). Beiträge siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md), Sicherheitsmeldungen siehe [`SECURITY.md`](./SECURITY.md).

@@ -35,10 +35,10 @@ jobs:
           enable-cache: true
 
       - name: Abhängigkeiten installieren
-        run: uv sync --frozen --extra worker
+        run: uv sync --frozen --extra worker --extra test
 
       - name: Tests
-        run: uv run --with pytest pytest tests -q
+        run: uv run --extra worker --extra test --with pytest pytest tests -q
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

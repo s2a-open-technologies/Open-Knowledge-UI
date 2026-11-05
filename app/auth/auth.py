@@ -17,76 +17,74 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Authentifizierung und Rollenpruefung.
+Authentifizierung und Rollenpruefung (FastAPI-Dependencies).
 
-Die Flask-Session speichert nur ``user_id``. Benutzer und Rolle werden pro
-Request aus der DB geladen, damit Aenderungen (Deaktivieren, Rollenwechsel)
-sofort wirken.
+Das Session-Cookie (Starlette ``SessionMiddleware``) speichert nur ``user_id``. Benutzer und Rolle
+werden pro Request aus der DB geladen, damit Aenderungen (Deaktivieren, Rollenwechsel) sofort
+wirken. Fehler: 401 ``{"error": "Nicht authentifiziert"}``, 403 ``{"error": "Keine Berechtigung"}``.
+
+In Handlern::
+
+    def route(user: CurrentUser): ...           # angemeldet
+    def route(user: Editor): ...                # mindestens editor
+    def route(user: Admin): ...                 # admin
 """
 
-from functools import wraps
+from typing import Annotated
 
-from flask import flash, g, jsonify, redirect, session, url_for
+from fastapi import Depends
+from starlette.requests import HTTPConnection
 
+from app.api.errors import ApiError
+from app.core import request_context
 from app.auth.users import get_user, role_at_least
 
+_UNSET = object()
 
-def current_user() -> dict | None:
-    """Angemeldeter, aktiver Benutzer des Requests oder ``None`` (pro Request gecacht)."""
-    if "current_user" in g:
-        return g.current_user
+
+def current_user(conn: HTTPConnection) -> dict | None:
+    """Angemeldeter, aktiver Benutzer des Requests (auch WebSocket) oder ``None`` (pro Request gecacht)."""
+    cached = getattr(conn.state, "current_user", _UNSET)
+    if cached is not _UNSET:
+        return cached
     user = None
-    user_id = session.get("user_id")
+    user_id = conn.session.get("user_id")
     if user_id is not None:
         user = get_user(user_id)
         if user is None or not user["is_active"]:
-            session.pop("user_id", None)
+            conn.session.pop("user_id", None)
             user = None
-    g.current_user = user
+    conn.state.current_user = user
+    request_context.set_actor(user)
     return user
 
 
-def auth_required(f):
-    """Decorator: Prüft ob User authentifiziert ist"""
-
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if current_user() is None:
-            flash("Bitte zuerst anmelden")
-            return redirect(url_for("main.login"))
-        return f(*args, **kwargs)
-
-    return decorated
-
-
-def auth_required_api(f):
-    """Wie auth_required, aber für JSON-APIs: liefert 401 statt Redirect."""
-
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if current_user() is None:
-            return jsonify({"error": "Nicht authentifiziert"}), 401
-        return f(*args, **kwargs)
-
-    return decorated
+def require_user(conn: HTTPConnection) -> dict:
+    user = current_user(conn)
+    if user is None:
+        raise ApiError(401, "Nicht authentifiziert")
+    return user
 
 
 def require_role(role: str):
-    """Decorator fuer JSON-APIs: 401 ohne Anmeldung, 403 bei zu niedriger Rolle.
+    """Dependency: 401 ohne Anmeldung, 403 bei zu niedriger Rolle (``editor`` erlaubt auch ``admin``)."""
 
-    ``editor`` erlaubt auch ``admin``.
-    """
+    def dependency(user: Annotated[dict, Depends(require_user)]) -> dict:
+        if not role_at_least(user["role"], role):
+            raise ApiError(403, "Keine Berechtigung")
+        return user
 
-    def decorator(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            user = current_user()
-            if user is None:
-                return jsonify({"error": "Nicht authentifiziert"}), 401
-            if not role_at_least(user["role"], role):
-                return jsonify({"error": "Keine Berechtigung"}), 403
-            return f(*args, **kwargs)
+    return dependency
 
-        return decorated
 
-    return decorator
+def login_session(conn: HTTPConnection, user_id: int) -> None:
+    """Neue Sitzung fuer ``user_id`` (alte Inhalte verwerfen: verhindert Session-Fixation)."""
+    conn.session.clear()
+    conn.session["user_id"] = user_id
+    conn.state.current_user = _UNSET
+
+
+OptionalUser = Annotated[dict | None, Depends(current_user)]
+CurrentUser = Annotated[dict, Depends(require_user)]
+Editor = Annotated[dict, Depends(require_role("editor"))]
+Admin = Annotated[dict, Depends(require_role("admin"))]
