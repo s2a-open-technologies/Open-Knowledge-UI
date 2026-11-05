@@ -183,8 +183,8 @@ class DatabaseService:
             ),
             "INGEST_KEEP_ORIGINAL": (
                 "ingest",
-                "true",
-                "Originaldatei nach dem Einlesen archivieren (aus: nur das Markdown bleibt)",
+                "false",
+                "Originaldatei nach dem Einlesen archivieren (aus, Standard: nur das Markdown bleibt)",
             ),
             "INGEST_VISION_ENABLED": (
                 "ingest",
@@ -349,6 +349,11 @@ class DatabaseService:
                 "Websuche auch ohne aktiven PII-Filter erlauben (Suchanfragen gehen dann unmaskiert raus)",
             ),
         }
+
+        from app.chat.retention import SETTINGS as retention_settings
+
+        for key, default, description in retention_settings:
+            all_settings[key] = ("privacy", default, description)
 
         from app.chat.compaction import SETTINGS as compaction_settings
 

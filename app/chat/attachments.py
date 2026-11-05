@@ -139,7 +139,6 @@ def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> No
         if ok:
             if markdown_path:
                 db.set_attachment_markdown(attachment_id, markdown_path)
-                Path(path).unlink(missing_ok=True)  # nur das Markdown bleibt
             db.set_attachment_status(attachment_id, "ready")
         else:
             db.set_attachment_status(
@@ -148,6 +147,10 @@ def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> No
     except Exception as e:
         logger.exception(f"Anhang-Ingestion fehlgeschlagen: {attachment_id}")
         db.set_attachment_status(attachment_id, "error", str(e)[:300])
+    finally:
+        # Datensparsamkeit: das Original wird nie aufbewahrt, auch nicht nach einem Fehler.
+        # Es bleiben nur das Markdown und bei Bildern die verkleinerte Kopie fuer das Modell.
+        Path(path).unlink(missing_ok=True)
 
 
 def cleanup_session_attachments(session_id: str, client) -> None:

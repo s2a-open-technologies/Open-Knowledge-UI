@@ -26,7 +26,17 @@ from werkzeug.security import generate_password_hash
 
 from app.auth.users import ROLES
 from app.core.database_service import get_db_service
-from app.core.models import ChatSession, Group, GroupMember, Message, User
+from app.core.models import (
+    AuditLog,
+    ChatAttachment,
+    ChatSession,
+    Group,
+    GroupMember,
+    Message,
+    User,
+    UserDocument,
+    UserSummaryFile,
+)
 
 logger = getLogger(__name__)
 
@@ -186,6 +196,14 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
             object_id=user_id,
             detail=changes,
         )
+        if changes.get("passwort") and user_id != actor_id:
+            audit.record(
+                audit.PASSWORD_RESET_BY_ADMIN,
+                actor_user_id=actor_id,
+                object_type="user",
+                object_id=user_id,
+                detail={"name": u.username},
+            )
         groups = [m.group_id for m in db.query(GroupMember).filter_by(user_id=user_id)]
         return _user_row(u, groups)
     except Exception:
@@ -220,6 +238,22 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
                 synchronize_session=False
             )
         db.query(GroupMember).filter_by(user_id=user_id).delete()
+        # Alle Verweise auf users.id loesen, sonst scheitert das Loeschen auf Postgres am
+        # Fremdschluessel. Anhang-Dateien und -Vektoren raeumt der Aufrufer danach weg.
+        db.query(ChatAttachment).filter_by(user_id=user_id).delete(
+            synchronize_session=False
+        )
+        db.query(UserSummaryFile).filter_by(user_id=user_id).delete(
+            synchronize_session=False
+        )
+        # Dokumente in gemeinsamen Knowledge-Bereichen bleiben, nur ohne Uploader
+        db.query(UserDocument).filter_by(uploaded_by=user_id).update(
+            {UserDocument.uploaded_by: None}, synchronize_session=False
+        )
+        # Audit-Eintraege bleiben, der Name steht in actor_name
+        db.query(AuditLog).filter_by(actor_user_id=user_id).update(
+            {AuditLog.actor_user_id: None}, synchronize_session=False
+        )
         db.delete(u)
         db.commit()
         from app.auth import audit
@@ -240,6 +274,12 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
     from app.auth.access import delete_grants_for_principal
 
     delete_grants_for_principal("user", user_id)
+    # Eigene Ablagen (Analysen) des Nutzers
+    import shutil
+
+    from app.chat import summaries
+
+    shutil.rmtree(summaries.user_dir(user_id), ignore_errors=True)
     return session_ids
 
 

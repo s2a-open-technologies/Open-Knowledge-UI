@@ -112,6 +112,9 @@ class SettingsService:
         "ui": [
             "UI_THEME",
         ],
+        "privacy": [
+            "CHAT_RETENTION_DAYS",
+        ],
     }
 
     # Verschluesselt in der Datenbank (app/crypto.py). Ohne den Passwort-Hash: er ist schon ein Hash.
@@ -151,6 +154,8 @@ class SettingsService:
         "INGEST_KEEP_ORIGINAL",
         "INGEST_INDEX_ENABLED",
         "INGEST_VISION_ENABLED",
+        # Eigene Admin-Karte (Protokoll & Datenschutz)
+        "CHAT_RETENTION_DAYS",
         "VISION_MODEL_REF",
         "VISION_PROMPT",
         "CONTEXT_PROMPT",

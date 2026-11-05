@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Loader2, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,6 +44,9 @@ const ACTIONS: { value: string; label: string }[] = [
   { value: "group_delete", label: "Gruppe gelöscht" },
   { value: "group_members_set", label: "Mitglieder geändert" },
   { value: "access_set", label: "Freigaben geändert" },
+  { value: "password_reset_by_admin", label: "Passwort durch Admin gesetzt" },
+  { value: "config_change", label: "Konfiguration geändert" },
+  { value: "document_view", label: "Fremdes Dokument angesehen" },
 ];
 
 const PAGE_SIZE = 100;
@@ -68,6 +71,60 @@ function detail(e: AuditEvent): string {
   } catch {
     return e.detail;
   }
+}
+
+// Aufbewahrungsfrist fuer Chats (Datensparsamkeit): 0 = unbegrenzt.
+function RetentionCard() {
+  const [days, setDays] = useState("0");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ chat_retention_days: number }>("/api/admin/retention")
+      .then((d) => setDays(String(d.chat_retention_days)))
+      .catch((err) => toast.error(errorMessage(err)));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const d = await api.put<{ chat_retention_days: number }>("/api/admin/retention", {
+        chat_retention_days: Number(days),
+      });
+      setDays(String(d.chat_retention_days));
+      toast.success("Aufbewahrungsfrist gespeichert");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-end gap-3">
+        <div className="w-40">
+          <Label className="text-xs">Chats aufbewahren (Tage)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={3650}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+        <p className="min-w-52 flex-1 text-xs text-muted-foreground">
+          Chats, die so viele Tage nicht benutzt wurden, werden täglich samt Anhängen gelöscht.
+          0 = unbegrenzt aufbewahren.
+        </p>
+        <Button type="button" onClick={() => void save()} disabled={saving}>
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          Speichern
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 // Protokoll sicherheitsrelevanter Ereignisse (nur Admin, nur lesend).
@@ -113,6 +170,7 @@ export function AdminAuditPage() {
 
   return (
     <div className="space-y-4 overflow-y-auto p-4">
+      <RetentionCard />
       <Card>
         <CardContent className="flex flex-wrap items-end gap-3">
           <div className="min-w-52">

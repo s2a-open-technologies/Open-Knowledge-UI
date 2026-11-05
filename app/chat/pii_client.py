@@ -203,10 +203,8 @@ class PIIFilterClient:
                 break
 
             if response.status_code != 200:
-                logger.warning(
-                    f"PII-Filter API returned status {response.status_code}: "
-                    f"{response.text[:200]}"
-                )
+                # Kein Antwort-Body im Log: der Dienst kann den Eingabetext darin zurueckspiegeln
+                logger.warning(f"PII-Filter: HTTP {response.status_code} bei {len(text)} Zeichen")
                 return PIIFilterResult(
                     original=text, filtered=text, error=f"HTTP {response.status_code}"
                 )

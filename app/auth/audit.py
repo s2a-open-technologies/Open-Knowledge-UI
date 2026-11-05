@@ -56,6 +56,41 @@ GROUP_UPDATE = "group_update"
 GROUP_DELETE = "group_delete"
 GROUP_MEMBERS_SET = "group_members_set"
 ACCESS_SET = "access_set"
+# Ein Admin setzt das Passwort eines anderen Kontos (er koennte sich danach als dieser Nutzer anmelden)
+PASSWORD_RESET_BY_ADMIN = "password_reset_by_admin"
+# Konfiguration geaendert (Verbindungen, Modelle, Tools/PII-Filter, Prompts, Knowledge, Retrieval)
+CONFIG_CHANGE = "config_change"
+# Inhalt eines Dokuments aus einem Knowledge-Bereich angesehen oder heruntergeladen
+DOCUMENT_VIEW = "document_view"
+
+_MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+# Pfade, deren Aenderungen als Konfigurationsaenderung zaehlen. Bewusst breit: wer LLM,
+# PII-Filter oder Systemprompts umbiegt, kann kuenftige Inhalte mitlesen.
+_CONFIG_PREFIXES = (
+    "/api/admin/",
+    "/api/connections",
+    "/api/models/",
+    "/api/retrieval/profiles",
+    "/api/knowledge",
+    "/api/reindex-all",
+)
+# Lesende/pruefende Aktionen ohne Wirkung auf die Konfiguration
+_CONFIG_EXCLUDED_SUFFIXES = ("/test", "/filter-test", "/search", "/suggest")
+
+
+def config_change_target(method: str, path: str) -> str | None:
+    """Bereich einer Konfigurationsaenderung (fuer ``object_type``) oder ``None``.
+
+    Uploads, Dokumente und Freigaben haben eigene Wege bzw. Ereignisse und zaehlen nicht.
+    """
+    if method.upper() not in _MUTATING or not path.startswith(_CONFIG_PREFIXES):
+        return None
+    if path.endswith(_CONFIG_EXCLUDED_SUFFIXES) or path.endswith("/access"):
+        return None
+    if "/documents" in path or "/upload" in path or "/files" in path:
+        return None
+    parts = [p for p in path.split("/") if p][1:3]  # ohne "api"
+    return "/".join(p for p in parts if not p.isdigit()) or None
 
 
 def _request_ip():

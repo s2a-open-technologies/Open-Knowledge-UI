@@ -82,7 +82,38 @@ class RequestContextMiddleware:
             return await self.app(scope, receive, send)
         client = scope.get("client")
         tokens = begin(client[0] if client else None)
+        status = {"code": 500}
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            await send(message)
+
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, send_wrapper)
+            if status["code"] < 400:
+                await _audit_config_change(scope.get("method", ""), scope.get("path", ""))
         finally:
             end(tokens)
+
+
+async def _audit_config_change(method: str, path: str) -> None:
+    """Erfolgreiche Konfigurationsaenderungen protokollieren (ohne Request-Body: er kann
+    Zugangsdaten enthalten). Best-effort wie das ganze Audit-Log."""
+    from app.auth import audit
+
+    target = audit.config_change_target(method, path)
+    if target is None or actor() is None:
+        return
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        await run_in_threadpool(
+            audit.record,
+            audit.CONFIG_CHANGE,
+            object_type=target,
+            object_id=path,
+            detail={"methode": method.upper()},
+        )
+    except Exception:  # noqa: BLE001 — Audit darf nie den Request brechen
+        pass

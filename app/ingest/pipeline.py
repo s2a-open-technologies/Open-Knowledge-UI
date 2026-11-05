@@ -287,12 +287,12 @@ def _ingest_settings() -> tuple[int, int, bool, bool]:
                 settings.get_int("INGEST_CHUNK_SIZE", 1000),
                 settings.get_int("INGEST_CHUNK_OVERLAP", 150),
                 settings.get_bool("INGEST_CONTEXT_ENRICHMENT", True),
-                settings.get_bool("INGEST_KEEP_ORIGINAL", True),
+                settings.get_bool("INGEST_KEEP_ORIGINAL", False),
             )
         finally:
             session.close()
     except Exception:
-        return 1000, 150, True, True
+        return 1000, 150, True, False
 
 
 class DocumentIngestion:

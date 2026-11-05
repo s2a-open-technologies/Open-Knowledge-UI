@@ -578,7 +578,7 @@ export function AdminEmbeddingPage() {
           </div>
           {(
             [
-              ["keep_original", "Originaldatei behalten", "aus: nur das Markdown bleibt, Neu-Indexieren nutzt dieses"],
+              ["keep_original", "Originaldatei behalten", "Standard aus (Datensparsamkeit): nur das Markdown bleibt, Neu-Indexieren nutzt dieses"],
               ["index_enabled", "Inhaltsverzeichnis (index.md) pro Knowledge", "das Modell liest es zuerst; spart Suchschritte"],
             ] as const
           ).map(([key, label, hint]) => (

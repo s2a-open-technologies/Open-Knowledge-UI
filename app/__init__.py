@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import atexit
 import logging
 import os
@@ -334,11 +335,20 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        retention_task = None
         if resources:
             await redis_bus.start()
+            from app.chat import retention
+
+            retention_task = asyncio.create_task(
+                retention.run_periodically(lambda: runtime.state.client),
+                name="chat-retention",
+            )
         try:
             yield
         finally:
+            if retention_task is not None:
+                retention_task.cancel()
             await redis_bus.stop()
             _cleanup()
 

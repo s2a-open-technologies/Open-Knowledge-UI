@@ -165,6 +165,7 @@ Dokumente werden **über das Web-Interface** eingelesen. Es ist kein separates C
 | UI theme / tokens | `frontend/src/index.css` (`@theme`), `frontend/src/context/ThemeContext.tsx` + `frontend/src/lib/theme.ts` (runtime), `frontend/index.html` (FOUC bootstrap + `__RAG_UI_THEME__`) |
 | User features (documents, vector DB, settings, summaries, my uploads) | `frontend/src/pages/` + `frontend/src/components/` (SPA); `app/api/documents.py`, `app/api/summaries.py`, `app/api/auth.py` (JSON-API) |
 | Audit-Log (Admin-Protokoll) | `app/auth/audit.py` (best-effort `record`+`list_events`), Migration `0036`, API `/api/admin/audit`, UI `frontend/src/pages/AdminAuditPage.tsx` |
+| Konfig-Audit, Aufbewahrungsfrist | `config_change` zentral in `app/core/request_context.py` (`RequestContextMiddleware`, Pfadregeln `audit.config_change_target`, nur Methode+Pfad, nie Body); `password_reset_by_admin` in `user_admin.update_user`; `document_view` in `api/documents.py`. Chats loeschen nach `CHAT_RETENTION_DAYS` (0 = nie): `app/chat/retention.py`, taeglicher Task im `lifespan`, API `/api/admin/retention`, Karte auf der Protokollseite |
 | Qdrant wiring | `app/core/qdrant_client.py`, `app/__init__.py` |
 | File operations | `app/knowledge/files.py` |
 | Vector ingestion / splitting / re-index | `app/ingest/pipeline.py`, `app/ingest/`, `app/ingest/reindex.py` |

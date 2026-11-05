@@ -66,6 +66,24 @@ def markdown_path(user_doc) -> Path | None:
     return safe_markdown(user_doc.markdown_path, MARKDOWN_ROOT)
 
 
+def _delete_archived_original(knowledge: dict, filename: str | None) -> None:
+    """Archiviertes Original im ``processed_files``-Ordner des Knowledge loeschen.
+
+    Unabhaengig vom Qdrant-Payload: nach einem Neu-Indexieren steht dort als ``source`` nur
+    noch der Dateiname, die Pfad-Ableitung in ``delete_associated_file`` greift dann nicht.
+    """
+    if not filename:
+        return
+    processed = knowledge_paths(knowledge).processed_dir.resolve()
+    target = (processed / Path(filename).name).resolve()
+    if target.parent != processed:
+        return
+    try:
+        target.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(f"Archiviertes Original nicht geloescht: {e}")
+
+
 def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
     """Loescht ein Dokument eines Knowledge samt Vektoren, Markdown, Original und Tabellen-CSVs.
 
@@ -105,6 +123,7 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
 
     if payload:
         delete_associated_file(payload)
+    _delete_archived_original(knowledge, user_doc.filename)
     md = markdown_path(user_doc)
     if md is not None:
         md.unlink(missing_ok=True)

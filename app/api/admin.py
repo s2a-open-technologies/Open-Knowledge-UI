@@ -99,7 +99,7 @@ def _ingest_values() -> dict:
         return {
             "chunk_size": s.get_int("INGEST_CHUNK_SIZE", 1000),
             "chunk_overlap": s.get_int("INGEST_CHUNK_OVERLAP", 150),
-            "keep_original": s.get_bool("INGEST_KEEP_ORIGINAL", True),
+            "keep_original": s.get_bool("INGEST_KEEP_ORIGINAL", False),
             "index_enabled": s.get_bool("INGEST_INDEX_ENABLED", True),
             "bm25_language": sparse_lang.default_language(),
         }
@@ -666,6 +666,25 @@ def auth_test(request: Request, _user: Admin, body: AuthTest | None = None):
     except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
         raise _error(str(e), 502)
     return {"success": True, **result}
+
+
+@router.get("/admin/retention", response_model=Loose)
+def retention_overview(_user: Admin):
+    from app.chat import retention
+
+    return retention.load_settings()
+
+
+@router.put("/admin/retention", response_model=Loose)
+def retention_save(_user: Admin, body: SettingsPatch | None = None):
+    """Aufbewahrungsfrist fuer Chats (0 = unbegrenzt)."""
+    from app.chat import retention
+
+    try:
+        retention.save_settings(body.model_dump() if body else {})
+    except retention.RetentionConfigError as e:
+        raise _error(str(e), 400)
+    return retention.load_settings()
 
 
 @router.get("/admin/compaction", response_model=Loose)

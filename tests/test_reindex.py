@@ -122,6 +122,7 @@ def test_job_records_the_error_on_the_knowledge(db, qd, no_enrichment, monkeypat
 def test_documents_without_markdown_are_reparsed_or_rebuilt_from_chunks(
     db, qd, no_enrichment
 ):
+    set_setting(db, "INGEST_KEEP_ORIGINAL", "true")  # Originale archivieren (Standard aus)
     ingest_two(qd)
     docs = get_db_service().get_all_documents(default_kb()["id"])
     # Altbestand simulieren: kein gespeichertes Markdown

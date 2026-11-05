@@ -228,9 +228,21 @@ def document_markdown(doc_id: int, user: CurrentUser, download: str | None = Non
             raise ApiError(404, "Dokument nicht gefunden", success=False)
         path = my_uploads.markdown_path(user_doc)
         filename = user_doc.filename
+        uploaded_by = user_doc.uploaded_by
     finally:
         db_session.close()
 
+    if uploaded_by != user["id"]:
+        # Nachweis, wer fremde Dokumente im Volltext ansieht (eigene Uploads nicht)
+        from app.auth import audit
+
+        audit.record(
+            audit.DOCUMENT_VIEW,
+            actor_user_id=user["id"],
+            object_type="document",
+            object_id=doc_id,
+            detail={"knowledge_id": knowledge["id"], "download": download == "1"},
+        )
 
     if path is None:
         raise ApiError(

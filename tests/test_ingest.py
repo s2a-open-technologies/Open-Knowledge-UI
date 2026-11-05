@@ -222,6 +222,7 @@ def scroll_all(qd, collection="open_knowledge_ui"):
 
 def test_a_markdown_file_is_stored_split_by_headers_and_archived(db, qd, no_enrichment):
     set_setting(db, "INGEST_CHUNK_SIZE", "400")
+    set_setting(db, "INGEST_KEEP_ORIGINAL", "true")  # Archivieren nur auf Wunsch (Standard aus)
     put_file()
     with make_ingestion(qd) as ing:
         ing.ingest_documents()
@@ -692,8 +693,10 @@ def test_deleting_the_document_removes_its_csvs_and_reference_chunks(
     assert scroll_all(qd) == []
 
 
-def test_the_original_can_be_discarded_after_ingestion(db, qd, no_enrichment):
-    set_setting(db, "INGEST_KEEP_ORIGINAL", "false")
+def test_the_original_is_discarded_after_ingestion_by_default(db, qd, no_enrichment):
+    session = db.get_session()
+    assert SettingsService(session).get_bool("INGEST_KEEP_ORIGINAL", True) is False
+    session.close()
     put_file()
     with make_ingestion(qd) as ing:
         ing.ingest_documents()

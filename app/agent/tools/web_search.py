@@ -191,7 +191,8 @@ def create_web_search_tool(
                 for _placeholder, value in pairs:
                     search_query = search_query.replace(value, "")
                 search_query = re.sub(r"\s+", " ", search_query).strip()
-                logger.info(f"Query PII-bereinigt: '{query}' → '{search_query}'")
+                # Nie die Rohfassung loggen: sie enthaelt genau die entfernten personenbezogenen Angaben
+                logger.info(f"Suchanfrage PII-bereinigt ({len(pairs)} Angabe(n) entfernt)")
             elif filter_result.filtered != query:
                 # Einseitiger Dienst ohne Mapping: den maskierten Text suchen, nie das Original
                 search_query = filter_result.filtered
