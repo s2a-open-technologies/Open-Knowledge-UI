@@ -21,11 +21,15 @@ Geheimnisse in der Datenbank verschluesseln (Fernet).
 
 Verschluesselt werden Zugangsdaten: API-Keys der Verbindungen, Zugangsdaten externer und
 SQL-Quellen (``knowledge.source_config``) und sensible Einstellungen (``SENSITIVE_KEYS``).
-Nicht verschluesselt werden Dokumente, Chat-Verlaeufe und Vektoren (die Suche braucht sie im
-Klartext); Passwoerter von Nutzern sind ohnehin nur als Hash gespeichert.
+Inhalte (Dokumente, Chats, Chunk-Texte) verschluesselt ``app/core/keys.py`` mit eigenen
+Datenschluesseln je Nutzer/Knowledge; diese liegen hier mit dem Master-Schluessel verschluesselt
+(``data_keys.wrapped_key``). Vektoren bleiben Klartext (die Suche braucht sie). Passwoerter von
+Nutzern sind ohnehin nur als Hash gespeichert.
 
-Schluessel: Umgebungsvariable ``ENCRYPTION_KEY`` (Fernet-Schluessel; mehrere, durch Komma getrennt,
-fuer die Rotation: der erste verschluesselt, alle entschluesseln). Fehlt sie, erzeugt die App beim
+Schluessel: Umgebungsvariable ``ENCRYPTION_KEY`` (Fernet-Schluessel). Rotation: neuen Schluessel in
+``ENCRYPTION_KEY``, alten in ``ENCRYPTION_KEY_PREVIOUS``; beim Start verschluesselt
+``app/core/key_rotation.py`` alles mit dem neuen Schluessel neu (Altform: mehrere Schluessel in
+``ENCRYPTION_KEY``, durch Komma getrennt, der erste verschluesselt, alle entschluesseln). Fehlt sie, erzeugt die App beim
 ersten Start eine Schluesseldatei ``<DATA_DIR>/.encryption_key`` (Rechte 600) und warnt: das schuetzt
 vor einem Datenbank-Dump allein, nicht vor Zugriff auf das ganze Datenverzeichnis. Fuer echten Schutz
 den Schluessel getrennt von der Datenbank halten (Env/Secret).
@@ -48,6 +52,7 @@ logger = getLogger(__name__)
 
 PREFIX = "enc:v1:"
 ENV_KEY = "ENCRYPTION_KEY"
+ENV_PREVIOUS = "ENCRYPTION_KEY_PREVIOUS"
 KEY_FILE = ".encryption_key"
 
 _lock = threading.Lock()
@@ -62,7 +67,26 @@ def key_file_path() -> Path:
     return Path(os.getenv("DATA_DIR", "./data")) / KEY_FILE
 
 
+def _previous_keys() -> list[bytes]:
+    """Alte Schluessel aus ``ENCRYPTION_KEY_PREVIOUS``: entschluesseln nur, waehrend einer Rotation."""
+    raw = (os.getenv(ENV_PREVIOUS) or "").strip()
+    keys = [k.strip().encode() for k in raw.split(",") if k.strip()]
+    for key in keys:
+        Fernet(key)
+    return keys
+
+
 def _load_keys() -> list[bytes]:
+    current = _current_keys()
+    return current + [k for k in _previous_keys() if k not in current]
+
+
+def primary_key() -> bytes:
+    """Der Schluessel, mit dem verschluesselt wird (fuer den Fingerprint der Rotation)."""
+    return _current_keys()[0]
+
+
+def _current_keys() -> list[bytes]:
     raw = (os.getenv(ENV_KEY) or "").strip()
     if raw:
         keys = [k.strip().encode() for k in raw.split(",") if k.strip()]
@@ -125,6 +149,28 @@ def decrypt(value):
         raise SecretKeyError(
             f"Ein verschluesselter Wert laesst sich nicht entschluesseln: {ENV_KEY} fehlt oder ist nicht der "
             f"Schluessel, mit dem die Datenbank verschluesselt wurde (Datei: {key_file_path()})."
+        ) from e
+
+
+def rotate(value):
+    """Verschluesselt einen Wert mit dem aktuellen Schluessel neu; ``None``, wenn nichts zu tun ist.
+
+    Raises:
+        SecretKeyError: kein bekannter Schluessel (auch nicht ``ENCRYPTION_KEY_PREVIOUS``) oeffnet ihn.
+    """
+    if not is_encrypted(value):
+        return None
+    token = value[len(PREFIX) :].encode()
+    try:
+        Fernet(primary_key()).decrypt(token)
+        return None  # schon mit dem aktuellen Schluessel
+    except InvalidToken:
+        pass
+    try:
+        return PREFIX + _cipher().rotate(token).decode()
+    except InvalidToken as e:
+        raise SecretKeyError(
+            f"Ein verschluesselter Wert laesst sich mit keinem Schluessel oeffnen ({ENV_KEY}, {ENV_PREVIOUS})."
         ) from e
 
 

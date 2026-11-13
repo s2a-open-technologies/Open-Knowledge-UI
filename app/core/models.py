@@ -20,6 +20,7 @@
 SQLAlchemy Models für Open Knowledge UI (Single-User)
 """
 
+import uuid as _uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -50,6 +51,10 @@ class User(Base):
     username = Column(String(80), nullable=False, unique=True)
     display_name = Column(String(120))
     password_hash = Column(String(255), nullable=False)
+    # Feste, nie wiederverwendete Kennung: Ordnernamen, Schluessel-Zuordnung (data_keys), AAD
+    uuid = Column(
+        String(36), nullable=False, unique=True, default=lambda: str(_uuid.uuid4())
+    )
     role = Column(String(20), nullable=False, default="user")
     is_active = Column(Boolean, nullable=False, default=True)
     # Herkunft des Kontos: 'local' (Passwort hier), 'ldap' oder 'oidc' (extern angemeldet)
@@ -124,6 +129,10 @@ class Knowledge(Base):
     name = Column(String(120), nullable=False)
     description = Column(Text)
     collection_name = Column(String(100), nullable=False, unique=True)
+    # Feste Kennung fuer den Datenschluessel des Bereichs (data_keys) und als AAD
+    uuid = Column(
+        String(36), nullable=False, unique=True, default=lambda: str(_uuid.uuid4())
+    )
     is_default = Column(Boolean, nullable=False, default=False)
     embedding_model = Column(String(255))
     embedding_dimension = Column(Integer)
@@ -410,3 +419,31 @@ class AuditLog(Base):
 
     def __repr__(self):
         return f"<AuditLog(id={self.id}, action='{self.action}')>"
+
+
+class DataKey(Base):
+    """Datenschluessel eines Nutzers oder Knowledge-Bereichs (Envelope-Encryption, app/core/keys.py).
+
+    ``wrapped_key`` ist mit dem Master-Schluessel (``ENCRYPTION_KEY``) verschluesselt. Wird die
+    Zeile geloescht, sind alle damit verschluesselten Inhalte unlesbar, auch in Backups.
+    """
+
+    __tablename__ = "data_keys"
+    __table_args__ = (UniqueConstraint("owner_kind", "owner_uuid", "version"),)
+
+    id = Column(Integer, primary_key=True)
+    owner_kind = Column(String(20), nullable=False)  # 'user' oder 'knowledge'
+    owner_uuid = Column(String(36), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    wrapped_key = Column(EncryptedText, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EncryptionKeyState(Base):
+    """Fingerprint (SHA-256) des aktuellen Master-Schluessels, erkennt eine Rotation beim Start."""
+
+    __tablename__ = "encryption_key_state"
+
+    id = Column(Integer, primary_key=True)
+    key_fingerprint = Column(String(64), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

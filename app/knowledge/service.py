@@ -291,6 +291,7 @@ def delete_knowledge(knowledge_id: int) -> dict | None:
         if not k:
             return None
         snapshot = _to_dict(k)
+        knowledge_uuid = k.uuid
         db.query(UserDocument).filter_by(knowledge_id=k.id).delete()
         db.query(SqlValue).filter_by(knowledge_id=k.id).delete()
         db.query(SqlValueIndex).filter_by(knowledge_id=k.id).delete()
@@ -309,6 +310,11 @@ def delete_knowledge(knowledge_id: int) -> dict | None:
     paths = knowledge_paths(snapshot)
     for folder in (paths.files_dir.parent, paths.data_dir, paths.markdown_dir):
         shutil.rmtree(folder, ignore_errors=True)
+    # Crypto-Shredding: ohne Schluessel sind auch Kopien in Backups unlesbar
+    from app.core import keys
+
+    keys.shred(keys.KNOWLEDGE, knowledge_uuid)
+    keys.forget(keys.KNOWLEDGE, snapshot["id"])
     return snapshot
 
 

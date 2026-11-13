@@ -254,6 +254,7 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
         db.query(AuditLog).filter_by(actor_user_id=user_id).update(
             {AuditLog.actor_user_id: None}, synchronize_session=False
         )
+        user_uuid = u.uuid
         db.delete(u)
         db.commit()
         from app.auth import audit
@@ -280,6 +281,11 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
     from app.chat import summaries
 
     shutil.rmtree(summaries.user_dir(user_id), ignore_errors=True)
+    # Crypto-Shredding: Chats, Anhaenge und Analysen sind ohne den Schluessel unlesbar, auch in Backups
+    from app.core import keys
+
+    keys.shred(keys.USER, user_uuid)
+    keys.forget(keys.USER, user_id)
     return session_ids
 
 

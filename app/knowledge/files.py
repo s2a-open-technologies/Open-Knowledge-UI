@@ -22,6 +22,7 @@ Daten (CSV/Excel als Pandas-Referenz, NICHT in der Vektordatenbank).
 """
 
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any

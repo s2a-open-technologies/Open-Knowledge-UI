@@ -63,6 +63,10 @@ class DatabaseService:
                 url, echo=False, pool_pre_ping=True, pool_size=10, max_overflow=10
             )
         self.Session = sessionmaker(bind=self.engine)
+        # Chat-Inhalte transparent mit dem Nutzerschluessel ver-/entschluesseln
+        from app.core import content_crypto
+
+        content_crypto.install()
 
     def get_session(self) -> SQLAlchemySession:
         """Neue Session erstellen.
@@ -106,6 +110,10 @@ class DatabaseService:
             from app.core.settings_service import SettingsService
 
             crypto.encrypt_existing(self.engine, SettingsService.encrypted_keys())
+            # Neuer Master-Schluessel? Dann alles darunter neu verschluesseln (ENCRYPTION_KEY_PREVIOUS)
+            from app.core.key_rotation import run_key_rotation_if_needed
+
+            run_key_rotation_if_needed(self.engine, SettingsService.encrypted_keys())
         except Exception:
             db.rollback()
             raise

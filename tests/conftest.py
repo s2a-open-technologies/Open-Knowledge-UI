@@ -48,6 +48,18 @@ def fixed_encryption_key(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fresh_key_caches():
+    """Zwischenspeicher der Datenschluessel (IDs und UUIDs) gelten nur fuer eine Test-DB."""
+    from app.core import content_crypto, keys
+
+    keys.reset()
+    content_crypto.reset()
+    yield
+    keys.reset()
+    content_crypto.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_runtime_state():
     """Laufzeit-Zustand (Qdrant-Client, Tools, Ingestion-Status, ...) pro Test leeren."""
     from app.core import runtime
