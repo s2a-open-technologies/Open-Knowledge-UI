@@ -43,6 +43,7 @@ from app.auth.auth import Admin, CurrentUser
 from app.auth.users import role_at_least
 from app.llm import connections as store
 from app.llm import registry
+from app.core.netguard import BlockedTargetError, reject_link_local
 
 router = APIRouter(prefix="/api", tags=["models"])
 logger = getLogger(__name__)
@@ -68,8 +69,8 @@ def connections_create(_user: Admin, body: ConnectionCreate | None = None):
         raise _error("Base-URL muss mit http:// oder https:// beginnen", 400)
 
     try:
-        registry._reject_link_local(base_url)
-    except registry.RemoteModelsError as e:
+        reject_link_local(base_url)
+    except BlockedTargetError as e:
         raise _error(str(e), 400)
 
     try:
@@ -90,8 +91,8 @@ def connections_update(connection_id: int, _user: Admin, body: ConnectionUpdate 
         raise _error("Base-URL muss mit http:// oder https:// beginnen", 400)
     if base_url:
         try:
-            registry._reject_link_local(store.normalize_base_url(base_url))
-        except registry.RemoteModelsError as e:
+            reject_link_local(store.normalize_base_url(base_url))
+        except BlockedTargetError as e:
             raise _error(str(e), 400)
 
     # Wird die URL geaendert, muss der Key neu eingegeben werden (siehe oben).

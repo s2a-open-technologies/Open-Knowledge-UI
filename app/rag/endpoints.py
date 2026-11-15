@@ -33,6 +33,7 @@ import time
 from logging import getLogger
 
 import requests
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -50,12 +51,7 @@ class EndpointError(Exception):
 
 
 def _guard(conn: dict) -> None:
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
-    try:
-        _reject_link_local(conn["base_url"])
-    except RemoteModelsError as e:
-        raise EndpointError(str(e)) from None
+    reject_link_local(conn["base_url"], EndpointError)
 
 
 def _bases(conn: dict) -> list[str]:

@@ -29,17 +29,15 @@ Modell-Konfiguration greifen dadurch sofort.
 """
 
 import hashlib
-import ipaddress
 import json
-import socket
 import time
 from dataclasses import dataclass, field
 from logging import getLogger
-from urllib.parse import urlparse
 
 import requests
 
 from app.agent.document_agent import DocumentAgent
+from app.core.netguard import reject_link_local
 from app.llm import connections as store
 from app.llm.factory import build_chat_llm
 
@@ -96,29 +94,6 @@ class ResolvedModel:
 # --------------------------------------------------------------------------
 
 
-def _reject_link_local(base_url: str) -> None:
-    """Sperrt Link-Local-Ziele (169.254.0.0/16, fe80::/10), v. a. die
-    Cloud-Metadaten-Adresse, auch nach DNS-Aufloesung. Private LAN-Adressen
-    bleiben erlaubt: lokale Server (vLLM, Ollama, LiteLLM) sind der Normalfall.
-
-    Raises:
-        RemoteModelsError: bei gesperrtem Ziel.
-    """
-    host = urlparse(base_url).hostname
-    if not host:
-        raise RemoteModelsError("Ungültige Base-URL")
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return  # nicht aufloesbar: requests meldet den Fehler verstaendlich
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if ip.is_link_local:
-            raise RemoteModelsError(
-                "Link-Local-Adressen (z. B. 169.254.x.x) sind als Ziel nicht erlaubt"
-            )
-
-
 def fetch_remote_models(connection: dict, force: bool = False) -> list[str]:
     """Ruft ``GET <base_url>/models`` ab (kurz gecacht).
 
@@ -136,7 +111,7 @@ def fetch_remote_models(connection: dict, force: bool = False) -> list[str]:
     if cached and not force and time.time() - cached[0] < MODELS_TTL_SECONDS:
         return cached[1]
 
-    _reject_link_local(connection["base_url"])
+    reject_link_local(connection["base_url"], RemoteModelsError)
     url = f"{connection['base_url']}/models"
     headers = {}
     if connection.get("api_key"):
@@ -345,9 +320,8 @@ def resolve_model(ref: str | None = None) -> ResolvedModel:
     if not conn["enabled"]:
         raise ModelUnavailableError(f"Connection „{conn['name']}“ ist deaktiviert.")
 
-    _reject_link_local(
-        conn["base_url"]
-    )  # auch vor dem Chat-Aufruf, nicht nur beim Abruf der Liste
+    # auch vor dem Chat-Aufruf, nicht nur beim Abruf der Liste
+    reject_link_local(conn["base_url"], RemoteModelsError)
 
     return ResolvedModel(
         ref=ref,

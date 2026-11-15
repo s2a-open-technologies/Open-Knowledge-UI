@@ -42,6 +42,7 @@ from app.knowledge.service import list_knowledge
 from app.llm import connections as store
 from app.llm import registry
 from app.rag import model_settings
+from app.core.netguard import BlockedTargetError, reject_link_local
 
 router = APIRouter(prefix="/api", tags=["admin"])
 logger = getLogger(__name__)
@@ -412,8 +413,8 @@ def _clean_url(raw, label: str) -> str:
         raise ValueError(f"{label}: Adresse muss mit http:// oder https:// beginnen")
     if url:
         try:
-            registry._reject_link_local(url)
-        except registry.RemoteModelsError as e:
+            reject_link_local(url)
+        except BlockedTargetError as e:
             raise ValueError(f"{label}: {e}") from None
     return url
 
@@ -460,16 +461,7 @@ def tools_save(_user: Admin, body: ToolsSave | None = None):
                 )
         if "pii" in data:
             pii = data["pii"] or {}
-            url = (pii.get("url") or "").strip()
-            if url and not url.startswith(("http://", "https://")):
-                raise ValueError(
-                    "PII-Filter: Adresse muss mit http:// oder https:// beginnen"
-                )
-            if url:
-                try:
-                    registry._reject_link_local(url)
-                except registry.RemoteModelsError as e:
-                    raise ValueError(f"PII-Filter: {e}") from None
+            url = _clean_url(pii.get("url"), "PII-Filter")
             values["PII_FILTER_URL"] = url
             values["PII_FILTER_ENABLED"] = (
                 "true" if pii.get("enabled", True) else "false"
@@ -568,8 +560,8 @@ def tools_test(_user: Admin, body: ToolsTest | None = None):
         raw = values_in.get(field) if kind == label else None
         if raw:
             try:
-                registry._reject_link_local(store.normalize_base_url(raw.strip()))
-            except registry.RemoteModelsError as e:
+                reject_link_local(store.normalize_base_url(raw.strip()))
+            except BlockedTargetError as e:
                 raise _error(str(e), 400)
     try:
         result = test(form)

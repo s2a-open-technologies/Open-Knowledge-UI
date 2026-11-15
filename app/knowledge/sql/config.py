@@ -18,10 +18,10 @@
 
 """Konfiguration einer SQL-Quelle (Knowledge ``kind='sql'``): Parsen, Pruefen, Weitergabe an den Worker."""
 
-import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
+from app.core.netguard import reject_host_link_local
 
 DIALECTS = ("postgresql", "mysql", "mssql", "sqlite")
 DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "mssql": 1433, "sqlite": 0}
@@ -142,12 +142,7 @@ def validate(cfg: SqlConfig) -> None:
     else:
         if not cfg.host or not HOST_RE.match(cfg.host):
             raise SqlConfigError("Der Host fehlt oder enthält unerlaubte Zeichen.")
-        try:
-            link_local = ipaddress.ip_address(cfg.host).is_link_local
-        except ValueError:
-            link_local = False  # Hostname statt IP
-        if link_local:
-            raise SqlConfigError("Link-lokale Adressen sind nicht erlaubt.")
+        reject_host_link_local(cfg.host, SqlConfigError)
         if not 1 <= cfg.port <= 65535:
             raise SqlConfigError("Der Port muss zwischen 1 und 65535 liegen.")
         if not cfg.user:

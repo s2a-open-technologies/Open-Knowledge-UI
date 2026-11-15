@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 import jwt
 import requests
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -47,12 +48,7 @@ class OidcError(Exception):
 
 
 def _check(url: str) -> str:
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
-    try:
-        _reject_link_local(url)
-    except RemoteModelsError as e:
-        raise OidcError(str(e)) from None
+    reject_link_local(url, OidcError)
     return url
 
 

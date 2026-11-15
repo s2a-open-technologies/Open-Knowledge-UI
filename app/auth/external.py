@@ -38,6 +38,7 @@ from app.auth.users import ROLES, _user_dict
 from app.core.database_service import get_db_service
 from app.core.models import Group, GroupMember, User
 from app.core.settings_service import SettingsService
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -141,8 +142,6 @@ def _clean_block(source: str, incoming: dict, current: dict) -> dict:
 
 def save_config(data: dict) -> dict:
     """Speichert die Einstellungen; leere Geheimnis-Felder behalten den gespeicherten Wert."""
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
     current = load_config()
     updates: dict[str, str] = {}
     for source, key in (("ldap", "AUTH_LDAP"), ("oidc", "AUTH_OIDC")):
@@ -165,14 +164,10 @@ def save_config(data: dict) -> dict:
                         if source == "ldap"
                         else "OIDC: Issuer muss mit http:// oder https:// beginnen"
                     )
-                try:
-                    _reject_link_local(
-                        target.replace("ldaps://", "https://").replace(
-                            "ldap://", "http://"
-                        )
-                    )
-                except RemoteModelsError as e:
-                    raise AuthConfigError(str(e)) from None
+                reject_link_local(
+                    target.replace("ldaps://", "https://").replace("ldap://", "http://"),
+                    AuthConfigError,
+                )
             if (
                 source == "oidc"
                 and block["enabled"]

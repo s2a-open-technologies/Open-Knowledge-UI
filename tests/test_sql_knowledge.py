@@ -98,7 +98,7 @@ def test_invalid_sources_are_refused_with_a_reason(app, db, shop):
     r = create(
         app, body(host="169.254.169.254", dialect="postgresql", database="d", user="u")
     )
-    assert r.status_code == 400 and "lokal" in r.json()["error"].lower()
+    assert r.status_code == 400 and "link-local" in r.json()["error"].lower()
     r = create(app, body(database="gibt_es_nicht.db"))
     assert r.status_code == 400 and "nicht verfügbar" in r.json()["error"]
 

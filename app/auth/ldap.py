@@ -31,6 +31,7 @@ from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
 
 from app.auth.external import group_name_from
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -43,15 +44,10 @@ class LdapError(Exception):
 
 
 def _server(cfg: dict, get_info=ALL) -> Server:
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
     url = cfg["url"]
-    try:
-        _reject_link_local(
-            url.replace("ldaps://", "https://").replace("ldap://", "http://")
-        )
-    except RemoteModelsError as e:
-        raise LdapError(str(e)) from None
+    reject_link_local(
+        url.replace("ldaps://", "https://").replace("ldap://", "http://"), LdapError
+    )
     import ssl
 
     tls = None

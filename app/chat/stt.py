@@ -43,6 +43,7 @@ from logging import getLogger
 
 from app.core.database_service import get_db_service
 from app.core.settings_service import SettingsService
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -157,12 +158,7 @@ def transcribe(
 
     if not cfg.base_url:
         raise TranscriptionError("Die Spracheingabe ist nicht eingerichtet")
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
-    try:
-        _reject_link_local(cfg.base_url)
-    except RemoteModelsError as e:
-        raise TranscriptionError(str(e)) from None
+    reject_link_local(cfg.base_url, TranscriptionError)
     file_obj = io.BytesIO(audio)
     file_obj.name = filename or "recording.webm"
     kwargs = {"file": file_obj}

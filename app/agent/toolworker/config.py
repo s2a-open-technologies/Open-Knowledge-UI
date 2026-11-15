@@ -18,13 +18,13 @@
 
 """Einstellungen des Tool-Workers (Datenbank), Token aus Umgebung/_FILE (nie in der Datenbank)."""
 
-import ipaddress
 import os
 import urllib.parse
 from dataclasses import dataclass
 
 from app.core.database_service import get_db_service
 from app.core.settings_service import SettingsService
+from app.core.netguard import reject_link_local
 
 # (Schluessel, Standardwert, Beschreibung). Die Untergrenze fuer den Speicher wurde in
 # tests/test_tool_worker_sandbox.py gemessen (pandas reserviert virtuellen Speicher).
@@ -212,12 +212,7 @@ def _check_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ConfigError("Die Adresse muss mit http:// oder https:// beginnen.")
-    try:
-        link_local = ipaddress.ip_address(parsed.hostname).is_link_local
-    except ValueError:
-        link_local = False  # Hostname statt IP
-    if link_local:
-        raise ConfigError("Link-lokale Adressen sind nicht erlaubt.")
+    reject_link_local(url.strip(), ConfigError)
     return url.strip().rstrip("/")
 
 

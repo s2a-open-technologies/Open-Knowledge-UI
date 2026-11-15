@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from logging import getLogger
 
 from app.core.device import onnx_providers, torch_device
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -172,17 +173,12 @@ class FastEmbedEmbedder(_Embedder):
 
 def _connection(spec: ModelSpec) -> dict:
     from app.llm import connections as store
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
     conn = store.get_connection(spec.connection_id, with_key=True)
     if not conn:
         raise ModelLoadError("Die Connection des Modells existiert nicht mehr")
     if not conn["enabled"]:
         raise ModelLoadError(f"Connection „{conn['name']}“ ist deaktiviert")
-    try:
-        _reject_link_local(conn["base_url"])
-    except RemoteModelsError as e:
-        raise ModelLoadError(str(e)) from None
+    reject_link_local(conn["base_url"], ModelLoadError)
     return conn
 
 

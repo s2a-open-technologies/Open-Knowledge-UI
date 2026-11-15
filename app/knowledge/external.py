@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from logging import getLogger
 
 from qdrant_client import QdrantClient
+from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
@@ -134,14 +135,9 @@ def parse_config(raw: dict | str | None) -> SourceConfig:
 
 
 def _check_url(url: str) -> None:
-    from app.llm.registry import RemoteModelsError, _reject_link_local
-
     if not url.startswith(("http://", "https://")):
         raise SourceError("Die Adresse muss mit http:// oder https:// beginnen")
-    try:
-        _reject_link_local(url)
-    except RemoteModelsError as e:
-        raise SourceError(str(e)) from None
+    reject_link_local(url, SourceError)
 
 
 def connect(cfg: SourceConfig) -> QdrantClient:
