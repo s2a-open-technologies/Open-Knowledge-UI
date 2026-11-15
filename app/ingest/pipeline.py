@@ -31,9 +31,6 @@ from logging import getLogger
 from pathlib import Path
 
 # Third party imports
-from langchain_community.document_loaders import (
-    TextLoader,
-)
 from langchain_qdrant import FastEmbedSparse
 from qdrant_client import models as qdrant_models
 from tqdm import tqdm
@@ -83,6 +80,16 @@ def _detect_encoding(file_path: str) -> str:
         return encoding
     except Exception:
         return "cp1252"
+
+
+def _read_text(file_path: str) -> str:
+    """Liest eine Textdatei: erst UTF-8, sonst mit erkanntem Encoding (ersetzt TextLoader)."""
+    try:
+        return Path(file_path).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return Path(file_path).read_text(
+            encoding=_detect_encoding(file_path), errors="replace"
+        )
 
 
 def _load_dataframe(file_path: str):
@@ -377,13 +384,7 @@ class DocumentIngestion:
         # Supported file extensions. Strukturierte Daten (CSV/Excel) werden
         # NICHT ingestet — sie liegen als Pandas-Referenz in DATA_DIR und
         # werden ausschliesslich über die run_pandas-Tools genutzt.
-        self.loaders = {
-            ".pdf": CustomPDFLoader,
-            ".docx": CustomDOCXLoader,
-            ".doc": CustomDOCXLoader,
-            ".odt": CustomDOCXLoader,
-            ".md": TextLoader,
-        }
+        self.extensions = (".pdf", ".docx", ".doc", ".odt", ".md")
 
         # Qdrant client wird erst bei Bedarf geöffnet
         self._client = None
@@ -521,7 +522,7 @@ class DocumentIngestion:
                 ).lazy_load()
             )
         elif extension == ".md":
-            docs = TextLoader(file_path, autodetect_encoding=True).load()
+            return _read_text(file_path)
         elif extension in IMAGE_EXTS:
             from app.ingest.image_text import image_to_markdown
 
@@ -630,7 +631,7 @@ class DocumentIngestion:
         # UserDocument.document_id gespeichert (Liste/Loeschen per Payload-Filter).
 
         # 1. Datei -> Markdown. Strukturierte Daten (CSV/Excel) sind hier bereits
-        # ausgeschlossen (siehe self.loaders / DATA_DIR-Referenz).
+        # ausgeschlossen (siehe self.extensions / DATA_DIR-Referenz).
         # Tabellen werden dabei als CSV im Datenordner des Knowledge abgelegt (nicht bei
         # Chat-Anhaengen: dort gibt es keinen Datenordner).
         table_sink = (
@@ -748,7 +749,7 @@ class DocumentIngestion:
 
         # Dateien sammeln
         all_files = []
-        for extension in self.loaders:
+        for extension in self.extensions:
             pattern = os.path.join(str(self.files_dir), f"**/*{extension}")
             files = glob.glob(pattern, recursive=True)
             all_files.extend(files)

@@ -21,6 +21,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Geändert
 
+- **`langchain-community` entfernt.** Das Paket wird nicht mehr gepflegt. Der Loader-Basistyp kommt aus `langchain-core`, Markdown-Dateien liest eine eigene Funktion, und das Embedding-Modell läuft direkt über `fastembed` (identische Vektoren, bestehende Indizes bleiben gültig). `langchain-text-splitters` ist jetzt eine eigene Abhängigkeit.
 - **Originaldateien werden standardmäßig nicht mehr aufbewahrt.** Nach dem Einlesen genügt das Markdown für Suche, Vorschau und Neu-Indexieren; `INGEST_KEEP_ORIGINAL` steht jetzt auf aus. Bestehende Installationen werden nur umgestellt, wenn der Wert nie geändert wurde (Migration `0037`). Bereits archivierte Originale bleiben, bis das Dokument gelöscht wird. Der Original-Anhang eines Chats wird jetzt auch dann gelöscht, wenn sein Einlesen fehlschlägt.
 - **Backend auf FastAPI.** Flask, flask-sock, Gunicorn und Waitress sind ersetzt durch FastAPI und Uvicorn, auch im Tool-Worker. Alle Endpunkte haben Pydantic-Modelle für Anfrage und Antwort, das OpenAPI-Schema steht unter `/api/openapi.json`. URLs und Antworten bleiben gleich; ein vor dem Umbau aufgezeichneter API-Vertrag (`tests/fixtures/api_contract.json`) prüft das.
 - **Ungültige Eingaben liefern 422.** Schickt ein Client einen falschen Datentyp (z. B. Text statt Zahl), antwortet die API mit Status 422 und einer deutschen Meldung im Feld `error` plus der Liste der betroffenen Felder. Fachliche Prüfungen (Grenzen, Pflichtangaben) melden sich wie bisher mit 400.

@@ -155,16 +155,19 @@ class HFEmbedder(_Embedder):
 
 class FastEmbedEmbedder(_Embedder):
     def __init__(self, spec: ModelSpec):
-        from langchain_community.embeddings import FastEmbedEmbeddings
+        from fastembed import TextEmbedding
 
         self.spec = spec
-        self._model = FastEmbedEmbeddings(model_name=spec.model)
+        # max_length/batch_size wie zuvor bei langchain_community.FastEmbedEmbeddings
+        self._model = TextEmbedding(model_name=spec.model, max_length=512)
 
     def embed_query(self, text):
-        return list(self._model.embed_query(text))
+        return next(self._model.query_embed(text)).tolist()
 
     def embed_documents(self, texts):
-        return [list(v) for v in self._model.embed_documents(texts)] if texts else []
+        if not texts:
+            return []
+        return [v.tolist() for v in self._model.embed(texts, batch_size=256)]
 
 
 def _connection(spec: ModelSpec) -> dict:

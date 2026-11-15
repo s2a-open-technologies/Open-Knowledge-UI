@@ -23,9 +23,8 @@ PDF Loader wrapper
 # Standard library
 from collections.abc import Iterator
 
-from langchain_community.document_loaders.base import BaseLoader
-
 # Third party
+from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 
 # Custom imports

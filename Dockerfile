@@ -73,8 +73,8 @@ RUN if [ "$TORCH_BACKEND" = "cuda" ]; then \
 # runtime EMBEDDING_MODEL (DB/Env) uebereinstimmt.
 # Hinweis: fastembed erwartet den HF-Org-Prefix (z. B. sentence-transformers/...).
 ARG EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; \
-      FastEmbedEmbeddings(model_name='${EMBEDDING_MODEL}')" \
+RUN python -c "from fastembed import TextEmbedding; \
+      TextEmbedding(model_name='${EMBEDDING_MODEL}', max_length=512)" \
  && python -c "from langchain_qdrant import FastEmbedSparse; \
       FastEmbedSparse(model_name='Qdrant/bm25')"
 
