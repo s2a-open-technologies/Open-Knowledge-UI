@@ -70,8 +70,7 @@ def load_task(task: str) -> dict:
         raise ValueError(f"Unbekannte Aufgabe: {task}")
     prefix = task.upper()
     prompt_key = _PROMPT_KEY[task]
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         stored = session.query(Setting).filter_by(key=prompt_key).first()
         prompt = (s.get(prompt_key) or "").strip() or _SEED[prompt_key]
@@ -96,8 +95,6 @@ def load_task(task: str) -> dict:
             if task == "context"
             else None,
         }
-    finally:
-        session.close()
 
 
 def render_context_prompt(template: str, dokument: str, abschnitt: str) -> str:

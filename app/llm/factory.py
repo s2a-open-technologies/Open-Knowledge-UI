@@ -78,15 +78,12 @@ def global_chat_defaults() -> dict:
         from app.core.database_service import get_db_service
         from app.core.settings_service import SettingsService
 
-        session = get_db_service().get_session()
-        try:
+        with get_db_service().session_scope(commit=False) as session:
             settings = SettingsService(session)
             for name, key in _SETTING_KEYS.items():
                 raw[name] = settings.get(key, raw[name]) or raw[name]
             # leerer Wert ist bei max_tokens gueltig (= unbegrenzt)
             raw["max_tokens"] = settings.get("CHAT_MAX_TOKENS", "") or ""
-        finally:
-            session.close()
     except Exception:
         for name, key in _SETTING_KEYS.items():
             raw[name] = os.getenv(key, raw[name])

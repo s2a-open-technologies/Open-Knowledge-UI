@@ -50,13 +50,13 @@ def default_language() -> str:
     from app.core.database_service import get_db_service
     from app.core.settings_service import SettingsService
 
-    session = get_db_service().get_session()
     try:
-        value = (SettingsService(session).get("BM25_LANGUAGE") or "").strip().lower()
+        with get_db_service().session_scope(commit=False) as session:
+            value = (
+                (SettingsService(session).get("BM25_LANGUAGE") or "").strip().lower()
+            )
     except Exception:
         value = ""
-    finally:
-        session.close()
     return value if value in supported_languages() else DEFAULT_LANGUAGE
 
 

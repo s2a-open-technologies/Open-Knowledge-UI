@@ -42,19 +42,13 @@ SPLITTER_VERSION_KEY = "splitter"
 
 
 def _setting(key: str, default: str | None = None) -> str | None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return SettingsService(db).get(key, default)
-    finally:
-        db.close()
 
 
 def _store(key: str, value: str) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         SettingsService(db).set(key, value)
-    finally:
-        db.close()
 
 
 def ensure_model_settings(db, fresh: bool) -> None:
@@ -115,14 +109,11 @@ def save_specs(
 
 
 def ingest_params() -> tuple[int, int]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         s = SettingsService(db)
         return s.get_int("INGEST_CHUNK_SIZE", 1000), s.get_int(
             "INGEST_CHUNK_OVERLAP", 150
         )
-    finally:
-        db.close()
 
 
 def current_signature(spec: mr.ModelSpec | dict | None = None) -> str:
@@ -176,8 +167,7 @@ def rerank_score(_model: str, query: str, texts: list[str]) -> list[float]:
 
 def stamp_knowledge(knowledge_id: int, spec: mr.ModelSpec, dimension: int) -> None:
     """Setzt Modell, Dimension und Signatur eines Knowledge (nach Anlage bzw. Neu-Indexieren)."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if k:
             k.embedding_spec = json.dumps(spec.to_dict())
@@ -186,19 +176,14 @@ def stamp_knowledge(knowledge_id: int, spec: mr.ModelSpec, dimension: int) -> No
             k.index_signature = current_signature(spec)
             k.last_reindex_error = None
             db.commit()
-    finally:
-        db.close()
 
 
 def set_dimension(knowledge_id: int, dimension: int) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if k and not k.embedding_dimension:
             k.embedding_dimension = dimension
             db.commit()
-    finally:
-        db.close()
 
 
 def prepare(client) -> None:

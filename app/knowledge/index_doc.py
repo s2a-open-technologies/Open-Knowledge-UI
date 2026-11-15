@@ -169,29 +169,20 @@ def _index_enabled() -> bool:
     from app.core.database_service import get_db_service
     from app.core.settings_service import SettingsService
 
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         return SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
-    finally:
-        session.close()
 
 
 def _store(knowledge_id: int, text: str | None) -> None:
     from app.core.database_service import get_db_service
     from app.core.models import Knowledge
 
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as session:
         row = session.query(Knowledge).filter_by(id=knowledge_id).first()
         if row is not None:
             row.index_md = text
             row.index_updated_at = datetime.utcnow() if text else None
             session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
 
 
 def get_index(knowledge_id: int) -> tuple[str | None, datetime | None]:
@@ -199,12 +190,9 @@ def get_index(knowledge_id: int) -> tuple[str | None, datetime | None]:
     from app.core.database_service import get_db_service
     from app.core.models import Knowledge
 
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         row = session.query(Knowledge).filter_by(id=knowledge_id).first()
         return (row.index_md, row.index_updated_at) if row is not None else (None, None)
-    finally:
-        session.close()
 
 
 def refresh_index(knowledge_id: int | None) -> bool:

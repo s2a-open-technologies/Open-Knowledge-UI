@@ -309,11 +309,8 @@ def default_model_ref() -> str:
     from app.core.database_service import get_db_service
     from app.core.settings_service import SettingsService
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         legacy = SettingsService(db).get("CHAT_MODEL", "") or ""
-    finally:
-        db.close()
     first = next((c for c in store.list_connections() if c["enabled"]), None)
     return store.make_base_ref(first["id"], legacy) if first and legacy else ""
 

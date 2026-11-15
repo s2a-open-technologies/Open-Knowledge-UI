@@ -119,11 +119,8 @@ def _vision_enabled() -> bool:
         from app.core.database_service import get_db_service
         from app.core.settings_service import SettingsService
 
-        session = get_db_service().get_session()
-        try:
+        with get_db_service().session_scope(commit=False) as session:
             return SettingsService(session).get_bool("INGEST_VISION_ENABLED", True)
-        finally:
-            session.close()
     except Exception:
         return True
 

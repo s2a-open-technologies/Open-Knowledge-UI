@@ -134,8 +134,7 @@ def token() -> str:
 
 
 def load() -> WorkerSettings:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         return WorkerSettings(
             url=(s.get("TOOL_WORKER_URL", "http://tool-worker:8090") or "")
@@ -145,8 +144,6 @@ def load() -> WorkerSettings:
             memory_mb=s.get_int("PANDAS_MAX_MEMORY_MB", 1024),
             max_output_chars=s.get_int("PANDAS_MAX_OUTPUT_CHARS", 20000),
         )
-    finally:
-        session.close()
 
 
 @dataclass(frozen=True)
@@ -158,8 +155,7 @@ class SqlSettings:
 
 
 def load_sql() -> SqlSettings:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         return SqlSettings(
             url=(s.get("SQL_WORKER_URL", "http://tool-worker-sql:8090") or "")
@@ -169,42 +165,31 @@ def load_sql() -> SqlSettings:
             timeout_s=s.get_int("SQL_TIMEOUT_S", 15),
             max_cell_chars=s.get_int("SQL_MAX_CELL_CHARS", 500),
         )
-    finally:
-        session.close()
 
 
 def values_settings() -> tuple[int, int]:
     """(hoechstens so viele verschiedene Werte je Spalte, hoechstens so viele Treffer der Wertsuche)."""
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         return max(1, s.get_int("SQL_VALUES_MAX_DISTINCT", 5000)), max(
             1, s.get_int("SQL_VALUES_MAX_RESULTS", 20)
         )
-    finally:
-        session.close()
 
 
 def values_hint() -> str:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         return (
             SettingsService(session).get("SQL_VALUES_HINT", SQL_VALUES_HINT_DEFAULT)
             or SQL_VALUES_HINT_DEFAULT
         )
-    finally:
-        session.close()
 
 
 def sql_prompt() -> str:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         return (
             SettingsService(session).get("SQL_PROMPT", SQL_PROMPT_DEFAULT)
             or SQL_PROMPT_DEFAULT
         )
-    finally:
-        session.close()
 
 
 def view() -> dict:
@@ -252,11 +237,8 @@ def save(data: dict) -> None:
             if not lo <= n <= hi:
                 raise ConfigError(f"{field}: erlaubt sind {lo} bis {hi}.")
             values[key] = str(n)
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         for key, value in values.items():
             s.set(key, value)
         session.commit()
-    finally:
-        session.close()

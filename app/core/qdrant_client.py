@@ -50,15 +50,11 @@ def get_qdrant_client(
         from app.core.database_service import get_db_service
         from app.core.settings_service import SettingsService
 
-        db = get_db_service()
-        db_session = db.get_session()
-        settings = SettingsService(db_session)
-
-        host = custom_host or settings.get("QDRANT_HOST", "localhost")
-        port = custom_port or settings.get_int("QDRANT_PORT", 6333)
-        key = api_key or settings.get("QDRANT_API_KEY")
-
-        db_session.close()
+        with get_db_service().session_scope(commit=False) as db_session:
+            settings = SettingsService(db_session)
+            host = custom_host or settings.get("QDRANT_HOST", "localhost")
+            port = custom_port or settings.get_int("QDRANT_PORT", 6333)
+            key = api_key or settings.get("QDRANT_API_KEY")
 
         if key:
             return QdrantClient(host=host, port=port, api_key=key)

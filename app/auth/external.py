@@ -78,11 +78,8 @@ class AuthConfigError(ValueError):
 
 
 def _read(key: str) -> dict:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         raw = SettingsService(session).get(key, "{}") or "{}"
-    finally:
-        session.close()
     try:
         data = json.loads(raw)
         return data if isinstance(data, dict) else {}
@@ -92,8 +89,7 @@ def _read(key: str) -> dict:
 
 def load_config() -> dict:
     """Aktuelle Einstellungen der Anmeldung (mit Geheimnissen, nur intern verwenden)."""
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         role = s.get("AUTH_DEFAULT_ROLE", "user") or "user"
         return {
@@ -103,8 +99,6 @@ def load_config() -> dict:
             "auto_create": s.get_bool("AUTH_AUTO_CREATE", True),
             "base_url": (s.get("APP_BASE_URL", "") or "").strip().rstrip("/"),
         }
-    finally:
-        session.close()
 
 
 def public_config(cfg: dict | None = None) -> dict:
@@ -211,11 +205,8 @@ def save_config(data: dict) -> dict:
                 "Die App-Adresse muss mit http:// oder https:// beginnen"
             )
         updates["APP_BASE_URL"] = url
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         SettingsService(session).set_batch(updates)
-    finally:
-        session.close()
     return public_config()
 
 

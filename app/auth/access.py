@@ -91,21 +91,17 @@ def _granted(db, user: dict, rtype: str, rid: int, level: str) -> bool:
 
 
 def can_access_knowledge(user: dict, knowledge_id: int, level: str = "read") -> bool:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if k is None:
             return False
         if level == "read" and k.is_public:
             return True
         return _granted(db, user, "knowledge", knowledge_id, level)
-    finally:
-        db.close()
 
 
 def accessible_knowledge_ids(user: dict, level: str = "read") -> set[int]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         ids = set()
         for k in db.query(Knowledge):
             if (level == "read" and k.is_public) or _granted(
@@ -113,8 +109,6 @@ def accessible_knowledge_ids(user: dict, level: str = "read") -> set[int]:
             ):
                 ids.add(k.id)
         return ids
-    finally:
-        db.close()
 
 
 # --------------------------------------------------------------------------
@@ -131,8 +125,7 @@ def can_use_model(user: dict, ref: str) -> bool:
     kind, key, model = models_store.parse_ref(ref)
     if _is_admin(user):
         return True
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         q = db.query(ModelConfig)
         if kind == "clone":
             cfg = q.filter_by(id=key, is_clone=True).first()
@@ -145,8 +138,6 @@ def can_use_model(user: dict, ref: str) -> bool:
             if cfg is None:
                 return True  # nie angepasstes Basismodell: oeffentlich
         return bool(cfg.is_public) or _granted(db, user, "model", cfg.id, "read")
-    finally:
-        db.close()
 
 
 def model_resource_id(ref: str) -> int | None:
@@ -170,8 +161,7 @@ def _principal_name(db, ptype: str, pid: int) -> str | None:
 
 def get_access(rtype: str, rid: int) -> dict | None:
     """``{"is_public": bool, "grants": [...]}`` einer Ressource oder ``None``."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         model = Knowledge if rtype == "knowledge" else ModelConfig
         res = db.query(model).filter_by(id=rid).first()
         if res is None:
@@ -192,8 +182,6 @@ def get_access(rtype: str, rid: int) -> dict | None:
                 }
             )
         return {"is_public": bool(res.is_public), "grants": grants}
-    finally:
-        db.close()
 
 
 def set_access(rtype: str, rid: int, is_public: bool, grants: list[dict]) -> bool:
@@ -205,8 +193,7 @@ def set_access(rtype: str, rid: int, is_public: bool, grants: list[dict]) -> boo
     if rtype not in RESOURCE_TYPES:
         raise ValueError(f"Unbekannter Ressourcentyp: {rtype}")
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         model = Knowledge if rtype == "knowledge" else ModelConfig
         res = db.query(model).filter_by(id=rid).first()
         if res is None:
@@ -250,17 +237,11 @@ def set_access(rtype: str, rid: int, is_public: bool, grants: list[dict]) -> boo
             detail={"oeffentlich": is_public, "freigaben": len(clean)},
         )
         return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def add_grant(rtype: str, rid: int, ptype: str, pid: int, access: str) -> None:
     """Fuegt einen Grant hinzu bzw. erhoeht die Stufe (idempotent)."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         g = (
             db.query(ResourceGrant)
             .filter_by(
@@ -284,46 +265,26 @@ def add_grant(rtype: str, rid: int, ptype: str, pid: int, access: str) -> None:
         elif access == "write":
             g.access = "write"
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_grants_for_resource(rtype: str, rid: int) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         db.query(ResourceGrant).filter_by(resource_type=rtype, resource_id=rid).delete()
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_grants_for_principal(ptype: str, pid: int) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         db.query(ResourceGrant).filter_by(
             principal_type=ptype, principal_id=pid
         ).delete()
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def user_group_names(user_id: int) -> list[str]:
     """Namen der lokalen Gruppen eines Benutzers (fuer Zugriffsfilter externer Quellen)."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         ids = _group_ids(db, user_id)
         if not ids:
             return []
         return sorted(g.name for g in db.query(Group).filter(Group.id.in_(ids)))
-    finally:
-        db.close()

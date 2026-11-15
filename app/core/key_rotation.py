@@ -175,11 +175,8 @@ def status() -> dict:
     from app.core.models import EncryptionKeyState
 
     fp = fingerprint(crypto.primary_key())
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         row = session.query(EncryptionKeyState).order_by(EncryptionKeyState.id).first()
-    finally:
-        session.close()
     return {
         "source": crypto.key_source(),
         "fingerprint": fp[:12],

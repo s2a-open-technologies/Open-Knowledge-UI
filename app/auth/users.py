@@ -105,12 +105,9 @@ def ensure_admin_user(db_session) -> None:
 
 
 def get_user(user_id: int) -> dict | None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         u = db.query(User).filter_by(id=user_id).first()
         return _user_dict(u) if u else None
-    finally:
-        db.close()
 
 
 def _throttled(key: str, limit: int) -> bool:
@@ -152,8 +149,7 @@ def authenticate(
     name = (username or "").strip().lower()
     ip_key = f"ip:{client_ip}" if client_ip else None
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         u = (
             db.query(User).filter(func.lower(User.username) == name).first()
             if name
@@ -195,8 +191,6 @@ def authenticate(
                     _failures.pop(account_key, None)
                 return ldap_user
         # OIDC-Konten haben kein Passwort hier: sie melden sich nur ueber den Anbieter an
-    finally:
-        db.close()
 
     from app.auth import audit
 
@@ -236,27 +230,18 @@ def _try_ldap(username: str, password: str) -> dict | None:
 
 
 def verify_password(user_id: int, password: str) -> bool:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         u = db.query(User).filter_by(id=user_id).first()
         if u and (u.auth_source or "local") != "local":
             return False  # externe Konten haben hier kein Passwort
         return bool(u and check_password_hash(u.password_hash, password or ""))
-    finally:
-        db.close()
 
 
 def set_password(user_id: int, new_password: str) -> bool:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         u = db.query(User).filter_by(id=user_id).first()
         if not u or (u.auth_source or "local") != "local":
             return False  # Passwort externer Konten verwaltet der Anbieter
         u.password_hash = generate_password_hash(new_password)
         db.commit()
         return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()

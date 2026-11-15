@@ -154,11 +154,8 @@ def _index_payload(knowledge: dict) -> dict:
     aelteren Version, abgeschaltet gewesen), wird sie bei eingeschalteter Funktion nachtraeglich erzeugt."""
     if is_remote(knowledge):
         return {"available": False, "enabled": True, "markdown": None, "updated_at": None}
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         enabled = SettingsService(session).get_bool("INGEST_INDEX_ENABLED", True)
-    finally:
-        session.close()
     text = ensure_index(knowledge) if enabled else None
     if not text:
         return {"available": True, "enabled": enabled, "markdown": None, "updated_at": None}

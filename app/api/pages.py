@@ -55,8 +55,8 @@ def serve_spa() -> HTMLResponse:
     # Server-seitigen Theme-Default (UI_THEME) in die SPA-Index einbetten,
     # damit index.html vor dem ersten Paint den richtigen Fallback hat.
     try:
-        settings = SettingsService(get_db_service().get_session())
-        ui_theme = settings.get("UI_THEME", "system") or "system"
+        with get_db_service().session_scope(commit=False) as session:
+            ui_theme = SettingsService(session).get("UI_THEME", "system") or "system"
     except Exception:
         ui_theme = "system"
 

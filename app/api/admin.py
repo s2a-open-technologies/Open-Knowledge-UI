@@ -93,8 +93,7 @@ MODEL_SUGGESTIONS = {
 def _ingest_values() -> dict:
     from app.rag import sparse as sparse_lang
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         s = SettingsService(db)
         return {
             "chunk_size": s.get_int("INGEST_CHUNK_SIZE", 1000),
@@ -103,8 +102,6 @@ def _ingest_values() -> dict:
             "index_enabled": s.get_bool("INGEST_INDEX_ENABLED", True),
             "bm25_language": sparse_lang.default_language(),
         }
-    finally:
-        db.close()
 
 
 def _parse_spec(raw):
@@ -120,11 +117,8 @@ def _parse_spec(raw):
 
 def _setting_value(key: str) -> str:
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return SettingsService(db).get(key, "") or ""
-    finally:
-        db.close()
 
 
 def _tasks_overview() -> dict:
@@ -300,11 +294,8 @@ def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
     if overlap >= size:
         raise _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         SettingsService(db).set_batch(values)
-    finally:
-        db.close()
     model_settings.save_specs(emb, rr)
     if emb:
         models_runtime.load_in_background("embedding", emb)
@@ -387,8 +378,7 @@ class _FormSettings:
 def _tools_overview() -> dict:
     from app.agent.tools.web_access import web_search_available, web_search_masked
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         s = SettingsService(db)
         return {
             "stt": {
@@ -414,8 +404,6 @@ def _tools_overview() -> dict:
             "web_search_available": web_search_available(),
             "web_search_masked": web_search_masked(),
         }
-    finally:
-        db.close()
 
 
 def _clean_url(raw, label: str) -> str:
@@ -518,11 +506,8 @@ def tools_save(_user: Admin, body: ToolsSave | None = None):
         raise _error(str(e), 400)
 
     if values:
-        db = get_db_service().get_session()
-        try:
+        with get_db_service().session_scope(commit=False) as db:
             SettingsService(db).set_batch(values)
-        finally:
-            db.close()
         if any(k.startswith("STT_") for k in values):
             from app.chat import stt as stt_config
 
@@ -543,8 +528,7 @@ def tools_test(_user: Admin, body: ToolsTest | None = None):
     if kind not in ("stt", "search", "pii"):
         raise _error("kind muss stt, search oder pii sein", 400)
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         saved = SettingsService(db)
         if kind == "stt":
             url = (values_in.get("base_url") or "").strip()
@@ -579,8 +563,6 @@ def tools_test(_user: Admin, body: ToolsTest | None = None):
                 }
             )
             test = check_pii_filter
-    finally:
-        db.close()
 
     for field, label in (("base_url", "stt"), ("url", "search"), ("url", "pii")):
         raw = values_in.get(field) if kind == label else None

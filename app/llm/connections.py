@@ -127,22 +127,16 @@ def ensure_default_connection(db_session) -> None:
 
 
 def list_connections() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return [
             _connection_dict(c) for c in db.query(Connection).order_by(Connection.id)
         ]
-    finally:
-        db.close()
 
 
 def get_connection(connection_id: int, with_key: bool = False) -> dict | None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         c = db.query(Connection).filter_by(id=connection_id).first()
         return _connection_dict(c, with_key) if c else None
-    finally:
-        db.close()
 
 
 def check_kind(kind: str) -> str:
@@ -155,8 +149,7 @@ def create_connection(
     name: str, base_url: str, api_key: str, enabled: bool = True, kind: str = "llm"
 ) -> dict:
     check_kind(kind)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         c = Connection(
             kind=kind,
             name=name.strip(),
@@ -167,11 +160,6 @@ def create_connection(
         db.add(c)
         db.commit()
         return _connection_dict(c)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def update_connection(
@@ -183,8 +171,7 @@ def update_connection(
     kind: str | None = None,
 ) -> dict | None:
     """Aktualisiert Felder; ``api_key=None`` oder leer laesst den Key unveraendert."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         c = db.query(Connection).filter_by(id=connection_id).first()
         if not c:
             return None
@@ -200,17 +187,11 @@ def update_connection(
             c.kind = check_kind(kind)
         db.commit()
         return _connection_dict(c)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_connection(connection_id: int) -> bool:
     """Loescht die Connection samt Modell-Konfigurationen."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         c = db.query(Connection).filter_by(id=connection_id).first()
         if not c:
             return False
@@ -220,11 +201,6 @@ def delete_connection(connection_id: int) -> bool:
         db.query(ModelConfig).filter_by(connection_id=connection_id).delete()
         db.delete(c)
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
     from app.auth.access import delete_grants_for_resource
 
@@ -293,26 +269,20 @@ def _config_dict(m: ModelConfig) -> dict:
 
 
 def list_model_configs() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return [_config_dict(m) for m in db.query(ModelConfig).order_by(ModelConfig.id)]
-    finally:
-        db.close()
 
 
 def get_model_config(ref: str) -> dict | None:
     """Konfiguration zu einer Referenz; ``None`` = unkonfiguriertes Basismodell."""
     kind, key, model = parse_ref(ref)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         q = db.query(ModelConfig)
         if kind == "clone":
             m = q.filter_by(id=key, is_clone=True).first()
         else:
             m = q.filter_by(connection_id=key, base_model=model, is_clone=False).first()
         return _config_dict(m) if m else None
-    finally:
-        db.close()
 
 
 def _apply(m: ModelConfig, data: dict) -> None:
@@ -352,8 +322,7 @@ def save_model_config(ref: str, data: dict) -> dict | None:
         ValueError: bei ungueltigen Parametern.
     """
     kind, key, model = parse_ref(ref)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         if kind == "clone":
             m = db.query(ModelConfig).filter_by(id=key, is_clone=True).first()
             if not m:
@@ -372,19 +341,13 @@ def save_model_config(ref: str, data: dict) -> dict | None:
         _apply(m, data)
         db.commit()
         return _config_dict(m)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def clone_model(ref: str, name: str) -> dict | None:
     """Legt einen Klon an; Prompt, Parameter und Knowledge werden uebernommen."""
     kind, key, model = parse_ref(ref)
     source = get_model_config(ref)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         if kind == "clone":
             if not source:
                 return None
@@ -414,19 +377,13 @@ def clone_model(ref: str, name: str) -> dict | None:
         db.add(m)
         db.commit()
         return _config_dict(m)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_model_config(ref: str) -> bool:
     """Loescht einen Klon bzw. setzt die Anpassung eines Basismodells zurueck."""
     kind, key, model = parse_ref(ref)
     existing = get_model_config(ref)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         q = db.query(ModelConfig)
         if kind == "clone":
             deleted = q.filter_by(id=key, is_clone=True).delete()
@@ -435,11 +392,6 @@ def delete_model_config(ref: str) -> bool:
                 connection_id=key, base_model=model, is_clone=False
             ).delete()
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
     if deleted and existing:
         from app.auth.access import delete_grants_for_resource
@@ -452,17 +404,11 @@ def delete_model_config(ref: str) -> bool:
 
 def remove_knowledge_from_models(knowledge_id: int) -> None:
     """Entfernt ein geloeschtes Knowledge aus allen Modell-Konfigurationen."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         for m in db.query(ModelConfig).filter(ModelConfig.knowledge_ids.isnot(None)):
             ids = [i for i in json.loads(m.knowledge_ids) if i != knowledge_id]
             m.knowledge_ids = json.dumps(ids) if ids else None
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 # --------------------------------------------------------------------------
@@ -471,16 +417,10 @@ def remove_knowledge_from_models(knowledge_id: int) -> None:
 
 
 def get_default_model() -> str:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return SettingsService(db).get("DEFAULT_MODEL", "") or ""
-    finally:
-        db.close()
 
 
 def set_default_model(ref: str) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         SettingsService(db).set("DEFAULT_MODEL", ref)
-    finally:
-        db.close()

@@ -105,16 +105,13 @@ def _active_admin_count(db, excluding_id: int | None = None) -> int:
 
 
 def list_users() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         groups: dict[int, list[int]] = {}
         for m in db.query(GroupMember):
             groups.setdefault(m.user_id, []).append(m.group_id)
         return [
             _user_row(u, groups.get(u.id, [])) for u in db.query(User).order_by(User.id)
         ]
-    finally:
-        db.close()
 
 
 def create_user(username: str, display_name: str, password: str, role: str) -> dict:
@@ -127,8 +124,7 @@ def create_user(username: str, display_name: str, password: str, role: str) -> d
         raise AdminError("Ungültige Rolle")
     _validate_password(password)
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         if db.query(User).filter(func.lower(User.username) == username.lower()).first():
             raise AdminError("Benutzername ist bereits vergeben", 409)
         u = User(
@@ -150,11 +146,6 @@ def create_user(username: str, display_name: str, password: str, role: str) -> d
             detail={"rolle": role},
         )
         return _user_row(u, [])
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def update_user(user_id: int, actor_id: int, data: dict) -> dict:
@@ -163,8 +154,7 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
     Schutz vor Aussperren: Rolle und Aktiv-Status des eigenen Kontos sowie die
     letzte aktive Admin-Rolle sind nicht aenderbar.
     """
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         u = db.query(User).filter_by(id=user_id).first()
         if not u:
             raise AdminError("Benutzer nicht gefunden", 404)
@@ -224,11 +214,6 @@ def update_user(user_id: int, actor_id: int, data: dict) -> dict:
             )
         groups = [m.group_id for m in db.query(GroupMember).filter_by(user_id=user_id)]
         return _user_row(u, groups)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_user(user_id: int, actor_id: int) -> list[str]:
@@ -237,8 +222,7 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
     Returns:
         Die IDs der geloeschten Chat-Sessions (fuer das Aufraeumen der Anhaenge).
     """
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         u = db.query(User).filter_by(id=user_id).first()
         if not u:
             raise AdminError("Benutzer nicht gefunden", 404)
@@ -284,11 +268,6 @@ def delete_user(user_id: int, actor_id: int) -> list[str]:
             object_id=user_id,
             detail={"name": u.username},
         )
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
     from app.auth.access import delete_grants_for_principal
 
@@ -322,8 +301,7 @@ def _group_row(g: Group, member_ids: list[int]) -> dict:
 
 
 def list_groups() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         members: dict[int, list[int]] = {}
         for m in db.query(GroupMember):
             members.setdefault(m.group_id, []).append(m.user_id)
@@ -331,8 +309,6 @@ def list_groups() -> list[dict]:
             _group_row(g, members.get(g.id, []))
             for g in db.query(Group).order_by(func.lower(Group.name))
         ]
-    finally:
-        db.close()
 
 
 def _check_group_name(db, name: str, exclude_id: int | None = None) -> str:
@@ -348,8 +324,7 @@ def _check_group_name(db, name: str, exclude_id: int | None = None) -> str:
 
 
 def create_group(name: str, description: str = "") -> dict:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         g = Group(
             name=_check_group_name(db, name), description=(description or "").strip()
         )
@@ -364,16 +339,10 @@ def create_group(name: str, description: str = "") -> dict:
             detail={"name": g.name},
         )
         return _group_row(g, [])
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def update_group(group_id: int, data: dict) -> dict:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         g = db.query(Group).filter_by(id=group_id).first()
         if not g:
             raise AdminError("Gruppe nicht gefunden", 404)
@@ -394,16 +363,10 @@ def update_group(group_id: int, data: dict) -> dict:
             m.user_id for m in db.query(GroupMember).filter_by(group_id=group_id)
         ]
         return _group_row(g, members)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def set_group_members(group_id: int, user_ids: list[int]) -> dict:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         g = db.query(Group).filter_by(id=group_id).first()
         if not g:
             raise AdminError("Gruppe nicht gefunden", 404)
@@ -427,16 +390,10 @@ def set_group_members(group_id: int, user_ids: list[int]) -> dict:
             detail={"mitglieder": sorted(wanted)},
         )
         return _group_row(g, sorted(wanted))
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_group(group_id: int) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         g = db.query(Group).filter_by(id=group_id).first()
         if not g:
             raise AdminError("Gruppe nicht gefunden", 404)
@@ -451,11 +408,6 @@ def delete_group(group_id: int) -> None:
             object_id=group_id,
             detail={"name": g.name},
         )
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
     from app.auth.access import delete_grants_for_principal
 

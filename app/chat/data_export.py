@@ -80,8 +80,7 @@ def build_export(user_id: int) -> dict:
     }
 
     db_service = get_db_service()
-    session = db_service.get_session()
-    try:
+    with db_service.session_scope(commit=False) as session:
         user = session.query(User).filter_by(id=int(user_id)).first()
         if user is None:
             raise LookupError(f"Nutzer {user_id} nicht gefunden")
@@ -152,8 +151,6 @@ def build_export(user_id: int) -> dict:
                     "markdown": _read_markdown(attachment.markdown_path),
                 }
             )
-    finally:
-        session.close()
     return data
 
 

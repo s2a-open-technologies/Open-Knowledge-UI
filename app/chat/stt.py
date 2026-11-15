@@ -64,8 +64,7 @@ class SttConfig:
 
 
 def load() -> SttConfig:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         mode = (s.get("STT_MODE", "auto") or "auto").strip().lower()
         return SttConfig(
@@ -74,8 +73,6 @@ def load() -> SttConfig:
             api_key=s.get("STT_API_KEY", "") or "",
             mode=mode if mode in MODES else "auto",
         )
-    finally:
-        session.close()
 
 
 def stream_url(base_url: str) -> str:

@@ -148,13 +148,10 @@ def documents(knowledge: ScopedKnowledge):
 def delete_document(doc_id: int, user: CurrentUser):
     from app.core.models import UserDocument
 
-    db_session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db_session:
         user_doc = db_session.query(UserDocument).filter_by(id=doc_id).first()
         if user_doc:
             db_session.expunge(user_doc)
-    finally:
-        db_session.close()
     if not user_doc:
         raise ApiError(404, "Dokument nicht gefunden", success=False)
 
@@ -220,8 +217,7 @@ def document_markdown(doc_id: int, user: CurrentUser, download: str | None = Non
     ``?download=1`` liefert eine Datei."""
     from app.core.models import UserDocument
 
-    db_session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db_session:
         user_doc = db_session.query(UserDocument).filter_by(id=doc_id).first()
         knowledge = get_knowledge(user_doc.knowledge_id) if user_doc else None
         if not user_doc or not knowledge or not can_access_knowledge(user, knowledge["id"], "read"):
@@ -229,8 +225,6 @@ def document_markdown(doc_id: int, user: CurrentUser, download: str | None = Non
         path = my_uploads.markdown_path(user_doc)
         filename = user_doc.filename
         uploaded_by = user_doc.uploaded_by
-    finally:
-        db_session.close()
 
     if uploaded_by != user["id"]:
         # Nachweis, wer fremde Dokumente im Volltext ansieht (eigene Uploads nicht)

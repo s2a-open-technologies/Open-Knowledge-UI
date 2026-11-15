@@ -130,12 +130,9 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
     # Aus dem Dokument extrahierte Tabellen (CSV + Verweis-Chunk) gehoeren mit weg.
     delete_tables(knowledge_paths(knowledge), collection, user_doc.document_id)
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         db.query(UserDocument).filter_by(id=user_doc.id).delete()
         db.commit()
-    finally:
-        db.close()
     refresh_index(knowledge["id"])
 
 
@@ -144,8 +141,7 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
 
 def list_uploads(user_id: int) -> list[dict]:
     """Eigene Chat-Anhaenge, neueste zuerst. Nur Eintraege mit Eigentuemer = Nutzer."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         items = []
         for att in (
             db.query(ChatAttachment).filter_by(user_id=user_id, status="ready").all()
@@ -167,8 +163,6 @@ def list_uploads(user_id: int) -> list[dict]:
             )
         items.sort(key=lambda i: i["created_at"] or "", reverse=True)
         return items
-    finally:
-        db.close()
 
 
 def _as_md(filename: str) -> str:
@@ -177,8 +171,7 @@ def _as_md(filename: str) -> str:
 
 def get_owned(kind: str, item_id: str, user_id: int):
     """Eigener Eintrag oder ``UploadError(404)`` (fremde sind nicht auffindbar)."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         if kind == "chat":
             row = (
                 db.query(ChatAttachment).filter_by(id=item_id, user_id=user_id).first()
@@ -189,8 +182,6 @@ def get_owned(kind: str, item_id: str, user_id: int):
             raise UploadError("Datei nicht gefunden", 404)
         db.expunge(row)
         return row
-    finally:
-        db.close()
 
 
 def read_markdown(kind: str, row) -> str | None:

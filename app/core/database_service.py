@@ -22,6 +22,7 @@ Database Service mit SQLAlchemy (Single-User)
 
 import os
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import create_engine
@@ -78,6 +79,25 @@ class DatabaseService:
         session = self.Session()
         request_context.track_session(session)
         return session
+
+    @contextmanager
+    def session_scope(self, commit: bool = True):
+        """Session fuer einen Block: committet am Ende (``commit=True``), rollt bei Fehlern
+        zurueck und schliesst immer. Ersetzt das try/except/finally um ``get_session``.
+
+        Explizite ``db.commit()`` im Block bleiben erlaubt (z. B. vor ``audit.record``,
+        das eine eigene Session oeffnet).
+        """
+        session = self.get_session()
+        try:
+            yield session
+            if commit:
+                session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def init_default_data(self):
         """Erst-Setup: Settings und App-Passwort initialisieren"""

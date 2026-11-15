@@ -117,8 +117,7 @@ def _signature(cfg) -> tuple:
 def prune(knowledge_id: int, source_config) -> None:
     """Entfernt Werte von Spalten, die nicht mehr gewaehlt, gesperrt oder nicht mehr freigegeben sind."""
     permitted = _permitted(parse_config(source_config))
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         rows = db.query(SqlValue).filter_by(knowledge_id=knowledge_id).all()
         for r in rows:
             if not permitted(r.table_name, r.column_name):
@@ -130,8 +129,6 @@ def prune(knowledge_id: int, source_config) -> None:
             idx.value_count = len(left)
             idx.column_count = len({(r.table_name, r.column_name) for r in left})
         db.commit()
-    finally:
-        db.close()
     _cache.pop(knowledge_id, None)
 
 
@@ -170,8 +167,7 @@ def profile(source_config) -> list[dict]:
 
 
 def status(knowledge_id: int) -> dict:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         row = db.query(SqlValueIndex).filter_by(knowledge_id=knowledge_id).first()
         st = row.status if row else "idle"
         with _running_lock:
@@ -189,13 +185,10 @@ def status(knowledge_id: int) -> dict:
                 else ("Aufbau wurde unterbrochen" if st == "error" and row else "")
             ),
         }
-    finally:
-        db.close()
 
 
 def _set_status(knowledge_id: int, **fields) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         row = db.query(SqlValueIndex).filter_by(knowledge_id=knowledge_id).first()
         if row is None:
             row = SqlValueIndex(knowledge_id=knowledge_id)
@@ -203,8 +196,6 @@ def _set_status(knowledge_id: int, **fields) -> None:
         for k, v in fields.items():
             setattr(row, k, v)
         db.commit()
-    finally:
-        db.close()
 
 
 def build(knowledge_id: int, source_config) -> None:
@@ -243,8 +234,7 @@ def build(knowledge_id: int, source_config) -> None:
                     (table, column, value, count)
                     for value, count in out.get("values") or []
                 ]
-        db = get_db_service().get_session()
-        try:
+        with get_db_service().session_scope() as db:
             db.query(SqlValue).filter_by(knowledge_id=knowledge_id).delete()
             db.bulk_insert_mappings(
                 SqlValue,
@@ -260,11 +250,6 @@ def build(knowledge_id: int, source_config) -> None:
                 ],
             )
             db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
         note = (
             f"Übersprungen (zu viele verschiedene Werte): {', '.join(skipped)}"
             if skipped
@@ -323,15 +308,12 @@ def entries(knowledge_id: int) -> list[dict]:
     permitted = _permitted(
         cfg
     )  # Verteidigung in der Tiefe: nie ausliefern, was die Konfiguration nicht erlaubt
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         rows = [
             text.entry(r.table_name, r.column_name, r.value, r.count)
             for r in db.query(SqlValue).filter_by(knowledge_id=knowledge_id)
             if permitted(r.table_name, r.column_name)
         ]
-    finally:
-        db.close()
     _cache[knowledge_id] = (stamp, rows)
     return rows
 

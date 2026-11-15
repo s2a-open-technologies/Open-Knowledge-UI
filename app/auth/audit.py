@@ -148,12 +148,9 @@ def record(
         return
 
     try:
-        session = get_db_service().get_session()
-        try:
+        with get_db_service().session_scope(commit=False) as session:
             session.add(row)
             session.commit()
-        finally:
-            session.close()
     except Exception:
         log.exception("Audit-Eintrag fehlgeschlagen (Aktion %r)", action)
 
@@ -164,8 +161,7 @@ def list_events(
     """Neueste Ereignisse fuer die Admin-Protokoll-Ansicht."""
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         q = db.query(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         if action:
             q = q.filter(AuditLog.action == action)
@@ -186,5 +182,3 @@ def list_events(
             }
             for row in rows
         ]
-    finally:
-        db.close()

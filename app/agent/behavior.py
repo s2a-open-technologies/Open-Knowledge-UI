@@ -59,16 +59,13 @@ class BehaviorConfigError(ValueError):
 
 def load() -> dict:
     """Aktueller Text und Standard (frisch aus der Datenbank, Samen als Rueckfall)."""
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         stored = session.query(Setting).filter_by(key=KEY).first()
         text = (SettingsService(session).get(KEY) or "").strip()
         default = (
             (stored.default_value if stored else "") or ""
         ).strip() or DEFAULT_BEHAVIOR
         return {"prompt": text, "default_prompt": default}
-    finally:
-        session.close()
 
 
 def current() -> str:
@@ -82,8 +79,5 @@ def save(data: dict) -> None:
         raise BehaviorConfigError(
             f"Der Text ist zu lang (höchstens {MAX_CHARS} Zeichen)"
         )
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         SettingsService(session).set_batch({KEY: text})
-    finally:
-        session.close()

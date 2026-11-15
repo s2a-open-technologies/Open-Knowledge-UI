@@ -491,10 +491,7 @@ class LiveSettingsService:
         def call(*args, **kwargs):
             from app.core.database_service import get_db_service
 
-            session = get_db_service().get_session()
-            try:
+            with get_db_service().session_scope(commit=False) as session:
                 return getattr(SettingsService(session), name)(*args, **kwargs)
-            finally:
-                session.close()
 
         return call

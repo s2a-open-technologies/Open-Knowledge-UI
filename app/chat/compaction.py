@@ -108,8 +108,7 @@ def _int(raw, default: int) -> int:
 
 def load_settings() -> dict:
     """Aktuelle Einstellungen (frisch aus der Datenbank, Samen als Rueckfall)."""
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         stored = session.query(Setting).filter_by(key="COMPACTION_PROMPT").first()
         prompt = (s.get("COMPACTION_PROMPT") or "").strip() or DEFAULT_PROMPT
@@ -126,8 +125,6 @@ def load_settings() -> dict:
             "prompt": prompt,
             "default_prompt": default_prompt,
         }
-    finally:
-        session.close()
 
 
 def save_settings(data: dict) -> None:
@@ -161,11 +158,8 @@ def save_settings(data: dict) -> None:
         values["COMPACTION_PROMPT"] = text
     if not values:
         return
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         SettingsService(session).set_batch(values)
-    finally:
-        session.close()
 
 
 @dataclass(frozen=True)

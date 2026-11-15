@@ -79,11 +79,8 @@ def _to_dict(k: Knowledge) -> dict:
 
 
 def _global_data_dir() -> Path:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         return Path(SettingsService(db).get("DATA_DIR", "./data") or "./data")
-    finally:
-        db.close()
 
 
 def knowledge_paths(knowledge: dict) -> KnowledgePaths:
@@ -141,18 +138,14 @@ def ensure_default_knowledge(db_session) -> None:
 
 
 def list_knowledge() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         rows = db.query(Knowledge).order_by(Knowledge.is_default.desc(), Knowledge.id)
         return [_to_dict(k) for k in rows.all()]
-    finally:
-        db.close()
 
 
 def get_knowledge(knowledge_id: int | None) -> dict | None:
     """Liefert den Bereich zur ID; ``None`` als ID steht fuer den Standard."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         q = db.query(Knowledge)
         k = (
             q.filter_by(is_default=True).first()
@@ -160,8 +153,51 @@ def get_knowledge(knowledge_id: int | None) -> dict | None:
             else q.filter_by(id=knowledge_id).first()
         )
         return _to_dict(k) if k else None
-    finally:
-        db.close()
+
+
+_COLLECTION_PREFIX = {"local": "kb", "external": "ext", "sql": "sql"}
+
+
+def _embedding_fields(spec, dimension: int | None) -> dict:
+    """Spalten, die das Embedding-Modell eines Bereichs beschreiben (Anlegen und Aendern)."""
+    return {
+        "embedding_model": spec.model,
+        "embedding_spec": json.dumps(spec.to_dict()),
+        "embedding_dimension": dimension,
+    }
+
+
+def _create(kind: str, name: str, description: str | None, **fields) -> dict:
+    """Legt einen Bereich an. Die Collection heisst erst nach Vergabe der ID endgueltig."""
+    prefix = _COLLECTION_PREFIX[kind]
+    with get_db_service().session_scope() as db:
+        k = Knowledge(
+            name=name.strip(),
+            description=(description or "").strip(),
+            collection_name=f"{prefix}_tmp_{os.urandom(6).hex()}",
+            is_default=False,
+            is_public=False,
+            kind=kind,
+            **fields,
+        )
+        db.add(k)
+        db.flush()
+        k.collection_name = f"{prefix}_{k.id}"
+        db.commit()
+        return _to_dict(k)
+
+
+def _update(knowledge_id: int, kind: str | None, **fields) -> dict | None:
+    """Setzt Spalten eines Bereichs (``kind``: nur diese Art; ``None``: jede)."""
+    with get_db_service().session_scope() as db:
+        q = db.query(Knowledge).filter_by(id=knowledge_id)
+        k = (q.filter_by(kind=kind) if kind else q).first()
+        if not k:
+            return None
+        for column, value in fields.items():
+            setattr(k, column, value)
+        db.commit()
+        return _to_dict(k)
 
 
 def create_external_knowledge(
@@ -170,52 +206,25 @@ def create_external_knowledge(
     """Legt ein Knowledge fuer einen fremden Vektorspeicher an (kein eigener Speicherplatz)."""
     from app.rag import model_settings
 
-    db = get_db_service().get_session()
-    try:
-        k = Knowledge(
-            name=name.strip(),
-            description=(description or "").strip(),
-            collection_name=f"ext_tmp_{os.urandom(6).hex()}",
-            is_default=False,
-            is_public=False,
-            kind="external",
-            source_config=json.dumps(source_config),
-            embedding_model=spec.model,
-            embedding_spec=json.dumps(spec.to_dict()),
-            embedding_dimension=dimension,
-            index_signature=model_settings.current_signature(spec),
-        )
-        db.add(k)
-        db.flush()
-        k.collection_name = f"ext_{k.id}"
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _create(
+        "external",
+        name,
+        description,
+        source_config=json.dumps(source_config),
+        index_signature=model_settings.current_signature(spec),
+        **_embedding_fields(spec, dimension),
+    )
 
 
 def update_external_source(
     knowledge_id: int, spec, dimension: int, source_config: dict
 ) -> dict | None:
-    db = get_db_service().get_session()
-    try:
-        k = db.query(Knowledge).filter_by(id=knowledge_id, kind="external").first()
-        if not k:
-            return None
-        k.source_config = json.dumps(source_config)
-        k.embedding_model = spec.model
-        k.embedding_spec = json.dumps(spec.to_dict())
-        k.embedding_dimension = dimension
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _update(
+        knowledge_id,
+        "external",
+        source_config=json.dumps(source_config),
+        **_embedding_fields(spec, dimension),
+    )
 
 
 def is_external(knowledge: dict | None) -> bool:
@@ -229,64 +238,36 @@ def create_knowledge(
 
     ``dimension``: Vektorgroesse des Modells (vom Aufrufer per Probe ermittelt).
     """
-    db = get_db_service().get_session()
-    try:
-        from app.rag import model_settings
-        from app.rag import sparse as sparse_lang
+    from app.rag import model_settings
+    from app.rag import sparse as sparse_lang
 
-        spec = model_settings.embedding_spec()
-        k = Knowledge(
-            name=name.strip(),
-            description=(description or "").strip(),
-            # vorlaeufig eindeutig; echter Name nach Vergabe der ID
-            collection_name=f"kb_tmp_{os.urandom(6).hex()}",
-            is_default=False,
-            is_public=False,
-            embedding_model=spec.model,
-            embedding_spec=json.dumps(spec.to_dict()),
-            embedding_dimension=dimension,
-            index_signature=model_settings.current_signature(spec),
-            bm25_language=sparse_lang.default_language(),
-        )
-        db.add(k)
-        db.flush()
-        k.collection_name = f"kb_{k.id}"
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    spec = model_settings.embedding_spec()
+    return _create(
+        "local",
+        name,
+        description,
+        index_signature=model_settings.current_signature(spec),
+        bm25_language=sparse_lang.default_language(),
+        **_embedding_fields(spec, dimension),
+    )
 
 
 def update_knowledge(
     knowledge_id: int, name: str | None, description: str | None
 ) -> dict | None:
-    db = get_db_service().get_session()
-    try:
-        k = db.query(Knowledge).filter_by(id=knowledge_id).first()
-        if not k:
-            return None
-        if name is not None and name.strip():
-            k.name = name.strip()
-        if description is not None:
-            k.description = description.strip()
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    fields = {}
+    if name is not None and name.strip():
+        fields["name"] = name.strip()
+    if description is not None:
+        fields["description"] = description.strip()
+    return _update(knowledge_id, None, **fields)
 
 
 def delete_knowledge(knowledge_id: int) -> dict | None:
     """Loescht Zuordnungen und Dateien; liefert den geloeschten Bereich zurueck
     (damit der Aufrufer die Qdrant-Collection entfernen kann). Der Standard-Bereich
     ist nicht loeschbar (``None``)."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id, is_default=False).first()
         if not k:
             return None
@@ -297,11 +278,6 @@ def delete_knowledge(knowledge_id: int) -> dict | None:
         db.query(SqlValueIndex).filter_by(knowledge_id=k.id).delete()
         db.delete(k)
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
     from app.auth.access import delete_grants_for_resource
 
@@ -329,78 +305,36 @@ def swap_collection(
     from app.rag import model_settings
     from app.rag import sparse as sparse_lang
 
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if not k:
             return None
         old = k.collection_name
         k.collection_name = collection_name
-        k.embedding_spec = json.dumps(spec.to_dict())
-        k.embedding_model = spec.model
-        k.embedding_dimension = dimension
+        for column, value in _embedding_fields(spec, dimension).items():
+            setattr(k, column, value)
         k.index_signature = model_settings.current_signature(spec)
         k.bm25_language = sparse_lang.default_language()
         k.last_reindex_error = None
         db.commit()
         return old
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def set_reindex_error(knowledge_id: int, message: str | None) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if k:
             k.last_reindex_error = message
             db.commit()
-    finally:
-        db.close()
 
 
 def create_sql_knowledge(name: str, description: str, source_config: dict) -> dict:
     """Legt ein Knowledge fuer eine SQL-Datenbank an (keine Collection, keine Embeddings)."""
-    db = get_db_service().get_session()
-    try:
-        k = Knowledge(
-            name=name.strip(),
-            description=(description or "").strip(),
-            collection_name=f"sql_tmp_{os.urandom(6).hex()}",
-            is_default=False,
-            is_public=False,
-            kind="sql",
-            source_config=json.dumps(source_config),
-        )
-        db.add(k)
-        db.flush()
-        k.collection_name = f"sql_{k.id}"
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _create("sql", name, description, source_config=json.dumps(source_config))
 
 
 def update_sql_source(knowledge_id: int, source_config: dict) -> dict | None:
-    db = get_db_service().get_session()
-    try:
-        k = db.query(Knowledge).filter_by(id=knowledge_id, kind="sql").first()
-        if not k:
-            return None
-        k.source_config = json.dumps(source_config)
-        db.commit()
-        return _to_dict(k)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _update(knowledge_id, "sql", source_config=json.dumps(source_config))
 
 
 def is_sql(knowledge: dict | None) -> bool:

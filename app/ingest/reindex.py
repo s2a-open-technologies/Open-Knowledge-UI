@@ -294,12 +294,9 @@ def _markdown_from_chunks(client, collection: str, file_group_id: str) -> str | 
 
 
 def _remember_markdown(document_row_id: int, path: str) -> None:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         doc = db.query(UserDocument).filter_by(id=document_row_id).first()
         if doc:
             doc.markdown_path = path
             doc.parser_version = PARSER_VERSION
             db.commit()
-    finally:
-        db.close()

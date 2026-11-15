@@ -37,8 +37,7 @@ _clients: dict[tuple, object] = {}
 
 
 def _settings() -> dict:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         s = SettingsService(session)
         return {
             "searxng_url": (s.get("SEARCH_SEARXNG_URL") or "").strip(),
@@ -52,8 +51,6 @@ def _settings() -> dict:
             "pii_max_chars": max(2000, s.get_int("PII_FILTER_MAX_CHARS", 12000)),
             "allow_unmasked": s.get_bool("SEARCH_ALLOW_UNMASKED", False),
         }
-    finally:
-        session.close()
 
 
 def pii_client():

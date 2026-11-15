@@ -72,10 +72,10 @@ async def _connect_upstream(url: str, api_key: str):
 
 
 def _settings() -> tuple[str, str]:
-    db = get_db_service()
-    settings = SettingsService(db.get_session())
-    base_url = settings.get("STT_BASEURL", "http://parakeet:5001/v1")
-    return base_url, settings.get("STT_API_KEY", "") or ""
+    with get_db_service().session_scope(commit=False) as session:
+        settings = SettingsService(session)
+        base_url = settings.get("STT_BASEURL", "http://parakeet:5001/v1")
+        return base_url, settings.get("STT_API_KEY", "") or ""
 
 
 def _is_final_or_error(msg) -> bool:

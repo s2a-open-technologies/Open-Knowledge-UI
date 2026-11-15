@@ -53,11 +53,8 @@ class RetentionConfigError(ValueError):
 
 
 def load_settings() -> dict:
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         return {"chat_retention_days": max(0, SettingsService(session).get_int(KEY, 0))}
-    finally:
-        session.close()
 
 
 def save_settings(data: dict) -> None:
@@ -71,11 +68,8 @@ def save_settings(data: dict) -> None:
         raise RetentionConfigError(
             f"Aufbewahrungsfrist: Wert zwischen 0 und {MAX_DAYS} Tagen erwartet"
         )
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         SettingsService(session).set_batch({KEY: str(days)})
-    finally:
-        session.close()
 
 
 def purge_expired(client, now: datetime | None = None) -> int:
@@ -86,16 +80,13 @@ def purge_expired(client, now: datetime | None = None) -> int:
     if days <= 0:
         return 0
     cutoff = (now or datetime.utcnow()) - timedelta(days=days)
-    session = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as session:
         expired = [
             row.id
             for row in session.query(ChatSession.id).filter(
                 ChatSession.updated_at < cutoff
             )
         ]
-    finally:
-        session.close()
     db = get_db_service()
     for session_id in expired:
         try:

@@ -239,20 +239,16 @@ def ensure_default_profiles(db_session) -> None:
 
 
 def list_profiles() -> list[dict]:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         rows = db.query(RetrievalProfile).order_by(
             RetrievalProfile.is_default.desc(), RetrievalProfile.name
         )
         return [_row(p) for p in rows]
-    finally:
-        db.close()
 
 
 def get_profile(profile_id: int | None) -> dict | None:
     """Profil zur ID; ``None`` als ID liefert das Standardprofil."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope(commit=False) as db:
         q = db.query(RetrievalProfile)
         p = (
             q.filter_by(is_default=True).first()
@@ -260,8 +256,6 @@ def get_profile(profile_id: int | None) -> dict | None:
             else q.filter_by(id=profile_id).first()
         )
         return _row(p) if p else None
-    finally:
-        db.close()
 
 
 def default_config() -> dict:
@@ -291,8 +285,7 @@ def _check_name(db, name: str, exclude_id: int | None = None) -> str:
 
 def create_profile(name: str, description: str, config: dict | None) -> dict:
     cfg = validate_config(config)
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         p = RetrievalProfile(
             name=_check_name(db, name),
             description=(description or "").strip(),
@@ -302,16 +295,10 @@ def create_profile(name: str, description: str, config: dict | None) -> dict:
         db.add(p)
         db.commit()
         return _row(p)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def update_profile(profile_id: int, data: dict) -> dict:
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         p = db.query(RetrievalProfile).filter_by(id=profile_id).first()
         if not p:
             raise ProfileError("Profil nicht gefunden", 404)
@@ -323,17 +310,11 @@ def update_profile(profile_id: int, data: dict) -> dict:
             p.config = json.dumps(validate_config(data["config"]))
         db.commit()
         return _row(p)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def delete_profile(profile_id: int) -> None:
     """Loescht ein Profil; Knowledge mit diesem Profil faellt auf den Standard zurueck."""
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         p = db.query(RetrievalProfile).filter_by(id=profile_id).first()
         if not p:
             raise ProfileError("Profil nicht gefunden", 404)
@@ -344,11 +325,6 @@ def delete_profile(profile_id: int) -> None:
         )
         db.delete(p)
         db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def set_knowledge_profile(knowledge_id: int, profile_id: int | None) -> bool:
@@ -357,8 +333,7 @@ def set_knowledge_profile(knowledge_id: int, profile_id: int | None) -> bool:
     Raises:
         ProfileError: wenn das Profil nicht existiert.
     """
-    db = get_db_service().get_session()
-    try:
+    with get_db_service().session_scope() as db:
         k = db.query(Knowledge).filter_by(id=knowledge_id).first()
         if not k:
             return False
@@ -370,8 +345,3 @@ def set_knowledge_profile(knowledge_id: int, profile_id: int | None) -> bool:
         k.retrieval_profile_id = profile_id
         db.commit()
         return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
