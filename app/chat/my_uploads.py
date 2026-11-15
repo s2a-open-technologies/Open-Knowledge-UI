@@ -34,11 +34,11 @@ from app.ingest.tables import delete_tables
 from app.knowledge.files import delete_associated_file
 from app.knowledge.index_doc import refresh_index
 from app.knowledge.service import knowledge_paths
+from app.rag.collections import match_filter
 
 logger = getLogger(__name__)
 
 MARKDOWN_ROOT = Path("./data/markdown")
-ATTACHMENTS_ROOT = Path("./data/attachments")
 
 
 class UploadError(Exception):
@@ -91,14 +91,7 @@ def delete_knowledge_document(user_doc, knowledge: dict, client) -> None:
         UploadError: wenn Qdrant das Loeschen verweigert (dann bleibt alles andere unberuehrt).
     """
     collection = knowledge["collection_name"]
-    doc_filter = qdrant_models.Filter(
-        must=[
-            qdrant_models.FieldCondition(
-                key="file_group_id",
-                match=qdrant_models.MatchValue(value=user_doc.document_id),
-            )
-        ]
-    )
+    doc_filter = match_filter(file_group_id=user_doc.document_id)
     payload = None
     if client:
         try:
@@ -147,7 +140,7 @@ def list_uploads(user_id: int) -> list[dict]:
             db.query(ChatAttachment).filter_by(user_id=user_id, status="ready").all()
         ):
             session = db.query(ChatSession).filter_by(id=att.session_id).first()
-            md = safe_markdown(att.markdown_path, ATTACHMENTS_ROOT)
+            md = safe_markdown(att.markdown_path, attachments.ATTACHMENTS_ROOT)
             items.append(
                 {
                     "kind": "chat",
@@ -186,7 +179,7 @@ def get_owned(kind: str, item_id: str, user_id: int):
 
 def read_markdown(kind: str, row) -> str | None:
     path = (
-        safe_markdown(row.markdown_path, ATTACHMENTS_ROOT) if kind == "chat" else None
+        safe_markdown(row.markdown_path, attachments.ATTACHMENTS_ROOT) if kind == "chat" else None
     )
     return path.read_text(encoding="utf-8") if path else None
 

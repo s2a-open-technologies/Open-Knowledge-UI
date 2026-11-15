@@ -22,9 +22,12 @@ Daten (CSV/Excel als Pandas-Referenz, NICHT in der Vektordatenbank).
 """
 
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Strukturierte Daten: nur als Referenz nach DATA_DIR für die Pandas-Tools,
 # niemals in die Vektordatenbank embedden.
@@ -75,33 +78,27 @@ def read_uploader(file_path: str, consume: bool = False) -> int | None:
 
 
 def store_uploaded_files(
-    files, paths=None, uploader_id: int | None = None
+    files, paths, uploader_id: int | None = None
 ) -> dict[str, Any]:
     """Speichert hochgeladene Dateien je nach Typ.
 
-    - Strukturierte Daten (CSV/XLSX/XLS) gehen direkt nach DATA_DIR und sind
+    - Strukturierte Daten (CSV/XLSX/XLS) gehen direkt nach ``paths.data_dir`` und sind
       sofort für die Pandas-Tools verfügbar (keine Ingestion, keine Vektoren).
-    - Dokumente (PDF/DOCX/DOC/ODT/MD) gehen nach data/files zur Ingestion.
+    - Dokumente (PDF/DOCX/DOC/ODT/MD) gehen nach ``paths.files_dir`` zur Ingestion.
 
     ``paths`` (``app.knowledge.service.KnowledgePaths``) legt die Zielordner eines
-    Knowledge-Bereichs fest; ohne Angabe gelten die Standard-Ordner.
+    Knowledge-Bereichs fest.
 
     Returns:
         dict mit ``documents`` (zur Ingestion), ``data_files`` (sofort
         verfügbar), ``skipped`` (unbekannte Endungen) und ``duplicate``
         (Dateiname, falls ein bereits verarbeitetes Dokument erneut kam).
     """
-    if paths is not None:
-        files_dir, processed_dir, data_dir = (
-            paths.files_dir,
-            paths.processed_dir,
-            paths.data_dir,
-        )
-    else:
-        project_root = Path(__file__).resolve().parents[2]
-        files_dir = project_root / "data" / "files"
-        processed_dir = project_root / "data" / "processed_files"
-        data_dir = get_data_dir()
+    files_dir, processed_dir, data_dir = (
+        paths.files_dir,
+        paths.processed_dir,
+        paths.data_dir,
+    )
     for d in (files_dir, processed_dir, data_dir):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -185,34 +182,6 @@ def delete_data_file(filename: str, data_dir: Path | None = None) -> bool:
     return False
 
 
-def extract_filename_from_payload(payload: dict[str, Any]) -> str | None:
-    """
-    Extrahiert den Dateinamen aus Qdrant-Dokument-Payload.
-    Prüft 'filename' und 'source' Felder.
-
-    Args:
-        payload: Qdrant Dokument Payload (dict)
-
-    Returns:
-        Dateiname oder None
-    """
-    if not payload:
-        return None
-
-    # Versuche filename zuerst
-    filename = payload.get("filename")
-    if filename:
-        return filename
-
-    # Fallback auf source
-    source = payload.get("source")
-    if source:
-        # Source ist oft ein Pfad, extrahiere nur den Dateinamen
-        return Path(source).name
-
-    return None
-
-
 def check_data_file_exists(filename: str) -> bool:
     """Prüft, ob die strukturierte Datei im DATA_DIR liegt.
 
@@ -222,98 +191,60 @@ def check_data_file_exists(filename: str) -> bool:
     return (get_data_dir() / filename).is_file()
 
 
-def delete_associated_file(payload: dict[str, Any]) -> bool:
-    """
-    Löscht zugehörige Datei basierend auf Qdrant-Metadaten.
+def _archive_candidates(source: str | None, filename: str) -> list[Path]:
+    """Moegliche Orte der archivierten Datei eines Dokuments.
 
-    Args:
-        payload: Qdrant Dokument Payload (dict)
+    Nach der Ingestion wandert sie von ``files/<rel>`` nach ``processed_files/<rel>``
+    (``rel`` enthaelt die Unterordner). ``source`` im Payload zeigt noch auf den Pfad zur
+    Ingestion-Zeit: ``data/files/<rel>`` (Standard) oder ``data/knowledge/<id>/files/<rel>``.
+    """
+    if not source:
+        return [Path("./data/processed_files") / filename]
+    candidates = []
+    try:
+        candidates.append(
+            Path("./data/processed_files") / os.path.relpath(source, "./data/files")
+        )
+    except ValueError:
+        pass
+    src = Path(source)
+    if "files" in src.parts:
+        parts = list(src.parts)
+        parts[len(parts) - 1 - parts[::-1].index("files")] = "processed_files"
+        candidates.append(Path(*parts))
+    candidates.append(src)
+    return candidates
+
+
+def delete_associated_file(payload: dict[str, Any]) -> bool:
+    """Löscht die zu einem Qdrant-Payload gehörende Datei (Archiv bzw. DATA_DIR).
 
     Returns:
-        True wenn Datei gelöscht wurde oder nicht existierte,
-        False bei Fehler
+        True, wenn eine Datei gelöscht wurde; False, wenn keine gefunden wurde oder das
+        Löschen scheiterte (wird geloggt, blockiert aber nicht).
     """
-    filename = extract_filename_from_payload(payload)
+    source = payload.get("source") if payload else None
+    filename = (payload or {}).get("filename") or (Path(source).name if source else None)
     if not filename:
         return False
 
     ext = Path(filename).suffix.lower()
-
-    if ext in [".csv", ".xlsx", ".xls"]:
-        # CSV/Excel werden nach erfolgreicher Ingestion nach DATA_DIR verschoben
-        data_dir = str(get_data_dir())
-
-        candidates = [Path(data_dir) / filename]
-    elif ext in [".pdf", ".docx", ".doc", ".odt", ".md"]:
-        # PDF/DOCX/DOC werden nach erfolgreicher Ingestion von data/files/<rel>
-        # nach data/processed_files/<rel> verschoben (rel enthaelt die
-        # Nutzer-Unterordner-Struktur). 'source' im Payload zeigt noch auf den
-        # urspruenglichen data/files-Pfad zur Ingestion-Zeit.
-        source = payload.get("source")
-        candidates = []
-        if source:
-            try:
-                rel_path = os.path.relpath(source, "./data/files")
-                candidates.append(Path("./data/processed_files") / rel_path)
-            except ValueError:
-                pass
-            # Knowledge-Bereiche: data/knowledge/<id>/files -> .../processed_files
-            src_path = Path(source)
-            if "files" in src_path.parts:
-                idx = len(src_path.parts) - 1 - src_path.parts[::-1].index("files")
-                parts = list(src_path.parts)
-                parts[idx] = "processed_files"
-                candidates.append(Path(*parts))
-            candidates.append(src_path)
-        if not candidates:
-            candidates = [Path("./data/processed_files") / filename]
+    if ext in STRUCTURED_EXTS:
+        # CSV/Excel liegen nach der Ingestion im DATA_DIR
+        candidates = [get_data_dir() / filename]
+    elif ext in DOCUMENT_EXTS:
+        candidates = _archive_candidates(source, filename)
     else:
         return False
 
     try:
         for file_path in candidates:
-            if file_path.exists() and file_path.is_file():
+            if file_path.is_file():
                 file_path.unlink()
                 return True
     except Exception as e:
-        # Fehler beim Löschen loggen aber nicht blockieren
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.error(f"Fehler beim Löschen der Datei {filename}: {e}")
-        return False
-
     return False
-
-
-def get_data_file_info(filename: str) -> dict[str, Any] | None:
-    """
-    Holt Informationen über eine Datei im DATA_DIR.
-
-    Args:
-        filename: Name der Datei
-
-    Returns:
-        Dict mit file_info oder None
-    """
-    data_dir = str(get_data_dir())
-
-    file_path = Path(data_dir) / filename
-
-    if not file_path.exists() or not file_path.is_file():
-        return None
-
-    try:
-        stat = file_path.stat()
-        return {
-            "filename": filename,
-            "path": str(file_path),
-            "size": stat.st_size,
-            "size_human": _format_size(stat.st_size),
-            "modified": stat.st_mtime,
-        }
-    except Exception:
-        return None
 
 
 def _format_size(size_bytes: int) -> str:

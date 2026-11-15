@@ -36,6 +36,8 @@ from datetime import datetime
 from logging import getLogger
 from pathlib import Path
 
+from app.knowledge.files import STRUCTURED_EXTS
+
 logger = getLogger(__name__)
 
 INDEX_NAME = "index.md"
@@ -48,7 +50,6 @@ _HEADING = re.compile(r"^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$")
 _TABLE_FILE = re.compile(
     r"^(?P<stem>.+)--(?P<fg>[0-9a-f]{8})--tabelle-(?P<n>\d+)\.csv$"
 )
-STRUCTURED = {".csv", ".xlsx", ".xls"}
 
 
 def legacy_index_file(paths) -> Path:
@@ -103,7 +104,7 @@ def build_index(knowledge: dict, documents: list, paths) -> str:
         sorted(
             p
             for p in data_dir.iterdir()
-            if p.is_file() and p.suffix.lower() in STRUCTURED
+            if p.is_file() and p.suffix.lower() in STRUCTURED_EXTS
         )
         if data_dir.is_dir()
         else []

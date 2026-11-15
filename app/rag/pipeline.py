@@ -44,12 +44,11 @@ from langchain_core.documents import Document
 from qdrant_client import models as qm
 
 from app.rag import queries
+from app.rag.collections import DENSE_VECTOR, SPARSE_VECTOR
 
 logger = getLogger(__name__)
 
 RRF_K = 60
-DENSE_VECTOR = ""
-SPARSE_VECTOR = "langchain-sparse"
 
 
 @dataclass

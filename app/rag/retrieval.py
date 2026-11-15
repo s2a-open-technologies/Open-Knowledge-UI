@@ -39,16 +39,14 @@ from typing import Any
 from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from qdrant_client import models as qdrant_models
 
 from app.knowledge import external as sources
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
-from app.rag.collections import USER_UPLOADS_COLLECTION
+from app.rag.collections import DEFAULT_COLLECTION, USER_UPLOADS_COLLECTION, match_filter
 
 logger = getLogger(__name__)
 
-DEFAULT_COLLECTION = "open_knowledge_ui"
 
 
 @dataclass(frozen=True)
@@ -222,14 +220,7 @@ class MultiCollectionRetriever(BaseRetriever):
 
         # Anhaenge zuerst: wer im Chat eine Datei anhaengt, meint sie meistens.
         if scope.session_id:
-            flt = qdrant_models.Filter(
-                must=[
-                    qdrant_models.FieldCondition(
-                        key="session_id",
-                        match=qdrant_models.MatchValue(value=scope.session_id),
-                    )
-                ]
-            )
+            flt = match_filter(session_id=scope.session_id)
             try:
                 upload_spec = global_spec
                 coll = (

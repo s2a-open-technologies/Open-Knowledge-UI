@@ -36,7 +36,6 @@ import time
 from logging import getLogger
 from pathlib import Path
 
-from qdrant_client import models as qdrant_models
 
 from app.core.database_service import get_db_service
 from app.core.models import UserDocument
@@ -45,7 +44,7 @@ from app.ingest.tables import make_sink
 from app.knowledge import service as kb_store
 from app.knowledge.index_doc import refresh_index
 from app.rag import model_settings, models_runtime
-from app.rag.collections import ensure_collection
+from app.rag.collections import ensure_collection, match_filter
 
 logger = getLogger(__name__)
 
@@ -267,13 +266,7 @@ def _reparse_original(doc: UserDocument, paths, ingest) -> str | None:
 
 def _markdown_from_chunks(client, collection: str, file_group_id: str) -> str | None:
     """Notloesung: Text der alten Chunks in Dateireihenfolge (Ueberschriften gehen verloren)."""
-    flt = qdrant_models.Filter(
-        must=[
-            qdrant_models.FieldCondition(
-                key="file_group_id", match=qdrant_models.MatchValue(value=file_group_id)
-            )
-        ]
-    )
+    flt = match_filter(file_group_id=file_group_id)
     rows, offset = [], None
     while True:
         points, offset = client.scroll(

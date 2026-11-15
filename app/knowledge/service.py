@@ -34,10 +34,10 @@ from pathlib import Path
 from app.core.database_service import get_db_service
 from app.core.models import Knowledge, SqlValue, SqlValueIndex, UserDocument
 from app.core.settings_service import SettingsService
+from app.rag.collections import DEFAULT_COLLECTION
 
 logger = getLogger(__name__)
 
-DEFAULT_COLLECTION = "open_knowledge_ui"
 FILES_ROOT = Path("./data")
 
 

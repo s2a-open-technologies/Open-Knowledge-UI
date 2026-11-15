@@ -37,7 +37,6 @@ from app.core.netguard import reject_link_local
 
 logger = getLogger(__name__)
 
-KINDS = ("llm", "tei", "infinity")
 EMBED_BATCH = 32
 HTTP_TIMEOUT = 120
 PROBE_TIMEOUT = 15

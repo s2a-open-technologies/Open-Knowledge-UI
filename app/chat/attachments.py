@@ -31,12 +31,11 @@ import threading
 from logging import getLogger
 from pathlib import Path
 
-from qdrant_client import models as qdrant_models
 from werkzeug.utils import secure_filename
 
 from app.core.database_service import get_db_service
 from app.knowledge.files import DOCUMENT_EXTS, IMAGE_EXTS
-from app.rag.collections import USER_UPLOADS_COLLECTION
+from app.rag.collections import USER_UPLOADS_COLLECTION, delete_where
 
 logger = getLogger(__name__)
 
@@ -153,29 +152,21 @@ def _ingest(attachment_id, session_id, path, folder, sparse, user_id=None) -> No
         Path(path).unlink(missing_ok=True)
 
 
+def _delete_vectors(client, **equals) -> None:
+    """Loescht passende Punkte in allen Anhang-Collections ("user_uploads", "user_uploads_<hash>")."""
+    if client is None:
+        return
+    try:
+        for collection in client.get_collections().collections:
+            if collection.name.startswith(USER_UPLOADS_COLLECTION):
+                delete_where(client, collection.name, **equals)
+    except Exception as e:
+        logger.warning(f"Anhang-Vektoren konnten nicht gelöscht werden: {e}")
+
+
 def cleanup_session_attachments(session_id: str, client) -> None:
     """Entfernt Vektoren, Dateien und DB-Eintraege der Anhaenge einer Session."""
-    if client is not None:
-        try:
-            names = [c.name for c in client.get_collections().collections]
-            for name in names:
-                if not name.startswith(USER_UPLOADS_COLLECTION):
-                    continue  # "user_uploads" und "user_uploads_<hash>" je Modell
-                client.delete(
-                    collection_name=name,
-                    points_selector=qdrant_models.FilterSelector(
-                        filter=qdrant_models.Filter(
-                            must=[
-                                qdrant_models.FieldCondition(
-                                    key="session_id",
-                                    match=qdrant_models.MatchValue(value=session_id),
-                                )
-                            ]
-                        )
-                    ),
-                )
-        except Exception as e:
-            logger.warning(f"Anhang-Vektoren konnten nicht gelöscht werden: {e}")
+    _delete_vectors(client, session_id=session_id)
     shutil.rmtree(session_dir(session_id), ignore_errors=True)
     try:
         get_db_service().delete_session_attachments(session_id)
@@ -185,26 +176,7 @@ def cleanup_session_attachments(session_id: str, client) -> None:
 
 def delete_attachment(attachment, client) -> None:
     """Entfernt einen einzelnen Anhang: Vektoren (alle Anhang-Collections), Dateien, DB-Eintrag."""
-    if client is not None:
-        try:
-            for name in [c.name for c in client.get_collections().collections]:
-                if not name.startswith(USER_UPLOADS_COLLECTION):
-                    continue
-                client.delete(
-                    collection_name=name,
-                    points_selector=qdrant_models.FilterSelector(
-                        filter=qdrant_models.Filter(
-                            must=[
-                                qdrant_models.FieldCondition(
-                                    key="attachment_id",
-                                    match=qdrant_models.MatchValue(value=attachment.id),
-                                )
-                            ]
-                        )
-                    ),
-                )
-        except Exception as e:
-            logger.warning(f"Anhang-Vektoren konnten nicht gelöscht werden: {e}")
+    _delete_vectors(client, attachment_id=attachment.id)
     shutil.rmtree(
         session_dir(attachment.session_id) / attachment.id, ignore_errors=True
     )

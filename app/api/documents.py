@@ -53,10 +53,15 @@ from app.chat import my_uploads
 from app.core import runtime
 from app.core.database_service import get_db_service
 from app.ingest import reindex
-from app.knowledge.files import check_data_file_exists, delete_associated_file
+from app.knowledge.files import (
+    STRUCTURED_EXTS,
+    check_data_file_exists,
+    delete_associated_file,
+)
 from app.knowledge.index_doc import refresh_index
 from app.knowledge.service import get_knowledge, knowledge_paths
 from app.rag import model_settings
+from app.rag.collections import ensure_collection, match_filter
 
 router = APIRouter(prefix="/api", tags=["documents"])
 logger = getLogger(__name__)
@@ -117,14 +122,7 @@ def documents(knowledge: ScopedKnowledge):
             try:
                 points, _ = client.scroll(
                     collection_name=knowledge["collection_name"],
-                    scroll_filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="file_group_id",
-                                match=models.MatchValue(value=user_doc.document_id),
-                            )
-                        ]
-                    ),
+                    scroll_filter=match_filter(file_group_id=user_doc.document_id),
                     limit=1,
                     with_payload=True,
                     with_vectors=False,
@@ -344,7 +342,6 @@ DATA_PREVIEW_ROWS = 200
 
 def _data_file_path(knowledge: dict, filename: str) -> Path | None:
     """Strukturierte Datei im Datenordner des Knowledge (nie ausserhalb)."""
-    from app.knowledge.files import STRUCTURED_EXTS
 
     folder = knowledge_paths(knowledge).data_dir.resolve()
     path = (folder / os.path.basename(filename)).resolve()
@@ -464,15 +461,7 @@ def vectordb(
     collection = knowledge["collection_name"]
 
     try:
-        scroll_filter = None
-        if filename_filter:
-            scroll_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="filename", match=models.MatchValue(value=filename_filter)
-                    )
-                ]
-            )
+        scroll_filter = match_filter(filename=filename_filter) if filename_filter else None
 
         points, next_offset = client.scroll(
             collection_name=collection,
@@ -585,9 +574,7 @@ def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None =
     try:
         points, _ = client.scroll(
             collection_name=collection,
-            scroll_filter=models.Filter(
-                must=[models.FieldCondition(key="filename", match=models.MatchValue(value=filename))]
-            ),
+            scroll_filter=match_filter(filename=filename),
             limit=1000,
             with_payload=True,
             with_vectors=False,
@@ -614,8 +601,6 @@ def vectordb_clear_all(knowledge: ScopedKnowledge, body: ClearAll | None = None)
         raise ApiError(400, "Bestätigung erforderlich", success=False)
 
     try:
-        from app.rag.collections import ensure_collection
-
         client.delete_collection(knowledge["collection_name"])
         ensure_collection(client, knowledge["collection_name"], knowledge["embedding_dimension"])
     except Exception as e:

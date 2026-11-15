@@ -38,14 +38,13 @@ from pathlib import Path
 from qdrant_client import models as qdrant_models
 
 from app.ingest.splitter import embedding_text, split_markdown
+from app.rag.collections import named_vectors
 
 logger = getLogger(__name__)
 
 # Version der Markdown-Erzeugung (Docling-Export + Bildbeschreibungen).
 PARSER_VERSION = 1
 
-DENSE_VECTOR = ""
-SPARSE_VECTOR = "langchain-sparse"
 UPSERT_BATCH = 100
 
 
@@ -126,17 +125,10 @@ def build_points(
 
     points = []
     for i, chunk in enumerate(chunks):
-        sv = sparse_vectors[i]
         points.append(
             qdrant_models.PointStruct(
                 id=point_ids[i] if point_ids else str(uuid.uuid4()),
-                vector={
-                    DENSE_VECTOR: list(dense_vectors[i]),
-                    SPARSE_VECTOR: qdrant_models.SparseVector(
-                        indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
-                        values=sv.values if hasattr(sv, "values") else sv["values"],
-                    ),
-                },
+                vector=named_vectors(dense_vectors[i], sparse_vectors[i]),
                 payload={
                     "page_content": texts[i],
                     "original_content": chunk.text,

@@ -55,15 +55,15 @@ from app.ingest.tables import (
     is_extracted_table,
     make_sink,
 )
-from app.knowledge.files import IMAGE_EXTS, read_uploader
+from app.knowledge.files import IMAGE_EXTS, STRUCTURED_EXTS, read_uploader
 from app.knowledge.index_doc import refresh_index
 from app.llm.local_llm import TaskLLM
 from app.rag import model_settings, models_runtime
+from app.rag.collections import DEFAULT_COLLECTION, delete_where, named_vectors
 
 logger = getLogger(__name__)
 
 DATA_REFERENCE_TYPE = "data_reference"
-STRUCTURED_EXTS = {".csv", ".xlsx", ".xls"}
 
 
 def _detect_encoding(file_path: str) -> str:
@@ -209,41 +209,21 @@ def index_data_references(
     try:
         for meta in metadatas:
             try:
-                client.delete(
-                    collection_name=collection_name,
-                    points_selector=qdrant_models.FilterSelector(
-                        filter=qdrant_models.Filter(
-                            must=[
-                                qdrant_models.FieldCondition(
-                                    key="type",
-                                    match=qdrant_models.MatchValue(
-                                        value=DATA_REFERENCE_TYPE
-                                    ),
-                                ),
-                                qdrant_models.FieldCondition(
-                                    key="filename",
-                                    match=qdrant_models.MatchValue(
-                                        value=meta["filename"]
-                                    ),
-                                ),
-                            ]
-                        )
-                    ),
+                delete_where(
+                    client,
+                    collection_name,
+                    type=DATA_REFERENCE_TYPE,
+                    filename=meta["filename"],
                 )
             except Exception as e:
                 logger.debug(f"Konnte alte Verweis-Chunks nicht löschen: {e}")
 
         points = []
         for i in range(len(texts)):
-            sv = sparse_vectors[i]
-            qdrant_sparse = qdrant_models.SparseVector(
-                indices=sv.indices if hasattr(sv, "indices") else sv["indices"],
-                values=sv.values if hasattr(sv, "values") else sv["values"],
-            )
             points.append(
                 qdrant_models.PointStruct(
                     id=str(uuid.uuid4()),
-                    vector={"": dense_vectors[i], "langchain-sparse": qdrant_sparse},
+                    vector=named_vectors(dense_vectors[i], sparse_vectors[i]),
                     payload={
                         "page_content": texts[i],
                         "original_content": texts[i],
@@ -263,22 +243,8 @@ def delete_data_reference(collection_name: str, filename: str) -> None:
     """Entfernt den Verweis-Chunk einer strukturierten Datei aus Qdrant."""
     client = get_qdrant_client(collection_name=collection_name)
     try:
-        client.delete(
-            collection_name=collection_name,
-            points_selector=qdrant_models.FilterSelector(
-                filter=qdrant_models.Filter(
-                    must=[
-                        qdrant_models.FieldCondition(
-                            key="type",
-                            match=qdrant_models.MatchValue(value=DATA_REFERENCE_TYPE),
-                        ),
-                        qdrant_models.FieldCondition(
-                            key="filename",
-                            match=qdrant_models.MatchValue(value=filename),
-                        ),
-                    ]
-                )
-            ),
+        delete_where(
+            client, collection_name, type=DATA_REFERENCE_TYPE, filename=filename
         )
     finally:
         client.close()
@@ -336,7 +302,7 @@ class DocumentIngestion:
             knowledge = {
                 "id": None,
                 "is_default": True,
-                "collection_name": "open_knowledge_ui",
+                "collection_name": DEFAULT_COLLECTION,
             }
         self.knowledge = knowledge
         self.paths = knowledge_paths(knowledge)

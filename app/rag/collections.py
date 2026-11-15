@@ -36,8 +36,45 @@ PAYLOAD_INDEXES = {
 # HNSW-Index der Dense-Vektoren (schnelle Naeherungssuche statt Vollscan).
 HNSW_CONFIG = {"m": 16, "ef_construct": 100, "full_scan_threshold": 10000}
 
-# Name des BM25-Vektors (so heisst er bei langchain-qdrant/FastEmbedSparse).
+# Namen der Vektoren eines Punktes. Der BM25-Vektor heisst so, weil langchain-qdrant/
+# FastEmbedSparse ihn so benannte; bestehende Collections tragen diesen Namen.
+# Collection des Standard-Bereichs (bleibt auch nach dem Neu-Indexieren der Ausgangsname)
+DEFAULT_COLLECTION = "open_knowledge_ui"
+
+DENSE_VECTOR = ""
 SPARSE_VECTOR = "langchain-sparse"
+
+
+def to_qdrant_sparse(sv) -> qdrant_models.SparseVector:
+    """BM25-Vektor des Encoders (Objekt mit ``indices``/``values`` oder Dict) fuer Qdrant."""
+    if isinstance(sv, dict):
+        return qdrant_models.SparseVector(indices=sv["indices"], values=sv["values"])
+    return qdrant_models.SparseVector(indices=sv.indices, values=sv.values)
+
+
+def named_vectors(dense, sparse) -> dict:
+    """Vektoren eines Punktes: Dense (unbenannt) plus BM25."""
+    return {DENSE_VECTOR: list(dense), SPARSE_VECTOR: to_qdrant_sparse(sparse)}
+
+
+def match_filter(**equals) -> qdrant_models.Filter:
+    """Filter "alle angegebenen Payload-Felder sind gleich", z. B. ``match_filter(session_id=s)``."""
+    return qdrant_models.Filter(
+        must=[
+            qdrant_models.FieldCondition(
+                key=key, match=qdrant_models.MatchValue(value=value)
+            )
+            for key, value in equals.items()
+        ]
+    )
+
+
+def delete_where(client, collection_name: str, **equals) -> None:
+    """Loescht alle Punkte, deren Payload-Felder den Werten entsprechen."""
+    client.delete(
+        collection_name=collection_name,
+        points_selector=qdrant_models.FilterSelector(filter=match_filter(**equals)),
+    )
 
 
 def _sparse_params() -> qdrant_models.SparseVectorParams:
