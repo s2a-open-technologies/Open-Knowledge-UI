@@ -40,3 +40,19 @@ def test_the_callers_error_type_is_raised_and_a_missing_host_is_refused():
         netguard.reject_link_local("http://169.254.1.1", MyError)
     with pytest.raises(MyError, match="Ungültige"):
         netguard.reject_link_local("kein-host", MyError)
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::ffff:169.254.169.254",  # IPv4-gemappt
+        "64:ff9b::a9fe:a9fe",  # NAT64
+        "fd00:ec2::254",  # AWS (IPv6)
+        "100.100.100.200",  # Alibaba Cloud
+        "fe80::1%eth0",
+    ],
+)
+def test_metadata_addresses_are_blocked_in_every_form(monkeypatch, address):
+    _resolves_to(monkeypatch, address)
+    with pytest.raises(netguard.BlockedTargetError):
+        netguard.reject_link_local("http://irgendwas.intern/")

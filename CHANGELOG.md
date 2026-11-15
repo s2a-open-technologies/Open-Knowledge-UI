@@ -15,7 +15,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
-- **SQL-Quellen: Link-Local-Prüfung auch für Hostnamen.** Bisher sperrte nur eine eingetragene IP (169.254.x.x) die Cloud-Metadaten-Adresse; ein Hostname, der dorthin zeigt, kam durch. Alle Adressprüfungen (Verbindungen, externe Quellen, SQL, LDAP/OIDC, Spracheingabe, Tool-Worker) laufen jetzt über eine gemeinsame Funktion in `app/core/netguard.py` und melden denselben Text.
+- **SQL-Quellen: Link-Local-Prüfung auch für Hostnamen.** Bisher sperrte nur eine eingetragene IP (169.254.x.x) die Cloud-Metadaten-Adresse; ein Hostname, der dorthin zeigt, kam durch. Alle Adressprüfungen (Verbindungen, externe Quellen, SQL, LDAP/OIDC, Spracheingabe, Tool-Worker) laufen jetzt über eine gemeinsame Funktion in `app/core/netguard.py` und melden denselben Text. Gesperrt sind auch die IPv6-Formen (IPv4-gemappt, NAT64) sowie die Metadaten-Adressen von AWS (IPv6) und Alibaba Cloud.
 - **Mehrfaches Löschen per Dateiname schlug fehl.** `POST /api/vectordb/batch-delete` rief Qdrant mit einem falschen Parameternamen auf und antwortete immer mit 500; die Chunks der Datei blieben liegen.
 - **Passwort ändern prüft überall gleich.** Beide Routen (`/api/auth/change-password`, `/api/settings/change-password`) nutzen jetzt dieselbe Prüfung. Die eine schrieb bisher keinen Protokolleintrag, die andere meldete bei Konten externer Anbieter Erfolg, obwohl nichts geändert wurde.
 - **Chat-Antwort doppelt im Entwicklungsmodus.** Beim Streamen wurde die letzte Nachricht direkt verändert; in React-StrictMode konnten Tokens und Werkzeug-Einträge doppelt erscheinen.
