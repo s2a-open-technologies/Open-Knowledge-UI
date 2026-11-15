@@ -22,7 +22,6 @@ Daten (CSV/Excel als Pandas-Referenz, NICHT in der Vektordatenbank).
 """
 
 import os
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -176,7 +175,7 @@ def delete_data_file(filename: str, data_dir: Path | None = None) -> bool:
     name = os.path.basename(filename)
     file_path = (data_dir / name).resolve()
     if (
-        not str(file_path).startswith(str(data_dir))
+        not file_path.is_relative_to(data_dir)
         or file_path.suffix.lower() not in STRUCTURED_EXTS
     ):
         return False
@@ -215,19 +214,12 @@ def extract_filename_from_payload(payload: dict[str, Any]) -> str | None:
 
 
 def check_data_file_exists(filename: str) -> bool:
+    """Prüft, ob die strukturierte Datei im DATA_DIR liegt.
+
+    ``filename`` ist relativ zum globalen DATA_DIR und enthält bei Knowledge-Bereichen
+    schon den Unterordner (``knowledge_3/x.csv``, siehe ``index_data_references``).
     """
-    Prüft ob eine Datei im DATA_DIR existiert.
-
-    Args:
-        filename: Name der Datei
-
-    Returns:
-        True wenn Datei existiert, sonst False
-    """
-    data_dir = str(get_data_dir())
-
-    file_path = Path(data_dir) / filename
-    return file_path.exists() and file_path.is_file()
+    return (get_data_dir() / filename).is_file()
 
 
 def delete_associated_file(payload: dict[str, Any]) -> bool:

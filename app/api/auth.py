@@ -33,13 +33,9 @@ from app.api.schemas.auth import (
     Version,
 )
 from app.api.schemas.common import Success
+from app.auth import user_admin
 from app.auth.auth import CurrentUser, login_session
-from app.auth.users import (
-    LoginThrottledError,
-    authenticate,
-    set_password,
-    verify_password,
-)
+from app.auth.users import LoginThrottledError, authenticate
 from app.chat import data_export
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -161,21 +157,7 @@ def auth_logout(request: Request):
 @router.post("/settings/change-password", response_model=Success)
 def change_password(user: CurrentUser, body: ChangePasswordRequest | None = None):
     body = body or ChangePasswordRequest()
-    if not body.new_password or len(body.new_password) < 4:
-        raise ApiError(400, "Passwort muss mindestens 4 Zeichen haben", success=False)
-
-    if not verify_password(user["id"], body.old_password):
-        raise ApiError(403, "Altes Passwort ist falsch", success=False)
-
-    set_password(user["id"], body.new_password)
-    from app.auth import audit
-
-    audit.record(
-        audit.PASSWORD_CHANGE,
-        actor_user_id=user["id"],
-        object_type="user",
-        object_id=user["id"],
-    )
+    user_admin.change_own_password(user["id"], body.old_password, body.new_password)
     return Success()
 
 

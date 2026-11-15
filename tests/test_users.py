@@ -287,3 +287,24 @@ def test_throttle_also_counts_per_ip(app):
 
     # Eine andere IP ist nicht betroffen.
     assert users.authenticate("irgendwer", "x", client_ip="10.0.0.10") is None
+
+
+def test_both_password_routes_share_validation_and_audit(app, db):
+    """Beide Routen laufen ueber ``change_own_password``: Laenge, altes Passwort, Audit."""
+    from app.auth import audit
+
+    c, _ = login(app, "admin", "admin")
+    for url in ("/api/auth/change-password", "/api/settings/change-password"):
+        short = c.post(url, json={"old_password": "admin", "new_password": "abc"})
+        assert short.status_code == 400
+        wrong = c.post(url, json={"old_password": "x", "new_password": "neu123"})
+        assert wrong.status_code == 403
+    assert not [e for e in audit.list_events() if e["action"] == audit.PASSWORD_CHANGE]
+
+    # Frueher schrieb nur /settings/change-password einen Audit-Eintrag
+    ok = c.post(
+        "/api/auth/change-password",
+        json={"old_password": "admin", "new_password": "neu123"},
+    )
+    assert ok.status_code == 200, ok.json()
+    assert [e for e in audit.list_events() if e["action"] == audit.PASSWORD_CHANGE]

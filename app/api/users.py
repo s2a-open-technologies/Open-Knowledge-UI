@@ -40,7 +40,6 @@ from app.api.schemas.users import (
 )
 from app.auth import access, user_admin
 from app.auth.auth import Admin, CurrentUser, Editor
-from app.auth.users import set_password, verify_password
 from app.chat.attachments import cleanup_session_attachments
 from app.core import runtime
 from app.llm import connections as models_store
@@ -58,15 +57,7 @@ logger = getLogger(__name__)
 @router.post("/auth/change-password", response_model=Success)
 def change_own_password(user: CurrentUser, body: ChangePasswordRequest | None = None):
     body = body or ChangePasswordRequest()
-    if len(body.new_password) < user_admin.MIN_PASSWORD_LENGTH:
-        raise ApiError(
-            400,
-            f"Passwort muss mindestens {user_admin.MIN_PASSWORD_LENGTH} Zeichen haben",
-            success=False,
-        )
-    if not verify_password(user["id"], body.old_password):
-        raise ApiError(403, "Altes Passwort ist falsch", success=False)
-    set_password(user["id"], body.new_password)
+    user_admin.change_own_password(user["id"], body.old_password, body.new_password)
     return Success()
 
 

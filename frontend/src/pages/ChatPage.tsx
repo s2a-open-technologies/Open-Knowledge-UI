@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { addToStoredDraft, loadDraft, saveDraft } from "@/lib/chatDraft";
@@ -38,6 +47,21 @@ interface LiveMessage {
   attachments?: string[];
   // Hinweis, solange die Antwort auf einen Anhang wartet
   waiting?: string;
+}
+
+/**
+ * Ändert die letzte Assistenten-Nachricht, ohne sie zu mutieren. Updater laufen unter
+ * StrictMode doppelt; ein Mutieren würde Tokens und Werkzeuge doppelt eintragen.
+ */
+function updateLastAssistant(
+  set: Dispatch<SetStateAction<LiveMessage[]>>,
+  update: (last: LiveMessage) => LiveMessage,
+) {
+  set((prev) => {
+    const last = prev[prev.length - 1];
+    if (last?.role !== "assistant") return prev;
+    return [...prev.slice(0, -1), update(last)];
+  });
 }
 
 const KNOWLEDGE_KEY = "rag.selectedKnowledge";
@@ -407,55 +431,41 @@ export function ChatPage() {
       }
       if (event.error) {
         toast.error(`Fehler: ${event.error}`);
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === "assistant") {
-            last.streaming = false;
-            last.content = "";
-          }
-          return next;
-        });
+        updateLastAssistant(setMessages, (last) => ({ ...last, streaming: false, content: "" }));
         return;
       }
 
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (!last || last.role !== "assistant") return next;
-
+      updateLastAssistant(setMessages, (last) => {
+        const m = { ...last };
         if (event.reasoning) {
-          last.reasoning = (last.reasoning || "") + event.reasoning;
-          last.tools = last.tools ?? [];
+          m.reasoning = (m.reasoning || "") + event.reasoning;
+          m.tools = m.tools ?? [];
         }
-        if (event.token) last.content += event.token;
-        if (event.sources) last.content += event.sources;
+        if (event.token) m.content += event.token;
+        if (event.sources) m.content += event.sources;
         if (event.tool_start) {
-          last.tools = [
-            ...(last.tools ?? []),
-            { name: event.tool_start, status: "running" },
-          ];
+          m.tools = [...(m.tools ?? []), { name: event.tool_start, status: "running" }];
         }
         if (event.tool_end) {
-          const tools = [...(last.tools ?? [])];
+          const tools = [...(m.tools ?? [])];
           const idx = tools.findIndex(
             (t) => t.name === event.tool_end && t.status === "running",
           );
           if (idx >= 0) tools[idx] = { ...tools[idx], status: "done" };
-          last.tools = tools;
+          m.tools = tools;
         }
         if (event.tool_result) {
-          last.toolResults = [...(last.toolResults ?? []), event.tool_result];
+          m.toolResults = [...(m.toolResults ?? []), event.tool_result];
         }
         if (event.source_list) {
-          const seen = new Set((last.sources ?? []).map((x) => `${x.filename}|${x.section}`));
-          last.sources = [
-            ...(last.sources ?? []),
+          const seen = new Set((m.sources ?? []).map((x) => `${x.filename}|${x.section}`));
+          m.sources = [
+            ...(m.sources ?? []),
             ...event.source_list.filter((x) => !seen.has(`${x.filename}|${x.section}`)),
           ];
         }
-        if (event.done) last.streaming = false;
-        return next;
+        if (event.done) m.streaming = false;
+        return m;
       });
       scrollToBottom();
     },
@@ -515,12 +525,7 @@ export function ChatPage() {
               .map((a) => a.id)
           : [];
         setAttachments([]);
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === "assistant") last.waiting = undefined;
-          return next;
-        });
+        updateLastAssistant(setMessages, (last) => ({ ...last, waiting: undefined }));
 
         if (controller.signal.aborted) throw new DOMException("abgebrochen", "AbortError");
         const outcome = await socketRef.current!.ask(
@@ -542,27 +547,18 @@ export function ChatPage() {
         if (outcome === "cancelled") throw new DOMException("abgebrochen", "AbortError");
       } catch (e) {
         if ((e as Error).name === "AbortError") {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              last.streaming = false;
-              if (!last.content) last.content = "*Antwort abgebrochen.*";
-            }
-            return next;
-          });
+          updateLastAssistant(setMessages, (last) => ({
+            ...last,
+            streaming: false,
+            content: last.content || "*Antwort abgebrochen.*",
+          }));
         } else {
           toast.error(errorMessage(e));
         }
       } finally {
         setStreaming(false);
         abortRef.current = null;
-        setMessages((prev) => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last?.role === "assistant") last.streaming = false;
-          return next;
-        });
+        updateLastAssistant(setMessages, (last) => ({ ...last, streaming: false }));
         textareaRef.current?.focus();
       }
     },

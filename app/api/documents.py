@@ -591,7 +591,7 @@ def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None =
     try:
         points, _ = client.scroll(
             collection_name=collection,
-            filter=models.Filter(
+            scroll_filter=models.Filter(
                 must=[models.FieldCondition(key="filename", match=models.MatchValue(value=filename))]
             ),
             limit=1000,

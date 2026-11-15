@@ -170,3 +170,17 @@ def test_deleting_the_chat_cleans_up_attachments_and_markdown(app, db, qd):
     attachments.cleanup_session_attachments(sid, qd)
     assert not attachments.session_dir(sid).exists()
     assert client_for(app, alice).get("/api/my-uploads").json() == []
+
+
+def test_vectordb_batch_delete_removes_all_chunks_of_a_file(app, db, qd, no_enrichment):
+    """Regression: ``client.scroll(filter=...)`` war der falsche Parametername (-> 500)."""
+    ed = add_user(db, "ed2", "editor")
+    c = upload_and_ingest(app, qd, ed, "batch.md", DOC)
+    assert scroll_all(qd), "Ingestion hat keine Chunks geschrieben"
+
+    kid = knowledge.get_knowledge(None)["id"]
+    r = c.post(
+        f"/api/vectordb/batch-delete?knowledge_id={kid}", json={"filename": "batch.md"}
+    )
+    assert r.status_code == 200, r.json()
+    assert scroll_all(qd) == []

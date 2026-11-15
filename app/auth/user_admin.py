@@ -74,6 +74,24 @@ def _validate_password(password: str) -> str:
     return password
 
 
+def change_own_password(user_id: int, old_password: str, new_password: str) -> None:
+    """Eigenes Passwort aendern (Laenge, altes Passwort, Audit). Wirft ``AdminError``."""
+    from app.auth import audit
+    from app.auth.users import set_password, verify_password
+
+    _validate_password(new_password)
+    if not verify_password(user_id, old_password):
+        raise AdminError("Altes Passwort ist falsch", 403)
+    if not set_password(user_id, new_password):
+        raise AdminError("Das Passwort dieses Kontos verwaltet der Anbieter")
+    audit.record(
+        audit.PASSWORD_CHANGE,
+        actor_user_id=user_id,
+        object_type="user",
+        object_id=user_id,
+    )
+
+
 def _active_admin_count(db, excluding_id: int | None = None) -> int:
     q = db.query(User).filter_by(role="admin", is_active=True)
     if excluding_id is not None:

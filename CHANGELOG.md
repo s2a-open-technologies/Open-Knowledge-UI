@@ -15,6 +15,9 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Behoben
 
+- **Mehrfaches Löschen per Dateiname schlug fehl.** `POST /api/vectordb/batch-delete` rief Qdrant mit einem falschen Parameternamen auf und antwortete immer mit 500; die Chunks der Datei blieben liegen.
+- **Passwort ändern prüft überall gleich.** Beide Routen (`/api/auth/change-password`, `/api/settings/change-password`) nutzen jetzt dieselbe Prüfung. Die eine schrieb bisher keinen Protokolleintrag, die andere meldete bei Konten externer Anbieter Erfolg, obwohl nichts geändert wurde.
+- **Chat-Antwort doppelt im Entwicklungsmodus.** Beim Streamen wurde die letzte Nachricht direkt verändert; in React-StrictMode konnten Tokens und Werkzeug-Einträge doppelt erscheinen.
 - **Löschen hinterließ Daten.** Ein Dokument, das nach einem Neu-Indexieren gelöscht wurde, ließ sein archiviertes Original liegen. Beim Löschen eines Kontos blieben dessen gespeicherte Analysen (Ordner und Einträge) zurück. Auf Postgres scheiterte das Löschen eines Kontos mit Chat-Anhängen, Analysen, hochgeladenen Dokumenten oder Protokolleinträgen am Fremdschlüssel. Dokumente in gemeinsamen Bereichen bleiben jetzt ohne Uploader erhalten, Protokolleinträge behalten den Namen.
 - **Keine Inhalte mehr im Log.** Die Websuche schrieb die rohe Suchanfrage samt den entfernten personenbezogenen Angaben ins Log. Bei einem Fehler des PII-Filters landete dessen Antwort im Log, die den Eingabetext enthalten kann.
 - **Parakeet-Image baut wieder.** Im CPU-Image installierte `pip` in das Python des Basis-Images, gestartet wurde aber ein zusätzlich per apt installiertes Debian-Python (`No module named 'onnx_asr'`). Python kommt jetzt nur noch im GPU-Image per apt dazu. Außerdem installiert das GPU-Image jetzt `requirements.gpu.txt` (onnxruntime mit CUDA) statt der CPU-Pakete.
