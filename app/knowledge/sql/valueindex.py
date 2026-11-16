@@ -134,18 +134,13 @@ def prune(knowledge_id: int, source_config) -> None:
 
 def _payload(cfg, extra: dict) -> dict:
     limits = worker_config.load_sql()
-    return {
-        "connection": cfg.connection(),
-        "allowed_tables": sorted(cfg.allowed_tables())
-        if cfg.allowed_tables()
-        else None,
-        "blocked_columns": {t: sorted(c) for t, c in cfg.blocked().items()},
-        "limits": {
+    return cfg.worker_payload(
+        {
             "timeout_s": max(limits.timeout_s, 30),
             "max_cell_chars": limits.max_cell_chars,
         },
         **extra,
-    }
+    )
 
 
 def profile(source_config) -> list[dict]:

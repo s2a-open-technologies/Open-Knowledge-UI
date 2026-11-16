@@ -20,7 +20,7 @@
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from app.core.netguard import reject_host_link_local
 
 DIALECTS = ("postgresql", "mysql", "mssql", "sqlite")
@@ -32,6 +32,18 @@ SCHEMA_RE = re.compile(r"^[A-Za-z0-9_$.\-]*$")
 
 class SqlConfigError(ValueError):
     """Ungueltige Angabe (Text ist fuer den Admin gedacht)."""
+
+
+_CONNECTION_FIELDS = (
+    "dialect",
+    "host",
+    "port",
+    "database",
+    "user",
+    "password",
+    "schema",
+    "instance",
+)
 
 
 @dataclass(frozen=True)
@@ -49,15 +61,13 @@ class SqlConfig:
     # Wertverzeichnis: Textspalten, deren verschiedene Werte durchsuchbar sind ({tabelle: (spalte, ...)})
     value_columns: dict = field(default_factory=dict)
 
+    def connection(self) -> dict:
+        """Nur die Verbindungsangaben (fuer den Worker), mit Passwort."""
+        return {k: getattr(self, k) for k in _CONNECTION_FIELDS}
+
     def to_dict(self, with_password: bool = True) -> dict:
         d = {
-            "dialect": self.dialect,
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "user": self.user,
-            "schema": self.schema,
-            "instance": self.instance,
+            **{k: getattr(self, k) for k in _CONNECTION_FIELDS if k != "password"},
             "tables": list(self.tables),
             "blocked_columns": {t: list(c) for t, c in self.blocked_columns.items()},
             "value_columns": {t: list(c) for t, c in self.value_columns.items()},
@@ -73,16 +83,15 @@ class SqlConfig:
             "has_password": bool(self.password),
         }
 
-    def connection(self) -> dict:
+    def worker_payload(self, limits: dict, **extra) -> dict:
+        """Gemeinsamer Teil jeder Anfrage an den SQL-Worker."""
+        tables = self.allowed_tables()
         return {
-            "dialect": self.dialect,
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "user": self.user,
-            "password": self.password,
-            "schema": self.schema,
-            "instance": self.instance,
+            "connection": self.connection(),
+            "allowed_tables": sorted(tables) if tables else None,
+            "blocked_columns": {t: sorted(c) for t, c in self.blocked().items()},
+            "limits": limits,
+            **extra,
         }
 
     def allowed_tables(self) -> set[str] | None:
@@ -90,6 +99,18 @@ class SqlConfig:
 
     def blocked(self) -> dict[str, set[str]]:
         return {t: set(c) for t, c in self.blocked_columns.items() if c}
+
+
+def _column_map(raw) -> dict:
+    """``{tabelle: [spalte, ...]}`` bereinigen; leere Namen und Tabellen ohne Spalten entfallen."""
+    out = {}
+    for table, cols in (raw or {}).items():
+        if not isinstance(cols, (list, tuple)) or not str(table).strip():
+            continue
+        names = tuple(str(c).strip() for c in cols if str(c).strip())
+        if names:
+            out[str(table).strip()] = names
+    return out
 
 
 def parse_config(raw: dict | str | None) -> SqlConfig:
@@ -101,18 +122,8 @@ def parse_config(raw: dict | str | None) -> SqlConfig:
         port = int(raw.get("port") or DEFAULT_PORTS.get(dialect, 0))
     except (TypeError, ValueError):
         port = -1
-    blocked = {
-        str(t).strip(): tuple(str(c).strip() for c in cols if str(c).strip())
-        for t, cols in (raw.get("blocked_columns") or {}).items()
-        if isinstance(cols, (list, tuple)) and str(t).strip()
-    }
-    value_columns = {
-        str(t).strip(): tuple(str(c).strip() for c in cols if str(c).strip())
-        for t, cols in (raw.get("value_columns") or {}).items()
-        if isinstance(cols, (list, tuple)) and str(t).strip()
-    }
     return SqlConfig(
-        value_columns={t: c for t, c in value_columns.items() if c},
+        value_columns=_column_map(raw.get("value_columns")),
         dialect=dialect,
         host=str(raw.get("host") or "").strip(),
         port=port,
@@ -124,7 +135,7 @@ def parse_config(raw: dict | str | None) -> SqlConfig:
         tables=tuple(
             str(t).strip() for t in (raw.get("tables") or []) if str(t).strip()
         ),
-        blocked_columns=blocked,
+        blocked_columns=_column_map(raw.get("blocked_columns")),
     )
 
 
@@ -171,4 +182,4 @@ def merge_password(new: SqlConfig, old: SqlConfig | None) -> SqlConfig:
     """Leeres Passwort behaelt das gespeicherte, aber nur fuer dasselbe Ziel."""
     if new.password or old is None or not same_target(new, old):
         return new
-    return SqlConfig(**{**new.__dict__, "password": old.password})
+    return replace(new, password=old.password)

@@ -192,6 +192,55 @@ def create_app(
             },
         )
 
+    # Je Aktion: (data, Zugriffsangaben, caps) -> Ergebnis-Dict. ``base`` bringt Verbindung,
+    # SQLite-Ordner und die Freigaben mit.
+    def _do_query(sqlengine, data, base, caps):
+        return sqlengine.run_query(data.connection, data.sql, **base, **caps)
+
+    def _do_schema(sqlengine, data, base, caps):
+        return {
+            "tables": sqlengine.read_schema(
+                data.connection, **base, timeout_s=caps["timeout_s"]
+            )
+        }
+
+    def _do_distinct(sqlengine, data, base, caps):
+        try:
+            wanted = int(data.max_distinct or 5000)
+        except (TypeError, ValueError):
+            wanted = 5000
+        return sqlengine.distinct_values(
+            data.connection,
+            **base,
+            table=data.table,
+            column=data.column,
+            max_distinct=min(max(wanted, 1), max_distinct),
+            timeout_s=caps["timeout_s"],
+            max_cell_chars=caps["max_cell_chars"],
+        )
+
+    def _do_profile(sqlengine, data, base, caps):
+        return {
+            "columns": sqlengine.profile_columns(
+                data.connection, **base, timeout_s=caps["timeout_s"]
+            )
+        }
+
+    def _do_test(sqlengine, data, base, caps):
+        return sqlengine.check_connection(
+            data.connection,
+            sqlite_dir=sqlite_dir,
+            timeout_s=min(caps["timeout_s"], 15),
+        )
+
+    sql_actions = {
+        "query": _do_query,
+        "schema": _do_schema,
+        "distinct": _do_distinct,
+        "profile": _do_profile,
+        "test": _do_test,
+    }
+
     def sql_run(action: str, data: SqlRequest):
         from tool_worker import sqlengine
         from tool_worker.sqlcheck import SqlRejected
@@ -202,59 +251,14 @@ def create_app(
             isinstance(v, str) and v for v in (data.table, data.column)
         ):
             return _error("Ungültige Anfrage", 400)
-        caps = sql_caps(data)
         allowed, blocked = sql_filters(data)
-        conn = data.connection
+        base = {
+            "sqlite_dir": sqlite_dir,
+            "allowed_tables": allowed,
+            "blocked_columns": blocked,
+        }
         try:
-            if action == "query":
-                result = sqlengine.run_query(
-                    conn,
-                    data.sql,
-                    sqlite_dir=sqlite_dir,
-                    allowed_tables=allowed,
-                    blocked_columns=blocked,
-                    **caps,
-                )
-            elif action == "schema":
-                result = {
-                    "tables": sqlengine.read_schema(
-                        conn,
-                        sqlite_dir=sqlite_dir,
-                        allowed_tables=allowed,
-                        blocked_columns=blocked,
-                        timeout_s=caps["timeout_s"],
-                    )
-                }
-            elif action == "distinct":
-                try:
-                    wanted = int(data.max_distinct or 5000)
-                except (TypeError, ValueError):
-                    wanted = 5000
-                result = sqlengine.distinct_values(
-                    conn,
-                    sqlite_dir=sqlite_dir,
-                    table=data.table,
-                    column=data.column,
-                    allowed_tables=allowed,
-                    blocked_columns=blocked,
-                    max_distinct=min(max(wanted, 1), max_distinct),
-                    timeout_s=caps["timeout_s"],
-                    max_cell_chars=caps["max_cell_chars"],
-                )
-            elif action == "profile":
-                result = {
-                    "columns": sqlengine.profile_columns(
-                        conn,
-                        sqlite_dir=sqlite_dir,
-                        allowed_tables=allowed,
-                        blocked_columns=blocked,
-                        timeout_s=caps["timeout_s"],
-                    )
-                }
-            else:
-                result = sqlengine.check_connection(
-                    conn, sqlite_dir=sqlite_dir, timeout_s=min(caps["timeout_s"], 15)
-                )
+            result = sql_actions[action](sqlengine, data, base, sql_caps(data))
         except (SqlRejected, sqlengine.SqlError) as e:
             return {"ok": False, "error": str(e)}
         except Exception:

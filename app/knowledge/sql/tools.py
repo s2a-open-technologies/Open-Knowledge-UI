@@ -134,19 +134,14 @@ def _filter_down(error) -> str:
 
 def _call(action: str, cfg, extra: dict):
     limits = worker_config.load_sql()
-    payload = {
-        "connection": cfg.connection(),
-        "allowed_tables": sorted(cfg.allowed_tables())
-        if cfg.allowed_tables()
-        else None,
-        "blocked_columns": {t: sorted(c) for t, c in cfg.blocked().items()},
-        "limits": {
+    payload = cfg.worker_payload(
+        {
             "row_limit": limits.row_limit,
             "timeout_s": limits.timeout_s,
             "max_cell_chars": limits.max_cell_chars,
         },
         **extra,
-    }
+    )
     try:
         return get_client("sql").sql(action, payload, limits.timeout_s + 15), limits
     except ToolWorkerUnavailable as e:
