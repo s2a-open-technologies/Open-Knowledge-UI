@@ -365,73 +365,33 @@ def _expand_neighbors(
 # --------------------------------------------------------------------------
 
 
-def run(
-    question: str,
-    collections: list[str],
-    cfg: dict,
-    *,
-    client,
-    dense,
-    sparse,
-    helper: queries.Helper | None = None,
-    rerank_fn: Callable[[str, str, list[str]], list[float]] | None = None,
-    query_filter=None,
-    trace: Trace | None = None,
-    layout: dict | None = None,
-) -> list[Hit]:
-    """Fuehrt die Pipeline fuer ``collections`` mit der Profil-Konfiguration ``cfg`` aus.
-
-    ``layout`` beschreibt eine fremde Quelle: ``dense_name``, ``sparse_name`` (leer = keine
-    Stichwortsuche), ``normalize`` (Payload -> unsere Feldnamen), ``neighbors`` (False =
-    keine Nachbar-Chunks). Ohne ``layout`` gilt der Aufbau dieser App.
-    """
-    trace = trace or Trace()
-    layout = layout or {}
-    dense_name = layout.get("dense_name", DENSE_VECTOR)
-    sparse_name = layout.get("sparse_name", SPARSE_VECTOR)
-    normalize = layout.get("normalize") or (lambda payload: payload)
-    if rerank_fn is None:
-        from app.rag import model_settings
-
-        rerank_fn = model_settings.rerank_score
-    if not collections or not question.strip():
-        return []
-
-    search, rr, mmr, qe = (
-        cfg["search"],
-        cfg["rerank"],
-        cfg["mmr"],
-        cfg["query_enhancement"],
-    )
-    final_k = cfg["final_k"]
-    notes: list[str] = []
-    if not sparse_name and search["mode"] != "dense":
-        search = {**search, "mode": "dense"}  # die Quelle hat keinen Sparse-Vektor
-        notes.append("Quelle ohne Sparse-Vektor: reine Bedeutungssuche")
-    neighbors = cfg["neighbors"] if layout.get("neighbors", True) else 0
-    if neighbors != cfg["neighbors"]:
-        notes.append("Nachbar-Chunks übersprungen (Feldzuordnung weicht ab)")
-
-    # 1. Query-Enhancement
+def _enhance(question: str, qe: dict, helper, trace: Trace) -> list[str]:
+    """1. Query-Enhancement: die Fragen, mit denen gesucht wird."""
     qs = [question]
-    if qe["mode"] != "off":
-        with trace.stage("query_enhancement", mode=qe["mode"]) as st:
-            if helper is None:
-                st["skipped"] = "Kein Helfer-LLM verfügbar"
-            else:
-                try:
-                    generated = queries.generate(question, qe, helper)
-                    st["generated"] = generated
-                    qs = ([question] if qe["include_original"] else []) + generated or [
-                        question
-                    ]
-                except Exception as e:
-                    logger.warning(f"Query-Enhancement fehlgeschlagen: {e}")
-                    st["error"] = f"{type(e).__name__}: {e}"[:300]
-            st["queries"] = qs
+    if qe["mode"] == "off":
+        return qs
+    with trace.stage("query_enhancement", mode=qe["mode"]) as st:
+        if helper is None:
+            st["skipped"] = "Kein Helfer-LLM verfügbar"
+        else:
+            try:
+                generated = queries.generate(question, qe, helper)
+                st["generated"] = generated
+                qs = ([question] if qe["include_original"] else []) + generated or [
+                    question
+                ]
+            except Exception as e:
+                logger.warning(f"Query-Enhancement fehlgeschlagen: {e}")
+                st["error"] = f"{type(e).__name__}: {e}"[:300]
+        st["queries"] = qs
+    return qs
 
-    # 2. Suche je Frage und Collection
-    need_vectors = mmr["enabled"]  # Dense-Vektoren der Kandidaten nur fuer MMR
+
+def _search_all(
+    qs, collections, client, dense, sparse, search, query_filter, need_vectors,
+    dense_name, sparse_name, normalize, notes, trace,
+) -> list[list[Hit]]:
+    """2. Suche je Frage und Collection; liefert die Trefferlisten."""
     rank_lists: list[list[Hit]] = []
     with trace.stage(
         "search", mode=search["mode"], fusion=search["fusion"], queries=len(qs)
@@ -480,7 +440,93 @@ def run(
                 if hits:
                     rank_lists.append(hits)
             st["per_collection"][collection] = count
+    return rank_lists
 
+
+def _rerank(pool: list[Hit], question: str, rr: dict, rerank_fn, trace: Trace) -> list[Hit]:
+    """4. Reranking gegen die Originalfrage (bei Fehler: ohne Reranking weiter)."""
+    if not (rr["enabled"] and pool):
+        return pool
+    with trace.stage("rerank", model=rr["model"]) as st:
+        try:
+            scores = rerank_fn(rr["model"], question, [h.text for h in pool])
+            for h, s in zip(pool, scores, strict=True):
+                h.score = s
+            pool.sort(key=lambda h: h.score, reverse=True)
+            if rr["min_score"] is not None:
+                pool = [h for h in pool if h.score >= rr["min_score"]]
+            st["result"] = brief(pool)
+        except Exception as e:
+            logger.warning(f"Reranking fehlgeschlagen: {e}")
+            st["error"] = f"{type(e).__name__}: {e}"[:300]
+            st["fallback"] = "ohne Reranking weiter"
+    return pool
+
+
+def _select(pool: list[Hit], final_k: int, mmr: dict, trace: Trace) -> list[Hit]:
+    """5. MMR und Top-k."""
+    if not (mmr["enabled"] and len(pool) > final_k):
+        return pool[:final_k]
+    with trace.stage("mmr", lambda_mult=mmr["lambda_mult"]) as st:
+        if all(h.vector is not None for h in pool):
+            return _mmr(pool, final_k, mmr["lambda_mult"])
+        st["skipped"] = "Dense-Vektoren der Kandidaten fehlen"
+        return pool[:final_k]
+
+
+def run(
+    question: str,
+    collections: list[str],
+    cfg: dict,
+    *,
+    client,
+    dense,
+    sparse,
+    helper: queries.Helper | None = None,
+    rerank_fn: Callable[[str, str, list[str]], list[float]] | None = None,
+    query_filter=None,
+    trace: Trace | None = None,
+    layout: dict | None = None,
+) -> list[Hit]:
+    """Fuehrt die Pipeline fuer ``collections`` mit der Profil-Konfiguration ``cfg`` aus.
+
+    ``layout`` beschreibt eine fremde Quelle: ``dense_name``, ``sparse_name`` (leer = keine
+    Stichwortsuche), ``normalize`` (Payload -> unsere Feldnamen), ``neighbors`` (False =
+    keine Nachbar-Chunks). Ohne ``layout`` gilt der Aufbau dieser App.
+    """
+    trace = trace or Trace()
+    layout = layout or {}
+    dense_name = layout.get("dense_name", DENSE_VECTOR)
+    sparse_name = layout.get("sparse_name", SPARSE_VECTOR)
+    normalize = layout.get("normalize") or (lambda payload: payload)
+    if rerank_fn is None:
+        from app.rag import model_settings
+
+        rerank_fn = model_settings.rerank_score
+    if not collections or not question.strip():
+        return []
+
+    search, rr, mmr, qe = (
+        cfg["search"],
+        cfg["rerank"],
+        cfg["mmr"],
+        cfg["query_enhancement"],
+    )
+    final_k = cfg["final_k"]
+    notes: list[str] = []
+    if not sparse_name and search["mode"] != "dense":
+        search = {**search, "mode": "dense"}  # die Quelle hat keinen Sparse-Vektor
+        notes.append("Quelle ohne Sparse-Vektor: reine Bedeutungssuche")
+    neighbors = cfg["neighbors"] if layout.get("neighbors", True) else 0
+    if neighbors != cfg["neighbors"]:
+        notes.append("Nachbar-Chunks übersprungen (Feldzuordnung weicht ab)")
+
+    qs = _enhance(question, qe, helper, trace)
+    rank_lists = _search_all(
+        qs, collections, client, dense, sparse, search, query_filter,
+        mmr["enabled"],  # Dense-Vektoren der Kandidaten nur fuer MMR
+        dense_name, sparse_name, normalize, notes, trace,
+    )
     if not rank_lists:
         return []
 
@@ -491,32 +537,8 @@ def run(
         pool = pool[: max(pool_size, final_k)]
         st["candidates"] = brief(pool)
 
-    # 4. Reranking gegen die Originalfrage
-    if rr["enabled"] and pool:
-        with trace.stage("rerank", model=rr["model"]) as st:
-            try:
-                scores = rerank_fn(rr["model"], question, [h.text for h in pool])
-                for h, s in zip(pool, scores, strict=True):
-                    h.score = s
-                pool.sort(key=lambda h: h.score, reverse=True)
-                if rr["min_score"] is not None:
-                    pool = [h for h in pool if h.score >= rr["min_score"]]
-                st["result"] = brief(pool)
-            except Exception as e:
-                logger.warning(f"Reranking fehlgeschlagen: {e}")
-                st["error"] = f"{type(e).__name__}: {e}"[:300]
-                st["fallback"] = "ohne Reranking weiter"
-
-    # 5. MMR und Top-k
-    if mmr["enabled"] and len(pool) > final_k:
-        with trace.stage("mmr", lambda_mult=mmr["lambda_mult"]) as st:
-            if all(h.vector is not None for h in pool):
-                final = _mmr(pool, final_k, mmr["lambda_mult"])
-            else:
-                st["skipped"] = "Dense-Vektoren der Kandidaten fehlen"
-                final = pool[:final_k]
-    else:
-        final = pool[:final_k]
+    pool = _rerank(pool, question, rr, rerank_fn, trace)
+    final = _select(pool, final_k, mmr, trace)
 
     # 6. Nachbar-Chunks
     if neighbors > 0 and final:
