@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { KeyRound, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,28 +11,20 @@ import {
 } from "@/components/ConnectionDialog";
 import { AdminLink } from "@/components/AdminNav";
 import { api, errorMessage } from "@/lib/api";
+import { useApiQuery } from "@/lib/useApiQuery";
 import type { Connection } from "@/lib/types";
 
 export function AdminConnectionsPage() {
-  const [items, setItems] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Connection | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Connection | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setItems(await api.get<Connection[]>("/api/connections"));
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const {
+    data: items,
+    loading,
+    reload: load,
+    setData: setItems,
+  } = useApiQuery<Connection[]>(["connections"], () => api.get("/api/connections"), []);
 
   const save = async (values: ConnectionValues) => {
     try {

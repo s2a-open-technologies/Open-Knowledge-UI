@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/context/AuthContext";
 import { api, errorMessage } from "@/lib/api";
+import { useApiQuery } from "@/lib/useApiQuery";
 import type { AuthSource, Group, ManagedUser, Role } from "@/lib/types";
 
 const SOURCE_LABEL: Record<AuthSource, string> = { local: "lokal", ldap: "LDAP", oidc: "OIDC" };
@@ -315,9 +316,6 @@ function GroupDialog({
 
 export function AdminUsersPage() {
   const { user: me } = useAuth();
-  const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
   const [userDialog, setUserDialog] = useState<{ open: boolean; user: ManagedUser | null }>({
     open: false,
     user: null,
@@ -329,24 +327,18 @@ export function AdminUsersPage() {
   const [deleteUser, setDeleteUser] = useState<ManagedUser | null>(null);
   const [deleteGroup, setDeleteGroup] = useState<Group | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [u, g] = await Promise.all([
+  const { data, loading, reload: load } = useApiQuery(
+    ["users-and-groups"],
+    async () => {
+      const [users, groups] = await Promise.all([
         api.get<ManagedUser[]>("/api/users"),
         api.get<Group[]>("/api/groups"),
       ]);
-      setUsers(u);
-      setGroups(g);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+      return { users, groups };
+    },
+    { users: [] as ManagedUser[], groups: [] as Group[] },
+  );
+  const { users, groups } = data;
 
   const groupNames = useMemo(
     () => new Map(groups.map((g) => [g.id, g.name])),

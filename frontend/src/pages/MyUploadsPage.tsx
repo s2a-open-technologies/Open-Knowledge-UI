@@ -1,5 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FileText, FolderOpen, Loader2, MessageSquare, NotebookText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -8,23 +7,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { api, errorMessage } from "@/lib/api";
+import { useApiQuery } from "@/lib/useApiQuery";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import type { MyUpload } from "@/lib/types";
 
 export function MyUploadsPage() {
-  const queryClient = useQueryClient();
   const [view, setView] = useState<MyUpload | null>(null);
   const [remove, setRemove] = useState<MyUpload | null>(null);
 
-  const uploads = useQuery({
-    queryKey: ["my-uploads"],
-    queryFn: () => api.get<MyUpload[]>("/api/my-uploads"),
-  });
-  useEffect(() => {
-    if (uploads.error) toast.error(errorMessage(uploads.error));
-  }, [uploads.error]);
-  const items = uploads.isPending ? null : (uploads.data ?? []);
-  const load = () => queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
+  const { data: items, loading, reload: load } = useApiQuery<MyUpload[]>(
+    ["my-uploads"],
+    () => api.get("/api/my-uploads"),
+    [],
+  );
 
   const confirmRemove = async () => {
     if (!remove) return;
@@ -52,7 +47,7 @@ export function MyUploadsPage() {
           </p>
         </div>
 
-        {items === null ? (
+        {loading ? (
           <p className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             Lade…
