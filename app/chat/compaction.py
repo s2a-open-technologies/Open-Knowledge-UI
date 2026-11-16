@@ -327,6 +327,45 @@ def clip_text(text: str, max_tokens: int) -> str:
     return f"{text[:head]}\n\n[… gekürzt, um den Kontext nicht zu sprengen …]\n\n{text[-tail:]}"
 
 
+def _cut_index(rows, budget: Budget) -> int:
+    """Schnitt: ``rows[:cut]`` werden zusammengefasst, ``rows[cut:]`` bleiben wortwoertlich.
+
+    Es bleibt so viel juengster Verlauf, wie in ``budget.keep`` passt (mindestens die letzten zwei
+    Nachrichten); der behaltene Teil beginnt mit einer Frage.
+    """
+    sizes = [estimate_tokens(clean_history_text(r.content)) for r in rows]
+    acc, cut = 0, len(rows)
+    for i in range(len(rows) - 1, -1, -1):
+        if acc + sizes[i] > budget.keep and len(rows) - i > 2:
+            break
+        acc += sizes[i]
+        cut = i
+    while cut < len(rows) and rows[cut].role != "user":
+        cut += 1
+    if cut >= len(rows):
+        users = [i for i, r in enumerate(rows) if r.role == "user"]
+        cut = users[-1] if users else 0
+    return cut
+
+
+def _summarize_old(old, summary, cfg, llm_factory, mask_many, unmask) -> str:
+    """Fasst die aelteren Zeilen zusammen (mit PII-Filter nur ueber maskierten Text)."""
+    older = [
+        {
+            "role": "user" if r.role == "user" else "assistant",
+            "content": clean_history_text(r.content),
+        }
+        for r in old
+    ]
+    if not mask_many:
+        return summarize(llm_factory(), cfg, older, summary)
+    texts = ([summary] if summary else []) + [m["content"] for m in older]
+    masked, mapping = mask_many(texts)
+    previous = masked[0] if summary else None
+    older = [{**m, "content": t} for m, t in zip(older, masked[1 if summary else 0 :])]
+    return unmask(summarize(llm_factory(), cfg, older, previous), mapping)
+
+
 def fit_history(
     rows,
     summary: str | None,
@@ -360,22 +399,7 @@ def fit_history(
     if before <= budget.trigger:
         return messages, None
 
-    # Schnitt: rows[:cut] werden zusammengefasst, rows[cut:] bleiben wortwoertlich. Es bleibt so viel
-    # juengster Verlauf, wie in ``keep`` passt (mindestens die letzten zwei Nachrichten).
-    sizes = [estimate_tokens(clean_history_text(r.content)) for r in rows]
-    acc, cut = 0, len(rows)
-    for i in range(len(rows) - 1, -1, -1):
-        if acc + sizes[i] > budget.keep and len(rows) - i > 2:
-            break
-        acc += sizes[i]
-        cut = i
-    while (
-        cut < len(rows) and rows[cut].role != "user"
-    ):  # der behaltene Teil beginnt mit einer Frage
-        cut += 1
-    if cut >= len(rows):
-        users = [i for i, r in enumerate(rows) if r.role == "user"]
-        cut = users[-1] if users else 0
+    cut = _cut_index(rows, budget)
     if cut <= 0:
         logger.info(
             "Compaction: nichts Aelteres zum Zusammenfassen, Nachrichten werden gekuerzt"
@@ -384,23 +408,7 @@ def fit_history(
         return clipped, {"before": before, "after": total(clipped), "clipped": True}
 
     old, kept = rows[:cut], rows[cut:]
-    older = [
-        {
-            "role": "user" if r.role == "user" else "assistant",
-            "content": clean_history_text(r.content),
-        }
-        for r in old
-    ]
-    if mask_many:
-        texts = ([summary] if summary else []) + [m["content"] for m in older]
-        masked, mapping = mask_many(texts)
-        previous = masked[0] if summary else None
-        older = [
-            {**m, "content": t} for m, t in zip(older, masked[1 if summary else 0 :])
-        ]
-        new_summary = unmask(summarize(llm_factory(), cfg, older, previous), mapping)
-    else:
-        new_summary = summarize(llm_factory(), cfg, older, summary)
+    new_summary = _summarize_old(old, summary, cfg, llm_factory, mask_many, unmask)
     persist(new_summary, old[-1].id)
     result = history_messages(kept, new_summary)
     if total(result) > budget.trigger:  # einzelne riesige Nachricht

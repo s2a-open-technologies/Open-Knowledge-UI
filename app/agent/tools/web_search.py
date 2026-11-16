@@ -142,6 +142,72 @@ Ergebnisse für 'Hauptstadt Frankreich Einwohnerzahl':
 """
 
 
+def _log(message: str, level=logging.INFO, duration: float = 0.0) -> None:
+    phase_logger.log_phase(
+        Phase.TOOL_EXECUTION, f"Tool: web_search | {message}", duration=duration, level=level
+    )
+
+
+def _mask_query(query: str, pii_filter_client) -> str:
+    """Query vor dem Versand maskieren; wirft ``_SearchAbort`` mit der Meldung fuer das Modell.
+
+    Schlaegt das fehl, wird NICHT unmaskiert gesucht: die Suche verlaesst das System, die
+    Maskierung ist ihr Zweck.
+    """
+    import re
+
+    from app.chat.pii_client import mapping_pairs
+
+    try:
+        filter_result = pii_filter_client.filter_text(query)
+    except Exception as e:
+        logger.warning(f"PII-Filter für Web-Suche fehlgeschlagen: {e}")
+        filter_result = None
+    if filter_result is None or filter_result.error:
+        from app.chat.pii_session import unavailable_message
+
+        raise _SearchAbort(
+            "FEHLER: Die Suche wurde abgebrochen, weil die Suchanfrage nicht maskiert "
+            f"werden konnte ({unavailable_message(filter_result.error if filter_result else 'nicht erreichbar')}). "
+            "Beantworte die Frage ohne Websuche."
+        )
+    search_query = query
+    pairs = mapping_pairs(filter_result.mapping)
+    if pairs:
+        # PII-Werte direkt aus der Query entfernen (nicht durch [NAME_1] ersetzen)
+        for _placeholder, value in pairs:
+            search_query = search_query.replace(value, "")
+        search_query = re.sub(r"\s+", " ", search_query).strip()
+        # Nie die Rohfassung loggen: sie enthaelt genau die entfernten personenbezogenen Angaben
+        logger.info(f"Suchanfrage PII-bereinigt ({len(pairs)} Angabe(n) entfernt)")
+    elif filter_result.filtered != query:
+        # Einseitiger Dienst ohne Mapping: den maskierten Text suchen, nie das Original
+        search_query = filter_result.filtered
+    if not search_query.strip():
+        raise _SearchAbort(
+            "FEHLER: Die Suchanfrage bestand nur aus personenbezogenen Angaben und wurde nicht gesendet."
+        )
+    return search_query
+
+
+class _SearchAbort(Exception):
+    """Abbruch mit fertiger Meldung fuer das Modell."""
+
+
+def _format_results(search_query: str, results: list, limit: int) -> str:
+    formatted = [f"Ergebnisse für '{search_query}':\n"]
+    for i, result in enumerate(results[:limit], 1):
+        entry = f"{i}. **{result.get('title', 'Ohne Titel')}**\n"
+        entry += f"   URL: {result.get('url', '')}\n"
+        if result.get("publishedDate"):
+            entry += f"   Veröffentlicht: {result['publishedDate']}\n"
+        content = result.get("content", "")
+        if content:
+            entry += f"   Zusammenfassung: {content[:200]}{'...' if len(content) > 200 else ''}\n"
+        formatted.append(entry)
+    return "\n".join(formatted)
+
+
 def create_web_search_tool(
     searxng_url: str, default_categories: str = "general", pii_filter_client=None
 ) -> callable:
@@ -161,154 +227,48 @@ def create_web_search_tool(
         query: str, num_results: int = 10, categories: str | None = None
     ) -> str:
         """Führt Web-Suche via SearXNG durch."""
-
         start_time = time.time()
+        try:
+            search_query = _mask_query(query, pii_filter_client) if pii_filter_client else query
+        except _SearchAbort as e:
+            return str(e)
 
-        # Mit PII-Filter wird die Query vor dem Versand maskiert. Schlaegt das fehl, wird NICHT
-        # unmaskiert gesucht: die Suche verlaesst das System, die Maskierung ist ihr Zweck.
-        search_query = query
-        if pii_filter_client:
-            import re
-
-            from app.chat.pii_client import mapping_pairs
-
-            try:
-                filter_result = pii_filter_client.filter_text(query)
-            except Exception as e:
-                logger.warning(f"PII-Filter für Web-Suche fehlgeschlagen: {e}")
-                filter_result = None
-            if filter_result is None or filter_result.error:
-                from app.chat.pii_session import unavailable_message
-
-                return (
-                    "FEHLER: Die Suche wurde abgebrochen, weil die Suchanfrage nicht maskiert "
-                    f"werden konnte ({unavailable_message(filter_result.error if filter_result else 'nicht erreichbar')}). "
-                    "Beantworte die Frage ohne Websuche."
-                )
-            pairs = mapping_pairs(filter_result.mapping)
-            if pairs:
-                # PII-Werte direkt aus der Query entfernen (nicht durch [NAME_1] ersetzen)
-                for _placeholder, value in pairs:
-                    search_query = search_query.replace(value, "")
-                search_query = re.sub(r"\s+", " ", search_query).strip()
-                # Nie die Rohfassung loggen: sie enthaelt genau die entfernten personenbezogenen Angaben
-                logger.info(f"Suchanfrage PII-bereinigt ({len(pairs)} Angabe(n) entfernt)")
-            elif filter_result.filtered != query:
-                # Einseitiger Dienst ohne Mapping: den maskierten Text suchen, nie das Original
-                search_query = filter_result.filtered
-            if not search_query.strip():
-                return "FEHLER: Die Suchanfrage bestand nur aus personenbezogenen Angaben und wurde nicht gesendet."
-
-        phase_logger.log_phase(
-            Phase.TOOL_EXECUTION, f"Tool: web_search | {len(search_query)} Zeichen"
-        )
-
+        _log(f"{len(search_query)} Zeichen")
         if not searxng_url:
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                "Tool: web_search | Fehler: Keine SearXNG URL konfiguriert",
-                duration=0.0,
-                level=logging.WARNING,
-            )
+            _log("Fehler: Keine SearXNG URL konfiguriert", logging.WARNING)
             return "FEHLER: SearXNG-URL ist nicht konfiguriert. Bitte im Settings-Panel 'SEARCH_SEARXNG_URL' setzen."
-
-        # Num_results auf 50 begrenzen
-        num_results = min(max(1, num_results), 50)
-        search_categories = categories or default_categories
-
-        # SearXNG API Endpoint
-        search_url = f"{searxng_url.rstrip('/')}/search"
 
         try:
             response = requests.get(
-                search_url,
+                f"{searxng_url.rstrip('/')}/search",
                 params={
                     "q": search_query,
                     "format": "json",
-                    "categories": search_categories,
+                    "categories": categories or default_categories,
                     "pageno": 1,
                 },
                 headers=_get_headers(),
                 timeout=10.0,
             )
-
             if response.status_code != 200:
-                phase_logger.log_phase(
-                    Phase.TOOL_EXECUTION,
-                    f"Tool: web_search | HTTP {response.status_code}",
-                    duration=0.0,
-                    level=logging.WARNING,
-                )
+                _log(f"HTTP {response.status_code}", logging.WARNING)
                 return f"FEHLER: SearXNG API returned HTTP {response.status_code}"
 
-            data = response.json()
-            results = data.get("results", [])
-
+            results = response.json().get("results", [])
             if not results:
-                duration = time.time() - start_time
-                phase_logger.log_phase(
-                    Phase.TOOL_EXECUTION,
-                    "Tool: web_search | Keine Ergebnisse gefunden",
-                    duration=duration,
-                )
+                _log("Keine Ergebnisse gefunden", duration=time.time() - start_time)
                 return f"Keine Suchergebnisse für '{search_query}' gefunden."
 
-            # Ergebnisse formatieren
-            formatted = [f"Ergebnisse für '{search_query}':\n"]
-
-            for i, result in enumerate(results[:num_results], 1):
-                title = result.get("title", "Ohne Titel")
-                url = result.get("url", "")
-                content = result.get("content", "")
-                published_date = result.get("publishedDate", "")
-
-                entry = f"{i}. **{title}**\n"
-                entry += f"   URL: {url}\n"
-                if published_date:
-                    entry += f"   Veröffentlicht: {published_date}\n"
-                if content:
-                    entry += (
-                        f"   Zusammenfassung: {content[:200]}...\n"
-                        if len(content) > 200
-                        else f"   Zusammenfassung: {content}\n"
-                    )
-
-                formatted.append(entry)
-
-            duration = time.time() - start_time
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: web_search | {len(results)} Ergebnisse gefunden",
-                duration=duration,
-            )
-
-            return "\n".join(formatted)
-
+            _log(f"{len(results)} Ergebnisse gefunden", duration=time.time() - start_time)
+            return _format_results(search_query, results, min(max(1, num_results), 50))
         except requests.exceptions.Timeout:
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                "Tool: web_search | Timeout",
-                duration=0.0,
-                level=logging.WARNING,
-            )
+            _log("Timeout", logging.WARNING)
             return "FEHLER: SearXNG-Request timeout nach 10 Sekunden."
-
         except requests.exceptions.RequestException as e:
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: web_search | Fehler: {e}",
-                duration=0.0,
-                level=logging.WARNING,
-            )
+            _log(f"Fehler: {e}", logging.WARNING)
             return f"FEHLER: Verbindung zu SearXNG fehlgeschlagen: {e}"
-
         except Exception as e:
-            phase_logger.log_phase(
-                Phase.TOOL_EXECUTION,
-                f"Tool: web_search | Unerwarteter Fehler: {e}",
-                duration=0.0,
-                level=logging.ERROR,
-            )
+            _log(f"Unerwarteter Fehler: {e}", logging.ERROR)
             return f"FEHLER: {type(e).__name__}: {e}"
 
     return StructuredTool.from_function(

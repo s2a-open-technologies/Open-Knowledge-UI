@@ -436,6 +436,25 @@ def _client(success_flag: bool = True):
     return client
 
 
+def _preview(point, file_status: str) -> dict | None:
+    """Zeile der Dokumentliste; ``None``, wenn der Dateifilter sie ausschliesst."""
+    payload = point.payload or {}
+    name = payload.get("filename", "N/A")
+    has_data_file = check_data_file_exists(name) if name != "N/A" else False
+    if (file_status == "has_file" and not has_data_file) or (
+        file_status == "no_file" and has_data_file
+    ):
+        return None
+    text = payload.get("page_content", "") or payload.get("original_content", "")
+    return {
+        "id": str(point.id),
+        "filename": name,
+        "source": payload.get("source", "N/A"),
+        "content_preview": text[:50] + "...",
+        "has_data_file": has_data_file,
+    }
+
+
 @router.get("/vectordb", response_model=VectorList)
 def vectordb(
     knowledge: ScopedKnowledge,
@@ -445,45 +464,20 @@ def vectordb(
     file_status: str = "",
 ):
     client = _client(success_flag=False)
-    filename_filter = filename.strip()
-    file_status_filter = file_status.strip()
+    filename = filename.strip()
+    file_status = file_status.strip()
     collection = knowledge["collection_name"]
 
     try:
-        scroll_filter = match_filter(filename=filename_filter) if filename_filter else None
-
         points, next_offset = client.scroll(
             collection_name=collection,
             limit=limit,
             offset=offset,
             with_payload=True,
             with_vectors=False,
-            scroll_filter=scroll_filter,
+            scroll_filter=match_filter(filename=filename) if filename else None,
         )
-
-        documents = []
-        for point in points:
-            payload = point.payload or {}
-            name = payload.get("filename", "N/A")
-            has_data_file = check_data_file_exists(name) if name != "N/A" else False
-
-            if file_status_filter == "has_file" and not has_data_file:
-                continue
-            if file_status_filter == "no_file" and has_data_file:
-                continue
-
-            documents.append(
-                {
-                    "id": str(point.id),
-                    "filename": name,
-                    "source": payload.get("source", "N/A"),
-                    "content_preview": (
-                        payload.get("page_content", "") or payload.get("original_content", "")
-                    )[:50]
-                    + "...",
-                    "has_data_file": has_data_file,
-                }
-            )
+        documents = [row for p in points if (row := _preview(p, file_status))]
 
         all_points, _ = client.scroll(
             collection_name=collection,
