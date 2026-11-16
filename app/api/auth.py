@@ -155,6 +155,12 @@ def auth_logout(request: Request):
     return Success()
 
 
+@router.post("/auth/keepalive", response_model=Success)
+def auth_keepalive(_user: CurrentUser):
+    """Meldet Bedienung durch den Nutzer; die Middleware erneuert dabei das Cookie (siehe session_idle)."""
+    return Success()
+
+
 @router.post("/settings/change-password", response_model=Success)
 def change_password(user: CurrentUser, body: ChangePasswordRequest | None = None):
     body = body or ChangePasswordRequest()

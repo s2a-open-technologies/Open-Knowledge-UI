@@ -290,6 +290,7 @@ def create_app(
     from app.core import redis_bus, runtime
     from app.core.csrf import CSRFMiddleware, cookie_secure
     from app.core.request_context import RequestContextMiddleware
+    from app.core.session_idle import IDLE_SECONDS, SessionIdleMiddleware
     from app.core.security_headers import SecurityHeadersMiddleware
 
     if preload is None:
@@ -364,11 +365,12 @@ def create_app(
     # Middleware: zuletzt hinzugefuegt = aussen. Reihenfolge von aussen nach innen:
     # Request-Kontext -> Sicherheits-Header -> Session-Cookie -> CSRF -> Router.
     app.add_middleware(CSRFMiddleware)
+    app.add_middleware(SessionIdleMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret_key,
         session_cookie="session",
-        max_age=None,  # Browser-Sitzung (wie bisher)
+        max_age=IDLE_SECONDS,  # Leerlauf-Frist, erneuert von SessionIdleMiddleware
         same_site="lax",
         https_only=app.state.cookie_secure,
     )
