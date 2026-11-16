@@ -24,8 +24,8 @@ from logging import getLogger
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.api._common import abort_if_reindexing
-from app.api.errors import ApiError
+from app.api._common import abort_if_reindexing, as_int, require_knowledge
+from app.api.errors import ApiError, fail
 from app.api.schemas.common import Loose, Success
 from app.api.schemas.knowledge import (
     FilterTest,
@@ -74,7 +74,6 @@ from app.rag import model_settings
 router = APIRouter(prefix="/api", tags=["knowledge"])
 logger = getLogger(__name__)
 
-_NOT_FOUND = "Knowledge nicht gefunden"
 
 
 def _knowledge_with_counts(knowledge: dict, user: dict) -> dict:
@@ -122,7 +121,7 @@ def knowledge_create(user: CurrentUser, body: KnowledgeCreate | None = None):
     body = body or KnowledgeCreate()
     name = (body.name or "").strip()
     if not name:
-        raise ApiError(400, "Name erforderlich", success=False)
+        raise fail("Name erforderlich", 400)
 
     from app.rag import models_runtime
 
@@ -134,7 +133,7 @@ def knowledge_create(user: CurrentUser, body: KnowledgeCreate | None = None):
     try:  # Modell laden und Dimension per Probe ermitteln (beim ersten Mal ggf. Download)
         dimension = models_runtime.get_embedder(model_settings.embedding_spec()).dimension
     except models_runtime.ModelLoadError as e:
-        raise ApiError(503, f"Embedding-Modell nicht verfügbar: {e}", success=False)
+        raise fail(f"Embedding-Modell nicht verfügbar: {e}", 503)
 
     knowledge = create_knowledge(name, body.description, dimension)
     # Der Ersteller darf sein Knowledge verwalten (Admins ohnehin alles).
@@ -145,7 +144,7 @@ def knowledge_create(user: CurrentUser, body: KnowledgeCreate | None = None):
         )
     except Exception as e:
         delete_knowledge(knowledge["id"])
-        raise ApiError(500, f"Qdrant Fehler: {e!s}", success=False)
+        raise fail(f"Qdrant Fehler: {e!s}", 500)
     return _knowledge_with_counts(knowledge, user)
 
 
@@ -171,29 +170,23 @@ def _index_payload(knowledge: dict) -> dict:
 @router.get("/knowledge/{knowledge_id:int}/index", response_model=IndexPayload)
 def knowledge_index(knowledge_id: int, user: CurrentUser):
     """Das Inhaltsverzeichnis, das das Modell zur Orientierung bekommt (lesen genuegt)."""
-    knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(user, knowledge_id, "read"):
-        raise ApiError(404, _NOT_FOUND, success=False)
+    knowledge = require_knowledge(knowledge_id, user, "read")
     return _index_payload(knowledge)
 
 
 @router.post("/knowledge/{knowledge_id:int}/index/refresh", response_model=IndexPayload)
 def knowledge_index_refresh(knowledge_id: int, user: CurrentUser):
     """Erzeugt das Inhaltsverzeichnis neu (Schreibrecht)."""
-    knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, _NOT_FOUND, success=False)
+    knowledge = require_knowledge(knowledge_id, user, "write")
     if is_remote(knowledge):
-        raise ApiError(409, "Diese Quelle hat kein Inhaltsverzeichnis", success=False)
+        raise fail("Diese Quelle hat kein Inhaltsverzeichnis", 409)
     refresh_index(knowledge_id)
     return _index_payload(knowledge)
 
 
 @router.get("/knowledge/{knowledge_id:int}", response_model=KnowledgeOut)
 def knowledge_detail(knowledge_id: int, user: CurrentUser):
-    knowledge = get_knowledge(knowledge_id)
-    if not knowledge or not can_access_knowledge(user, knowledge_id, "read"):
-        raise ApiError(404, _NOT_FOUND, success=False)
+    knowledge = require_knowledge(knowledge_id, user, "read")
     return _knowledge_with_counts(knowledge, user)
 
 
@@ -233,11 +226,11 @@ def _parse_external_body(data: dict, stored: dict | None = None):
 
 def _create_external(name: str, body: KnowledgeCreate, user: dict):
     if not role_at_least(user["role"], "admin"):
-        raise ApiError(403, "Externe Quellen legen nur Admins an", success=False)
+        raise fail("Externe Quellen legen nur Admins an", 403)
     try:
         cfg, spec, dimension, _facts = _parse_external_body(body.model_dump())
     except ValueError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     knowledge = create_external_knowledge(name, body.description, spec, dimension, cfg.to_dict())
     add_grant("knowledge", knowledge["id"], "user", user["id"], "write")
     return _knowledge_with_counts(knowledge, user)
@@ -282,7 +275,7 @@ def _sql_error(e: Exception) -> ApiError:
 
 def _create_sql(name: str, body: KnowledgeCreate, user: dict):
     if not role_at_least(user["role"], "admin"):
-        raise ApiError(403, "SQL-Quellen legen nur Admins an", success=False)
+        raise fail("SQL-Quellen legen nur Admins an", 403)
     try:
         cfg = _sql_source_from(body.model_dump())
         _sql_probe(cfg)
@@ -293,15 +286,11 @@ def _create_sql(name: str, body: KnowledgeCreate, user: dict):
     return _knowledge_with_counts(knowledge, user)
 
 
-def _stored_id(raw) -> int | None:
-    return int(raw) if str(raw or "").isdigit() else None
-
-
 @router.post("/knowledge/sql/test", response_model=Loose)
 def knowledge_sql_test(_user: Admin, body: SourceTest | None = None):
     """Verbindungsprobe: Version, Tabellen mit Spalten, Warnung bei Schreibrechten (nichts wird gespeichert)."""
     body = body or SourceTest()
-    kid = _stored_id(body.knowledge_id)
+    kid = as_int(body.knowledge_id)
     stored = get_knowledge(kid) if kid is not None else None
     try:
         cfg = _sql_source_from(body.model_dump(), stored if is_sql(stored) else None)
@@ -314,7 +303,7 @@ def knowledge_sql_test(_user: Admin, body: SourceTest | None = None):
 def _sql_knowledge_or_404(knowledge_id: int):
     k = get_knowledge(knowledge_id)
     if not is_sql(k):
-        raise ApiError(404, "SQL-Quelle nicht gefunden", success=False)
+        raise fail("SQL-Quelle nicht gefunden", 404)
     return k
 
 
@@ -346,7 +335,7 @@ def sql_values_suggest(knowledge_id: int, _user: Admin):
     try:
         return {"success": True, "columns": valueindex.profile(k["source_config"])}
     except ValueError as e:
-        raise ApiError(502, str(e), success=False)
+        raise fail(str(e), 502)
 
 
 @router.put("/knowledge/{knowledge_id:int}/sql-values", response_model=ValuesOverview)
@@ -360,15 +349,15 @@ def sql_values_save(knowledge_id: int, _user: Admin, body: ValuesColumns | None 
     blocked = {t.lower(): {c.lower() for c in cols} for t, cols in cfg.blocked_columns.items()}
     for table, columns in chosen.items():
         if allowed and table.lower() not in allowed:
-            raise ApiError(400, f"Die Tabelle {table} ist nicht freigegeben", success=False)
+            raise fail(f"Die Tabelle {table} ist nicht freigegeben", 400)
         for column in columns:
             if column.lower() in blocked.get(table.lower(), set()):
-                raise ApiError(400, f"Die Spalte {table}.{column} ist gesperrt", success=False)
+                raise fail(f"Die Spalte {table}.{column} ist gesperrt", 400)
     updated = sqlcfg.SqlConfig(**{**cfg.__dict__, "value_columns": chosen})
     try:
         sqlcfg.validate(updated)
     except sqlcfg.SqlConfigError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     update_sql_source(knowledge_id, updated.to_dict())
     return _values_overview(get_knowledge(knowledge_id))
 
@@ -379,9 +368,9 @@ def sql_values_build(knowledge_id: int, _user: Admin):
 
     k = _sql_knowledge_or_404(knowledge_id)
     if not sqlcfg.parse_config(k["source_config"]).value_columns:
-        raise ApiError(400, "Erst Spalten auswählen und speichern", success=False)
+        raise fail("Erst Spalten auswählen und speichern", 400)
     if not valueindex.start_build(knowledge_id, k["source_config"]):
-        raise ApiError(409, "Der Aufbau läuft bereits", success=False)
+        raise fail("Der Aufbau läuft bereits", 409)
     return {"success": True, **valueindex.status(knowledge_id)}
 
 
@@ -409,7 +398,7 @@ def sql_values_search(knowledge_id: int, _user: Admin, body: ValuesSearch | None
 
 def _with_stored_key(cfg, knowledge_id) -> object:
     """Leeres Key-Feld: gespeicherten Key nehmen, aber nie fuer eine andere Adresse."""
-    kid = _stored_id(knowledge_id) if knowledge_id not in (None, "", 0) else None
+    kid = as_int(knowledge_id) if knowledge_id not in (None, "", 0) else None
     if kid is None:
         return cfg
     stored = get_knowledge(kid)
@@ -428,7 +417,7 @@ def knowledge_external_test(_user: Admin, body: SourceTest | None = None):
     try:
         facts = sources.probe_source(cfg)
     except sources.SourceError as e:
-        raise ApiError(502, str(e), success=False)
+        raise fail(str(e), 502)
     return {"success": True, **facts}
 
 
@@ -461,9 +450,9 @@ def knowledge_external_filter_test(_user: Admin, body: FilterTest | None = None)
         finally:
             client.close()
     except sources.SourceError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     except Exception as e:
-        raise ApiError(502, f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300], success=False)
+        raise fail(f"Abfrage fehlgeschlagen: {type(e).__name__}: {e}"[:300], 502)
     texts = cfg.fields["text"]
     return {
         "success": True,
@@ -475,14 +464,12 @@ def knowledge_external_filter_test(_user: Admin, body: FilterTest | None = None)
 
 @router.patch("/knowledge/{knowledge_id:int}", response_model=KnowledgeOut)
 def knowledge_update(knowledge_id: int, user: CurrentUser, body: KnowledgeUpdate | None = None):
-    if not can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, _NOT_FOUND, success=False)
+    current = require_knowledge(knowledge_id, user, "write")
     abort_if_reindexing(knowledge_id)
     data = body.model_dump(exclude_unset=True) if body else {}
-    current = get_knowledge(knowledge_id)
     if is_external(current) and ("source" in data or "embedding" in data):
         if not role_at_least(user["role"], "admin"):
-            raise ApiError(403, "Nur Admins ändern die Quelle", success=False)
+            raise fail("Nur Admins ändern die Quelle", 403)
         try:
             merged = {
                 "source": data.get("source")
@@ -491,11 +478,11 @@ def knowledge_update(knowledge_id: int, user: CurrentUser, body: KnowledgeUpdate
             }
             cfg, spec, dimension, _f = _parse_external_body(merged, stored=current)
         except ValueError as e:
-            raise ApiError(400, str(e), success=False)
+            raise fail(str(e), 400)
         update_external_source(knowledge_id, spec, dimension, cfg.to_dict())
     if is_sql(current) and "source" in data:
         if not role_at_least(user["role"], "admin"):
-            raise ApiError(403, "Nur Admins ändern die Quelle", success=False)
+            raise fail("Nur Admins ändern die Quelle", 403)
         try:
             cfg = _sql_source_from(data, current)
             _sql_probe(cfg)
@@ -507,7 +494,7 @@ def knowledge_update(knowledge_id: int, user: CurrentUser, body: KnowledgeUpdate
         valueindex.prune(knowledge_id, cfg.to_dict())  # bereits gespeicherte Werte gesperrter Spalten entfernen
     knowledge = update_knowledge(knowledge_id, data.get("name"), data.get("description"))
     if not knowledge:
-        raise ApiError(404, _NOT_FOUND, success=False)
+        raise fail("Knowledge nicht gefunden", 404)
     if not is_remote(knowledge):
         refresh_index(knowledge_id)  # Name steht im Verzeichnis
     return _knowledge_with_counts(knowledge, user)
@@ -515,11 +502,10 @@ def knowledge_update(knowledge_id: int, user: CurrentUser, body: KnowledgeUpdate
 
 @router.delete("/knowledge/{knowledge_id:int}", response_model=Success)
 def knowledge_delete(knowledge_id: int, user: CurrentUser):
-    if not can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, _NOT_FOUND, success=False)
+    require_knowledge(knowledge_id, user, "write")
     status = runtime.state.ingestion_status
     if status["is_ingesting"] and status.get("knowledge_id") == knowledge_id:
-        raise ApiError(409, "Ingestion läuft gerade", success=False)
+        raise fail("Ingestion läuft gerade", 409)
     abort_if_reindexing(knowledge_id)
 
     knowledge = delete_knowledge(knowledge_id)
@@ -548,10 +534,8 @@ def knowledge_delete(knowledge_id: int, user: CurrentUser):
     status_code=202,
 )
 def knowledge_reindex(knowledge_id: int, user: CurrentUser):
-    if not can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, _NOT_FOUND, success=False)
-    if is_remote(get_knowledge(knowledge_id)):
-        raise ApiError(409, "Diese Quelle ist schreibgeschützt", success=False)
+    if is_remote(require_knowledge(knowledge_id, user, "write")):
+        raise fail("Diese Quelle ist schreibgeschützt", 409)
     return _start_reindex([knowledge_id])
 
 
@@ -572,11 +556,11 @@ def _start_reindex(ids: list[int]) -> dict:
     client = runtime.state.client
     sparse = runtime.state.sparse_embeddings
     if not client or not sparse:
-        raise ApiError(503, "RAG-System wird noch initialisiert", success=False)
+        raise fail("RAG-System wird noch initialisiert", 503)
     if runtime.state.ingestion_status["is_ingesting"]:
-        raise ApiError(409, "Ingestion läuft gerade", success=False)
+        raise fail("Ingestion läuft gerade", 409)
     try:
         reindex.start(ids, client, sparse)
     except reindex.ReindexBusy as e:
-        raise ApiError(409, str(e), success=False)
+        raise fail(str(e), 409)
     return {"success": True, "started": True, "knowledge_ids": ids}

@@ -23,7 +23,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.api.errors import ApiError
+from app.api.errors import fail
 from app.auth.auth import CurrentUser
 from app.ingest import reindex
 
@@ -31,7 +31,7 @@ from app.ingest import reindex
 def abort_if_reindexing(knowledge_id: int) -> None:
     """409, solange das Knowledge neu indexiert wird (Schreibzugriffe warten)."""
     if reindex.is_locked(knowledge_id):
-        raise ApiError(409, "Das Knowledge wird gerade neu indexiert", success=False)
+        raise fail("Das Knowledge wird gerade neu indexiert", 409)
 
 
 class Upload:
@@ -49,40 +49,55 @@ class Upload:
             shutil.copyfileobj(self._upload.file, target)
 
 
-def _as_int(raw) -> int | None:
+def as_int(raw) -> int | None:
+    """Ganze Zahl aus Text oder Zahl; alles andere (leer, negativ, Text) ergibt ``None``."""
     return int(raw) if str(raw or "").isdigit() else None
+
+
+def public_base_url(request, configured: str | None = None) -> str:
+    """Oeffentliche Adresse der App: die konfigurierte, sonst die des Requests (ohne "/" am Ende)."""
+    return configured or str(request.base_url).rstrip("/")
+
+
+def require_knowledge(knowledge_id: int | None, user: dict, level: str) -> dict:
+    """Bereich laden und Zugriff pruefen (``level``: "read" oder "write"); sonst 404, damit
+    nicht verraten wird, ob es ihn gibt. ``None`` steht fuer den Standard-Bereich."""
+    from app.auth.access import can_access_knowledge
+    from app.knowledge.service import get_knowledge
+
+    knowledge = get_knowledge(knowledge_id)
+    if knowledge is None or not can_access_knowledge(user, knowledge["id"], level):
+        raise fail("Knowledge nicht gefunden", 404)
+    return knowledge
 
 
 async def _requested_knowledge_id(request) -> int | None:
     """``knowledge_id`` aus Query, Formular oder JSON-Body (in dieser Reihenfolge)."""
-    kid = _as_int(request.query_params.get("knowledge_id"))
+    kid = as_int(request.query_params.get("knowledge_id"))
     content_type = request.headers.get("content-type", "")
     if kid is None and (
         content_type.startswith("multipart/form-data")
         or content_type.startswith("application/x-www-form-urlencoded")
     ):
-        kid = _as_int((await request.form()).get("knowledge_id"))
+        kid = as_int((await request.form()).get("knowledge_id"))
     if kid is None and content_type.startswith("application/json"):
         try:
             body = await request.json()
         except ValueError:
             body = None
         if isinstance(body, dict):
-            kid = _as_int(body.get("knowledge_id"))
+            kid = as_int(body.get("knowledge_id"))
     return kid
 
 
 def _check_knowledge(kid: int | None, user: dict, method: str, path: str) -> dict:
-    from app.auth.access import can_access_knowledge
-    from app.knowledge.service import get_knowledge, is_remote
+    from app.knowledge.service import is_remote
 
-    knowledge = get_knowledge(kid)
     # Lesende Aufrufe brauchen Lese-, aendernde Schreibrechte auf dieses Knowledge.
     level = "read" if method in ("GET", "HEAD") else "write"
-    if knowledge is None or not can_access_knowledge(user, knowledge["id"], level):
-        raise ApiError(404, "Knowledge nicht gefunden", success=False)
+    knowledge = require_knowledge(kid, user, level)
     if is_remote(knowledge) and (level == "write" or path.startswith("/api/vectordb")):
-        raise ApiError(409, "Diese Quelle ist schreibgeschützt", success=False)
+        raise fail("Diese Quelle ist schreibgeschützt", 409)
     if level == "write":
         abort_if_reindexing(knowledge["id"])
     return knowledge

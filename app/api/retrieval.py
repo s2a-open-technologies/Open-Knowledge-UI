@@ -22,7 +22,7 @@ from logging import getLogger
 
 from fastapi import APIRouter
 
-from app.api.errors import ApiError
+from app.api.errors import fail
 from app.api.schemas.common import Success
 from app.api.schemas.retrieval import (
     Defaults,
@@ -47,10 +47,6 @@ from app.rag.helper import make_helper
 router = APIRouter(prefix="/api", tags=["retrieval"])
 
 logger = getLogger(__name__)
-
-
-def _error(message: str, status: int) -> ApiError:
-    return ApiError(status, message, success=False)
 
 
 # =============================================================================
@@ -96,10 +92,10 @@ def knowledge_set_profile(knowledge_id: int, user: CurrentUser, body: ProfileAss
     """Wechselt das Profil eines Knowledge (``profile_id: null`` = Standard).
     Wirkt sofort; die gespeicherten Vektoren bleiben unveraendert."""
     if not can_access_knowledge(user, knowledge_id, "write"):
-        raise _error("Knowledge nicht gefunden", 404)
+        raise fail("Knowledge nicht gefunden", 404)
     profile_id = body.profile_id if body else None
     if profile_id is not None and not isinstance(profile_id, int):
-        raise _error("Ungültige Profil-ID", 400)
+        raise fail("Ungültige Profil-ID", 400)
     profiles.set_knowledge_profile(knowledge_id, profile_id)
     return {"success": True, "profile_id": profile_id}
 
@@ -121,7 +117,7 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
     data = (body or RetrievalTestRequest()).model_dump()
     question = (data.get("question") or "").strip()
     if not question:
-        raise _error("Frage erforderlich", 400)
+        raise fail("Frage erforderlich", 400)
 
     readable = accessible_knowledge_ids(user, "read")
     wanted = data.get("knowledge_ids") or sorted(readable)
@@ -131,17 +127,17 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
         if k["id"] in readable and k["id"] in set(wanted) and k.get("kind") != "sql"
     ]
     if not targets:
-        raise _error("Kein lesbares Knowledge ausgewählt", 400)
+        raise fail("Kein lesbares Knowledge ausgewählt", 400)
 
     override = None
     if data.get("config") is not None:
         if not role_at_least(user["role"], "admin"):
-            raise _error("Entwürfe testen darf nur ein Admin", 403)
+            raise fail("Entwürfe testen darf nur ein Admin", 403)
         override = profiles.validate_config(data["config"])
     elif data.get("profile_id") is not None:
         found = profiles.get_profile(int(data["profile_id"]))
         if not found:
-            raise _error("Profil nicht gefunden", 404)
+            raise fail("Profil nicht gefunden", 404)
         override = found["config"]
 
     # Helfer-LLM fuers Query-Enhancement
@@ -158,7 +154,7 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
     client = runtime.state.client
     sparse = runtime.state.sparse_embeddings
     if not (client and sparse):
-        raise _error("RAG-System wird noch initialisiert. Bitte kurz warten.", 503)
+        raise fail("RAG-System wird noch initialisiert. Bitte kurz warten.", 503)
 
     results = []
     for k in targets:
@@ -167,7 +163,7 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
         try:
             dense = model_settings.embedder_for(k)
         except models_runtime.ModelLoadError as e:
-            raise _error(
+            raise fail(
                 f"Embedding-Modell von „{k['name']}“ nicht verfügbar: {e}", 503
             )
         run_client, collection, layout = client, k["collection_name"], None
@@ -178,7 +174,7 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
             try:
                 run_client = sources.connect(src)
             except sources.SourceError as e:
-                raise _error(f"„{k['name']}“: {e}", 502)
+                raise fail(f"„{k['name']}“: {e}", 502)
             collection, layout = src.collection, sources.layout_for(src)
         try:
             hits = pipeline.run(
@@ -199,7 +195,7 @@ def retrieval_test(user: CurrentUser, body: RetrievalTestRequest | None = None):
             )
         except Exception as e:
             logger.exception("Retrieval-Test fehlgeschlagen")
-            raise _error(f"Pipeline-Fehler: {type(e).__name__}: {e}", 500)
+            raise fail(f"Pipeline-Fehler: {type(e).__name__}: {e}", 500)
         results.append(
             {
                 "knowledge_id": k["id"],

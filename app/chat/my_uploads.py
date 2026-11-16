@@ -29,6 +29,7 @@ from qdrant_client import models as qdrant_models
 
 from app.chat import attachments
 from app.core.database_service import get_db_service
+from app.core.errors import DomainError
 from app.core.models import ChatAttachment, ChatSession, UserDocument
 from app.ingest.tables import delete_tables
 from app.knowledge.files import delete_associated_file
@@ -41,13 +42,8 @@ logger = getLogger(__name__)
 MARKDOWN_ROOT = Path("./data/markdown")
 
 
-class UploadError(Exception):
+class UploadError(DomainError):
     """Fachlicher Fehler mit HTTP-Status fuer die API."""
-
-    def __init__(self, message: str, status: int = 400):
-        super().__init__(message)
-        self.message = message
-        self.status = status
 
 
 def safe_markdown(path_str: str | None, root: Path) -> Path | None:

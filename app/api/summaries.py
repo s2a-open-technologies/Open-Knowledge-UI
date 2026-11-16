@@ -25,7 +25,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, Response
 
-from app.api.errors import ApiError
+from app.api.errors import ApiError, fail
 from app.api.schemas.common import Success
 from app.api.schemas.summaries import SummaryContent, SummaryFile, SummarySave
 from app.auth.auth import CurrentUser
@@ -127,13 +127,13 @@ def read_summary(filename: str, user: CurrentUser):
 def save_summary(filename: str, user: CurrentUser, body: SummarySave | None = None):
     file_path = _safe_summary_path(user, filename)
     if file_path is None:
-        raise ApiError(400, "Ungültige Datei", success=False)
+        raise fail("Ungültige Datei", 400)
 
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text((body or SummarySave()).content, encoding="utf-8")
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     return Success()
 
 
@@ -141,12 +141,12 @@ def save_summary(filename: str, user: CurrentUser, body: SummarySave | None = No
 def delete_summary(filename: str, user: CurrentUser):
     file_path = _safe_summary_path(user, filename)
     if file_path is None:
-        raise ApiError(400, "Ungültige Datei", success=False)
+        raise fail("Ungültige Datei", 400)
 
     try:
         if file_path.exists():
             file_path.unlink()
         get_db_service().delete_summary_by_filename(filename, user_id=user["id"])
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     return Success()

@@ -26,6 +26,7 @@ from werkzeug.security import generate_password_hash
 
 from app.auth.users import ROLES
 from app.core.database_service import get_db_service
+from app.core.errors import DomainError
 from app.core.models import (
     AuditLog,
     ChatAttachment,
@@ -44,13 +45,8 @@ MIN_PASSWORD_LENGTH = 4
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9._@-]{3,80}$")
 
 
-class AdminError(Exception):
+class AdminError(DomainError):
     """Fachlicher Fehler mit HTTP-Status fuer die API."""
-
-    def __init__(self, message: str, status: int = 400):
-        super().__init__(message)
-        self.message = message
-        self.status = status
 
 
 def _user_row(u: User, group_ids: list[int]) -> dict:

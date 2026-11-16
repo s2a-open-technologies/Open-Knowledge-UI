@@ -22,7 +22,7 @@ from logging import getLogger
 
 from fastapi import APIRouter
 
-from app.api.errors import ApiError
+from app.api.errors import fail
 from app.api.schemas.auth import ChangePasswordRequest
 from app.api.schemas.common import Success
 from app.api.schemas.users import (
@@ -148,19 +148,19 @@ def _grants(body: AccessUpdate) -> list[dict]:
 @router.get("/knowledge/{knowledge_id}/access", response_model=Access)
 def knowledge_access_get(knowledge_id: int, user: Editor):
     if not access.can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, "Knowledge nicht gefunden", success=False)
+        raise fail("Knowledge nicht gefunden", 404)
     return access.get_access("knowledge", knowledge_id)
 
 
 @router.put("/knowledge/{knowledge_id}/access", response_model=Access)
 def knowledge_access_set(knowledge_id: int, user: Editor, body: AccessUpdate | None = None):
     if not access.can_access_knowledge(user, knowledge_id, "write"):
-        raise ApiError(404, "Knowledge nicht gefunden", success=False)
+        raise fail("Knowledge nicht gefunden", 404)
     body = body or AccessUpdate()
     try:
         access.set_access("knowledge", knowledge_id, body.is_public, _grants(body))
     except ValueError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     # Wer ein Knowledge verwaltet, soll sich beim Speichern nicht selbst
     # aussperren (z. B. Zeile in der Liste entfernt): Schreibrecht bleibt erhalten.
     if not access.can_access_knowledge(user, knowledge_id, "write"):
@@ -173,7 +173,7 @@ def model_access_get(_user: Admin, ref: str = ""):
     try:
         rid = access.model_resource_id(ref)
     except ValueError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     if rid is None:
         # Nie angepasstes Basismodell: oeffentlich, ohne Grants.
         return {"is_public": True, "grants": []}
@@ -189,9 +189,9 @@ def model_access_set(_user: Admin, body: ModelAccessUpdate | None = None):
             # Freigabe braucht eine Konfigurationszeile; sie entsteht hier.
             saved = models_store.save_model_config(body.ref, {"is_public": body.is_public})
             if not saved:
-                raise ApiError(404, "Modell oder Connection nicht gefunden", success=False)
+                raise fail("Modell oder Connection nicht gefunden", 404)
             rid = saved["id"]
         access.set_access("model", rid, body.is_public, _grants(body))
     except ValueError as e:
-        raise ApiError(400, str(e), success=False)
+        raise fail(str(e), 400)
     return access.get_access("model", rid)

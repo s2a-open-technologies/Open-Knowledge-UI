@@ -23,7 +23,8 @@ from logging import getLogger
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.api.errors import ApiError
+from app.api._common import as_int, public_base_url
+from app.api.errors import fail
 from app.api.schemas.admin import (
     AuditEvents,
     AuthTest,
@@ -48,25 +49,15 @@ router = APIRouter(prefix="/api", tags=["admin"])
 logger = getLogger(__name__)
 
 
-def _error(message: str, status: int) -> ApiError:
-    return ApiError(status, message, success=False)
-
-
 @router.get("/admin/audit", response_model=AuditEvents)
 def admin_audit(_user: Admin, limit: str | None = None, offset: str | None = None, action: str | None = None):
     """Neueste Protokolleinträge (Anmeldungen, Verwaltung, Freigaben)."""
     from app.auth import audit
 
-    def _int(raw):
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            return None
-
     return {
         "events": audit.list_events(
-            limit=_int(limit) or 100,
-            offset=_int(offset) or 0,
+            limit=as_int(limit) or 100,
+            offset=as_int(offset) or 0,
             action=action or None,
         )
     }
@@ -260,17 +251,17 @@ def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
         emb = _parse_spec(data["embedding"]) if "embedding" in data else None
         rr = _parse_spec(data["reranker"]) if "reranker" in data else None
     except (ValueError, TypeError) as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
 
     values: dict[str, str] = {}
     task_values, error = _validate_tasks(data.get("tasks") or {})
     if error:
-        raise _error(error, 400)
+        raise fail(error, 400)
     values.update(task_values)
     ingest = data.get("ingest") or {}
     for field, raw in ingest.items():
         if field not in INGEST_FIELDS:
-            raise _error(f"Unbekannte Einstellung: {field}", 400)
+            raise fail(f"Unbekannte Einstellung: {field}", 400)
         key, kind, bounds = INGEST_FIELDS[field]
         if kind is bool:
             values[key] = "true" if bool(raw) else "false"
@@ -278,22 +269,22 @@ def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
             from app.rag import sparse as sparse_lang
 
             if str(raw) not in sparse_lang.supported_languages():
-                raise _error(f"{field}: unbekannte Sprache", 400)
+                raise fail(f"{field}: unbekannte Sprache", 400)
             values[key] = str(raw)
         else:
             try:
                 number = int(raw)
             except (TypeError, ValueError):
-                raise _error(f"{field}: ganze Zahl erwartet", 400)
+                raise fail(f"{field}: ganze Zahl erwartet", 400)
             if not bounds[0] <= number <= bounds[1]:
-                raise _error(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
+                raise fail(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
             values[key] = str(number)
     size = int(values.get("INGEST_CHUNK_SIZE") or _ingest_values()["chunk_size"])
     overlap = int(
         values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"]
     )
     if overlap >= size:
-        raise _error("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
+        raise fail("Die Überlappung muss kleiner als die Chunk-Größe sein", 400)
 
     with get_db_service().session_scope(commit=False) as db:
         SettingsService(db).set_batch(values)
@@ -315,11 +306,11 @@ def embedding_test(_user: Admin, body: ModelTest | None = None):
     body = body or ModelTest()
     kind = body.kind
     if kind not in ("embedding", "reranker"):
-        raise _error("kind muss embedding oder reranker sein", 400)
+        raise fail("kind muss embedding oder reranker sein", 400)
     try:
         spec = _parse_spec(body.spec)
     except (ValueError, TypeError) as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     started = time.time()
     try:
         if kind == "embedding":
@@ -332,7 +323,7 @@ def embedding_test(_user: Admin, body: ModelTest | None = None):
             )
             result = {"ranking_ok": scores[0] > scores[1]}
     except models_runtime.ModelLoadError as e:
-        raise _error(str(e), 502)
+        raise fail(str(e), 502)
     return {"success": True, "seconds": round(time.time() - started, 1), **result}
 
 
@@ -344,10 +335,10 @@ def embedding_remote_models(
     from app.rag import endpoints
 
     conn = store.get_connection(
-        int(connection_id) if str(connection_id or "").isdigit() else 0, with_key=True
+        as_int(connection_id) or 0, with_key=True
     )
     if not conn:
-        raise _error("Connection nicht gefunden", 404)
+        raise fail("Connection nicht gefunden", 404)
     try:
         if conn.get("kind", "llm") == "llm":
             return registry.fetch_remote_models(conn)
@@ -356,7 +347,7 @@ def embedding_remote_models(
             m["id"] for m in endpoints.describe(conn) if not wanted or wanted in m["capabilities"]
         ]
     except (registry.RemoteModelsError, endpoints.EndpointError) as e:
-        raise _error(str(e), 502)
+        raise fail(str(e), 502)
 
 
 class _FormSettings:
@@ -495,7 +486,7 @@ def tools_save(_user: Admin, body: ToolsSave | None = None):
             elif (pii.get("api_key") or "").strip():
                 values["PII_FILTER_API_KEY"] = pii["api_key"].strip()
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
 
     if values:
         with get_db_service().session_scope(commit=False) as db:
@@ -518,7 +509,7 @@ def tools_test(_user: Admin, body: ToolsTest | None = None):
     kind = body.kind
     values_in = body.values or {}
     if kind not in ("stt", "search", "pii"):
-        raise _error("kind muss stt, search oder pii sein", 400)
+        raise fail("kind muss stt, search oder pii sein", 400)
 
     with get_db_service().session_scope(commit=False) as db:
         saved = SettingsService(db)
@@ -562,11 +553,11 @@ def tools_test(_user: Admin, body: ToolsTest | None = None):
             try:
                 reject_link_local(store.normalize_base_url(raw.strip()))
             except BlockedTargetError as e:
-                raise _error(str(e), 400)
+                raise fail(str(e), 400)
     try:
         result = test(form)
     except Exception as e:
-        raise _error(f"Unerwarteter Fehler: {e}", 500)
+        raise fail(f"Unerwarteter Fehler: {e}", 500)
     return JSONResponse(result, status_code=200 if result.get("success") else 502)
 
 
@@ -575,7 +566,7 @@ def _auth_view(request: Request) -> dict:
 
     cfg = auth_external.load_config()
     pub = auth_external.public_config(cfg)
-    base = cfg["base_url"] or str(request.base_url).rstrip("/")
+    base = public_base_url(request, cfg["base_url"])
     pub["redirect_uri"] = f"{base}/api/auth/oidc/callback"
     return pub
 
@@ -593,7 +584,7 @@ def auth_save(request: Request, _user: Admin, body: SettingsPatch | None = None)
     try:
         auth_external.save_config(body.model_dump() if body else {})
     except auth_external.AuthConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     return _auth_view(request)
 
 
@@ -609,7 +600,7 @@ def auth_test(request: Request, _user: Admin, body: AuthTest | None = None):
     body = body or AuthTest()
     kind = body.kind
     if kind not in ("ldap", "oidc"):
-        raise _error("kind muss ldap oder oidc sein", 400)
+        raise fail("kind muss ldap oder oidc sein", 400)
     saved = auth_external.load_config()
     current = saved[kind]
     incoming = dict(body.values or {})
@@ -625,7 +616,7 @@ def auth_test(request: Request, _user: Admin, body: AuthTest | None = None):
             else {**current, **{s: "" for s in auth_external.SECRET_FIELDS[kind]}},
         )
     except auth_external.AuthConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     try:
         if kind == "ldap":
             result = auth_ldap.probe_ldap(
@@ -635,10 +626,10 @@ def auth_test(request: Request, _user: Admin, body: AuthTest | None = None):
             )
         else:
             result = auth_oidc.probe_oidc(
-                merged, saved["base_url"] or str(request.base_url).rstrip("/")
+                merged, public_base_url(request, saved["base_url"])
             )
     except (auth_ldap.LdapError, auth_oidc.OidcError) as e:
-        raise _error(str(e), 502)
+        raise fail(str(e), 502)
     return {"success": True, **result}
 
 
@@ -657,7 +648,7 @@ def retention_save(_user: Admin, body: SettingsPatch | None = None):
     try:
         retention.save_settings(body.model_dump() if body else {})
     except retention.RetentionConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     return retention.load_settings()
 
 
@@ -677,7 +668,7 @@ def compaction_save(_user: Admin, body: SettingsPatch | None = None):
     try:
         compaction.save_settings(body.model_dump() if body else {})
     except compaction.CompactionConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen das alte Budget
     return compaction.load_settings()
 
@@ -698,7 +689,7 @@ def agent_behavior_save(_user: Admin, body: SettingsPatch | None = None):
     try:
         behavior.save(body.model_dump() if body else {})
     except behavior.BehaviorConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     registry.clear_caches()  # laufende Agenten tragen den alten Prompt
     return behavior.load()
 
@@ -729,5 +720,5 @@ def tool_worker_save(_user: Admin, body: SettingsPatch | None = None):
     try:
         worker_config.save(body.model_dump() if body else {})
     except worker_config.ConfigError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     return _tool_worker_view()

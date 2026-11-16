@@ -38,6 +38,7 @@ from pydantic import (
 )
 
 from app.core.database_service import get_db_service
+from app.core.errors import DomainError
 from app.core.models import Knowledge, RetrievalProfile
 from app.core.settings_service import SettingsService
 
@@ -116,13 +117,8 @@ class ProfileConfig(_Section):
     neighbors: int = Field(0, ge=0, le=3)
 
 
-class ProfileError(Exception):
+class ProfileError(DomainError):
     """Fachlicher Fehler mit HTTP-Status fuer die API."""
-
-    def __init__(self, message: str, status: int = 400):
-        super().__init__(message)
-        self.message = message
-        self.status = status
 
 
 def validate_config(raw: dict | None) -> dict:

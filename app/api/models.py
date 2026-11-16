@@ -23,7 +23,7 @@ from logging import getLogger
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.api.errors import ApiError
+from app.api.errors import fail
 from app.api.schemas.common import Loose, Success
 from app.api.schemas.models import (
     CloneRequest,
@@ -49,10 +49,6 @@ router = APIRouter(prefix="/api", tags=["models"])
 logger = getLogger(__name__)
 
 
-def _error(message: str, status: int) -> ApiError:
-    return ApiError(status, message, success=False)
-
-
 @router.get("/connections", response_model=list[Connection])
 def connections_list(_user: Admin):
     return store.list_connections()
@@ -64,21 +60,21 @@ def connections_create(_user: Admin, body: ConnectionCreate | None = None):
     name = (body.name or "").strip()
     base_url = store.normalize_base_url(body.base_url or "")
     if not name or not base_url:
-        raise _error("Name und Base-URL sind erforderlich", 400)
+        raise fail("Name und Base-URL sind erforderlich", 400)
     if not base_url.startswith(("http://", "https://")):
-        raise _error("Base-URL muss mit http:// oder https:// beginnen", 400)
+        raise fail("Base-URL muss mit http:// oder https:// beginnen", 400)
 
     try:
         reject_link_local(base_url)
     except BlockedTargetError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
 
     try:
         created = store.create_connection(
             name, base_url, body.api_key or "", body.enabled, kind=body.kind or "llm"
         )
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     registry.clear_caches()
     return created
 
@@ -88,12 +84,12 @@ def connections_update(connection_id: int, _user: Admin, body: ConnectionUpdate 
     body = body or ConnectionUpdate()
     base_url = body.base_url
     if base_url and not store.normalize_base_url(base_url).startswith(("http://", "https://")):
-        raise _error("Base-URL muss mit http:// oder https:// beginnen", 400)
+        raise fail("Base-URL muss mit http:// oder https:// beginnen", 400)
     if base_url:
         try:
             reject_link_local(store.normalize_base_url(base_url))
         except BlockedTargetError as e:
-            raise _error(str(e), 400)
+            raise fail(str(e), 400)
 
     # Wird die URL geaendert, muss der Key neu eingegeben werden (siehe oben).
     current = store.get_connection(connection_id)
@@ -104,7 +100,7 @@ def connections_update(connection_id: int, _user: Admin, body: ConnectionUpdate 
         and current["has_key"]
         and not (body.api_key or "").strip()
     ):
-        raise _error("Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400)
+        raise fail("Bei geänderter Base-URL bitte den API-Key erneut eingeben.", 400)
 
     updated = store.update_connection(
         connection_id,
@@ -115,7 +111,7 @@ def connections_update(connection_id: int, _user: Admin, body: ConnectionUpdate 
         kind=body.kind,
     )
     if not updated:
-        raise _error("Connection nicht gefunden", 404)
+        raise fail("Connection nicht gefunden", 404)
     registry.clear_caches()
     return updated
 
@@ -123,7 +119,7 @@ def connections_update(connection_id: int, _user: Admin, body: ConnectionUpdate 
 @router.delete("/connections/{connection_id:int}", response_model=Success)
 def connections_delete(connection_id: int, _user: Admin):
     if not store.delete_connection(connection_id):
-        raise _error("Connection nicht gefunden", 404)
+        raise fail("Connection nicht gefunden", 404)
     registry.clear_caches()
     return Success()
 
@@ -135,7 +131,7 @@ def connections_test(_user: Admin, body: ConnectionTest | None = None):
     body = body or ConnectionTest()
     base_url = store.normalize_base_url(body.base_url or "")
     if not base_url:
-        raise _error("Base-URL erforderlich", 400)
+        raise fail("Base-URL erforderlich", 400)
 
     api_key = (body.api_key or "").strip()
     connection_id = body.id
@@ -148,7 +144,7 @@ def connections_test(_user: Admin, body: ConnectionTest | None = None):
 
     kind = body.kind or "llm"
     if kind not in store.CONNECTION_KINDS:
-        raise _error("Unbekannter Typ", 400)
+        raise fail("Unbekannter Typ", 400)
     connection = {
         "id": int(connection_id or 0),
         "kind": kind,
@@ -205,7 +201,7 @@ def models_config_save(_user: Admin, body: ModelConfigSave | None = None):
         from app.agent.tools.web_access import web_search_available
 
         if not web_search_available():
-            raise _error(
+            raise fail(
                 "Die Websuche braucht SearXNG (Administration › Tools) und entweder einen aktiven "
                 "PII-Filter oder die ausdrückliche Freigabe „Auch ohne PII-Filter erlauben“. "
                 "Suchanfragen verlassen das System.",
@@ -214,9 +210,9 @@ def models_config_save(_user: Admin, body: ModelConfigSave | None = None):
     try:
         saved = store.save_model_config(ref, data)
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     if not saved:
-        raise _error("Modell oder Connection nicht gefunden", 404)
+        raise fail("Modell oder Connection nicht gefunden", 404)
     return saved
 
 
@@ -225,7 +221,7 @@ def models_config_delete(_user: Admin, ref: str = ""):
     try:
         deleted = store.delete_model_config(ref)
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     # Ein nie angepasstes Basismodell hat nichts zurueckzusetzen: auch ok.
     return {"success": True, "deleted": deleted}
 
@@ -235,13 +231,13 @@ def models_clone(_user: Admin, body: CloneRequest | None = None):
     body = body or CloneRequest()
     name = (body.name or "").strip()
     if not name:
-        raise _error("Name erforderlich", 400)
+        raise fail("Name erforderlich", 400)
     try:
         clone = store.clone_model(body.ref, name)
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     if not clone:
-        raise _error("Modell oder Connection nicht gefunden", 404)
+        raise fail("Modell oder Connection nicht gefunden", 404)
     return clone
 
 
@@ -251,6 +247,6 @@ def models_set_default(_user: Admin, body: DefaultModel | None = None):
     try:
         store.parse_ref(ref)
     except ValueError as e:
-        raise _error(str(e), 400)
+        raise fail(str(e), 400)
     store.set_default_model(ref)
     return {"success": True, "default": ref}

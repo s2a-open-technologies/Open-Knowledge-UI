@@ -22,7 +22,8 @@
   success=False)`` ergibt ``{"error": ..., "success": false}`` mit Status 404.
 * ``HTTPException`` (z. B. 404/405 von Starlette) -> ``{"error": detail}``.
 * Validierungsfehler der Pydantic-Modelle -> 422 mit lesbarer Meldung und den Feldern.
-* ``AdminError``/``ProfileError`` der Dienste -> ``{"success": false, "error": ...}`` mit ihrem Status.
+* ``DomainError`` der Dienste (``AdminError``, ``ProfileError``, ``UploadError``) ->
+  ``{"success": false, "error": ...}`` mit ihrem Status.
 """
 
 from fastapi import FastAPI, Request
@@ -36,6 +37,11 @@ class ApiError(Exception):
         super().__init__(error)
         self.status = status
         self.payload = {**extra, "error": error}
+
+
+def fail(message: str, status: int = 400) -> ApiError:
+    """Fachlicher Fehler mit ``success: false`` (``raise fail("Name fehlt", 400)``)."""
+    return ApiError(status, message, success=False)
 
 
 def _field(loc) -> str:
@@ -96,14 +102,11 @@ def install(app: FastAPI) -> None:
         return JSONResponse(exc.payload, status_code=exc.status)
 
     # Fachliche Fehler der Dienste (Meldung + Status)
-    from app.auth.user_admin import AdminError
-    from app.rag.profiles import ProfileError
+    from app.core.errors import DomainError
 
-    for domain_error in (AdminError, ProfileError):
-
-        @app.exception_handler(domain_error)
-        async def domain(_request: Request, exc):
-            return JSONResponse({"success": False, "error": exc.message}, status_code=exc.status)
+    @app.exception_handler(DomainError)
+    async def domain(_request: Request, exc: DomainError):
+        return JSONResponse({"success": False, "error": exc.message}, status_code=exc.status)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError):

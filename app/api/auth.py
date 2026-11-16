@@ -23,7 +23,8 @@ from logging import getLogger
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 
-from app.api.errors import ApiError
+from app.api._common import public_base_url
+from app.api.errors import ApiError, fail
 from app.api.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
@@ -72,7 +73,7 @@ def auth_login(request: Request, body: LoginRequest | None = None):
         )
 
     if user is None:
-        raise ApiError(401, "Benutzername oder Passwort falsch", success=False)
+        raise fail("Benutzername oder Passwort falsch", 401)
 
     # Neue Session statt Wiederverwendung (verhindert Session-Fixation).
     login_session(request, user["id"])
@@ -97,7 +98,7 @@ def auth_providers():
 def _public_base_url(request: Request) -> str:
     from app.auth import external as auth_external
 
-    return auth_external.load_config()["base_url"] or str(request.base_url).rstrip("/")
+    return public_base_url(request, auth_external.load_config()["base_url"])
 
 
 @router.get("/auth/oidc/login", include_in_schema=False)
@@ -167,7 +168,7 @@ def export_my_data(user: CurrentUser):
     try:
         data = data_export.build_export(user["id"])
     except LookupError:
-        raise ApiError(404, "Konto nicht gefunden", success=False)
+        raise fail("Konto nicht gefunden", 404)
     response = Response(
         data_export.to_response_bytes(data),
         media_type="application/json",

@@ -41,7 +41,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.api._common import Upload
-from app.api.errors import ApiError, validation_message
+from app.api.errors import ApiError, fail, validation_message
 from app.api.schemas.chat import (
     AttachmentStarted,
     AttachmentStatus,
@@ -336,7 +336,7 @@ def upload_chat_attachment(
     from app.chat.attachments import is_image, is_supported, start_attachment_ingestion
 
     if file is None or not file.filename:
-        raise ApiError(400, "Keine Datei", success=False)
+        raise fail("Keine Datei", 400)
     if not is_supported(file.filename):
         raise ApiError(
             415,
@@ -356,12 +356,12 @@ def upload_chat_attachment(
 
     sparse = runtime.state.sparse_embeddings
     if not resources_ready() or not sparse:
-        raise ApiError(503, "RAG-System wird noch initialisiert. Bitte kurz warten.", success=False)
+        raise fail("RAG-System wird noch initialisiert. Bitte kurz warten.", 503)
 
     db = get_db_service()
     session_id = session_id or None
     if session_id and not db.get_chat_session(session_id, user_id=user["id"]):
-        raise ApiError(404, "Ungültige Session", success=False)
+        raise fail("Ungültige Session", 404)
     if not session_id:
         session_id = db.create_session(user_id=user["id"]).id
 

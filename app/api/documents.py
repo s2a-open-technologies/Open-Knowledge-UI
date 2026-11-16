@@ -28,8 +28,8 @@ from fastapi.responses import FileResponse, Response
 from qdrant_client import models
 
 from app import resources_ready, wait_for_resources
-from app.api._common import ScopedKnowledge, Upload
-from app.api.errors import ApiError
+from app.api._common import ScopedKnowledge, Upload, abort_if_reindexing
+from app.api.errors import ApiError, fail
 from app.api.schemas.common import Success
 from app.api.schemas.documents import (
     BatchDelete,
@@ -52,7 +52,6 @@ from app.auth.auth import CurrentUser
 from app.chat import my_uploads
 from app.core import runtime
 from app.core.database_service import get_db_service
-from app.ingest import reindex
 from app.knowledge.files import (
     STRUCTURED_EXTS,
     check_data_file_exists,
@@ -151,23 +150,19 @@ def delete_document(doc_id: int, user: CurrentUser):
         if user_doc:
             db_session.expunge(user_doc)
     if not user_doc:
-        raise ApiError(404, "Dokument nicht gefunden", success=False)
+        raise fail("Dokument nicht gefunden", 404)
 
     # Collection des Bereichs, dem das Dokument gehoert (nicht des Requests).
     doc_knowledge = get_knowledge(user_doc.knowledge_id) or get_knowledge(None)
-    if reindex.is_locked(doc_knowledge["id"]):
-        raise ApiError(409, "Das Knowledge wird gerade neu indexiert", success=False)
+    abort_if_reindexing(doc_knowledge["id"])
     # Schreibrecht, oder: wer das Dokument hochgeladen hat, darf es auch loeschen (und sieht das Knowledge)
     uploader = user_doc.uploaded_by is not None and user_doc.uploaded_by == user["id"]
     if not (
         can_access_knowledge(user, doc_knowledge["id"], "write")
         or (uploader and can_access_knowledge(user, doc_knowledge["id"], "read"))
     ):
-        raise ApiError(404, "Dokument nicht gefunden", success=False)
-    try:
-        my_uploads.delete_knowledge_document(user_doc, doc_knowledge, runtime.state.client)
-    except my_uploads.UploadError as e:
-        raise ApiError(e.status, e.message, success=False)
+        raise fail("Dokument nicht gefunden", 404)
+    my_uploads.delete_knowledge_document(user_doc, doc_knowledge, runtime.state.client)
     return Success()
 
 
@@ -186,13 +181,10 @@ def my_uploads_list(user: CurrentUser):
 
 @router.get("/my-uploads/{kind}/{item_id}/markdown", response_model=MarkdownView)
 def my_uploads_markdown(kind: str, item_id: str, user: CurrentUser, download: str | None = None):
-    try:
-        row = my_uploads.get_owned(kind, item_id, user["id"])
-    except my_uploads.UploadError as e:
-        raise ApiError(e.status, e.message, success=False)
+    row = my_uploads.get_owned(kind, item_id, user["id"])
     text = my_uploads.read_markdown(kind, row)
     if text is None:
-        raise ApiError(404, "Kein Markdown gespeichert", success=False)
+        raise fail("Kein Markdown gespeichert", 404)
     name = Path(row.filename).stem
     if download == "1":
         return _markdown_download(text, name)
@@ -201,11 +193,8 @@ def my_uploads_markdown(kind: str, item_id: str, user: CurrentUser, download: st
 
 @router.delete("/my-uploads/{kind}/{item_id}", response_model=Success)
 def my_uploads_delete(kind: str, item_id: str, user: CurrentUser):
-    try:
-        row = my_uploads.get_owned(kind, item_id, user["id"])
-        my_uploads.delete_upload(kind, row, runtime.state.client)
-    except my_uploads.UploadError as e:
-        raise ApiError(e.status, e.message, success=False)
+    row = my_uploads.get_owned(kind, item_id, user["id"])
+    my_uploads.delete_upload(kind, row, runtime.state.client)
     return Success()
 
 
@@ -219,7 +208,7 @@ def document_markdown(doc_id: int, user: CurrentUser, download: str | None = Non
         user_doc = db_session.query(UserDocument).filter_by(id=doc_id).first()
         knowledge = get_knowledge(user_doc.knowledge_id) if user_doc else None
         if not user_doc or not knowledge or not can_access_knowledge(user, knowledge["id"], "read"):
-            raise ApiError(404, "Dokument nicht gefunden", success=False)
+            raise fail("Dokument nicht gefunden", 404)
         path = my_uploads.markdown_path(user_doc)
         filename = user_doc.filename
         uploaded_by = user_doc.uploaded_by
@@ -278,7 +267,7 @@ def upload_document(
     data_files = result["data_files"]
 
     if not documents and not data_files:
-        raise ApiError(400, "Keine gültigen Dateien", success=False)
+        raise fail("Keine gültigen Dateien", 400)
 
     if data_files and not documents:
         message = (
@@ -355,7 +344,7 @@ def data_file_view(filename: str, knowledge: ScopedKnowledge, download: str | No
     """Vorschau (erste Zeilen) einer CSV/Excel-Datei; ``?download=1`` liefert die Datei selbst."""
     path = _data_file_path(knowledge, filename)
     if path is None:
-        raise ApiError(404, "Datei nicht gefunden", success=False)
+        raise fail("Datei nicht gefunden", 404)
     if download == "1":
         return FileResponse(path, filename=path.name)
 
@@ -364,7 +353,7 @@ def data_file_view(filename: str, knowledge: ScopedKnowledge, download: str | No
     try:
         df = _load_dataframe(str(path))
     except Exception as e:
-        raise ApiError(422, f"Datei nicht lesbar: {e}", success=False)
+        raise fail(f"Datei nicht lesbar: {e}", 422)
     head = df.head(DATA_PREVIEW_ROWS)
     return {
         "filename": path.name,
@@ -381,7 +370,7 @@ def delete_data_file_route(filename: str, knowledge: ScopedKnowledge):
 
     paths = knowledge_paths(knowledge)
     if not delete_data_file(filename, data_dir=paths.data_dir):
-        raise ApiError(404, "Datei nicht gefunden", success=False)
+        raise fail("Datei nicht gefunden", 404)
 
     # Zugehörigen Verweis-Chunk aus der Vektordatenbank entfernen (best-effort).
     try:
@@ -408,11 +397,11 @@ def trigger_ingestion(knowledge: ScopedKnowledge, _body: KnowledgeBody | None = 
                 success=False,
             )
     except RuntimeError as e:
-        raise ApiError(503, str(e), success=False)
+        raise fail(str(e), 503)
 
     status = runtime.state.ingestion_status
     if status["is_ingesting"]:
-        raise ApiError(409, "Ingestion läuft bereits", success=False)
+        raise fail("Ingestion läuft bereits", 409)
 
     status["is_ingesting"] = True
     status["knowledge_id"] = knowledge["id"]
@@ -432,7 +421,7 @@ def trigger_ingestion(knowledge: ScopedKnowledge, _body: KnowledgeBody | None = 
             "warnings": ingest.warnings,
         }
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     finally:
         status["is_ingesting"] = False
         status["knowledge_id"] = None
@@ -442,7 +431,7 @@ def _client(success_flag: bool = True):
     client = runtime.state.client
     if not client:
         if success_flag:
-            raise ApiError(503, _NO_CLIENT, success=False)
+            raise fail(_NO_CLIENT, 503)
         raise ApiError(503, _NO_CLIENT)
     return client
 
@@ -559,7 +548,7 @@ def delete_vectordb_document(doc_id: str, knowledge: ScopedKnowledge):
         if payload:
             delete_associated_file(payload)
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     return Success()
 
 
@@ -568,7 +557,7 @@ def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None =
     client = _client()
     filename = body.filename if body else None
     if not filename:
-        raise ApiError(400, "Filename erforderlich", success=False)
+        raise fail("Filename erforderlich", 400)
     collection = knowledge["collection_name"]
 
     try:
@@ -590,7 +579,7 @@ def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None =
                 points_selector=models.PointIdsList(points=point_ids),
             )
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     return Success()
 
 
@@ -598,11 +587,11 @@ def vectordb_batch_delete(knowledge: ScopedKnowledge, body: BatchDelete | None =
 def vectordb_clear_all(knowledge: ScopedKnowledge, body: ClearAll | None = None):
     client = _client()
     if (body.confirmation if body else "") != "DELETE_ALL":
-        raise ApiError(400, "Bestätigung erforderlich", success=False)
+        raise fail("Bestätigung erforderlich", 400)
 
     try:
         client.delete_collection(knowledge["collection_name"])
         ensure_collection(client, knowledge["collection_name"], knowledge["embedding_dimension"])
     except Exception as e:
-        raise ApiError(500, str(e), success=False)
+        raise fail(str(e), 500)
     return Success()
