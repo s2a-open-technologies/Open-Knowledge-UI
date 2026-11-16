@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { FileText, FolderOpen, Loader2, MessageSquare, NotebookText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -7,31 +8,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MarkdownDialog } from "@/components/MarkdownDialog";
 import { api, errorMessage } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatBytes, formatDateTime } from "@/lib/format";
 import type { MyUpload } from "@/lib/types";
 
-function sizeLabel(bytes: number | null): string {
-  if (bytes == null) return "";
-  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-}
-
 export function MyUploadsPage() {
-  const [items, setItems] = useState<MyUpload[] | null>(null);
+  const queryClient = useQueryClient();
   const [view, setView] = useState<MyUpload | null>(null);
   const [remove, setRemove] = useState<MyUpload | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setItems(await api.get<MyUpload[]>("/api/my-uploads"));
-    } catch (e) {
-      toast.error(errorMessage(e));
-      setItems([]);
-    }
-  }, []);
-
+  const uploads = useQuery({
+    queryKey: ["my-uploads"],
+    queryFn: () => api.get<MyUpload[]>("/api/my-uploads"),
+  });
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (uploads.error) toast.error(errorMessage(uploads.error));
+  }, [uploads.error]);
+  const items = uploads.isPending ? null : (uploads.data ?? []);
+  const load = () => queryClient.invalidateQueries({ queryKey: ["my-uploads"] });
 
   const confirmRemove = async () => {
     if (!remove) return;
@@ -91,7 +84,7 @@ export function MyUploadsPage() {
                         {item.kind === "chat" ? "Chat" : "Knowledge"}: {item.source}
                       </Badge>
                       {item.created_at ? formatDateTime(item.created_at) : null}
-                      {item.size != null ? ` · ${sizeLabel(item.size)}` : null}
+                      {item.size != null ? ` · ${formatBytes(item.size)}` : null}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">

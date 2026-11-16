@@ -26,6 +26,16 @@ export function csrfHeaders(): Record<string, string> {
   return match ? { "X-CSRF-Token": decodeURIComponent(match[1]) } : {};
 }
 
+/** Wird aufgerufen, wenn der Server eine abgelaufene Sitzung meldet (401 außerhalb der Anmeldung). */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
+// Hier bedeutet 401 "falsche Zugangsdaten" bzw. "noch nicht angemeldet", nicht "Sitzung abgelaufen"
+const AUTH_ENTRY_POINTS = ["/api/auth/login", "/api/auth/me", "/api/auth/logout"];
+
 async function request<T>(
   url: string,
   options: RequestInit = {},
@@ -43,6 +53,10 @@ async function request<T>(
   });
 
   const body = await parseBody(res);
+
+  if (res.status === 401 && !AUTH_ENTRY_POINTS.some((p) => url.startsWith(p))) {
+    onUnauthorized?.();
+  }
 
   if (!res.ok) {
     const message =

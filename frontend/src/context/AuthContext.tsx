@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -6,8 +7,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "@/lib/api";
+import { api, setUnauthorizedHandler } from "@/lib/api";
 import type { AuthUser, Role } from "@/lib/types";
+
+// Höchstens alle 5 Minuten ein Signal (die Sitzung läuft nach 30 Minuten Leerlauf ab)
+export const KEEPALIVE_EVERY_MS = 5 * 60 * 1000;
 
 const ROLE_ORDER: Role[] = ["user", "editor", "admin"];
 
@@ -24,6 +28,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -39,18 +44,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Abgelaufene Sitzung: Zwischenspeicher leeren und zur Anmeldung zurück
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      queryClient.clear();
+      setUser(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [queryClient]);
+
+  // Solange jemand bedient (Klick, Taste), hält ein Signal die Sitzung wach. Das Cookie läuft nach
+  // 30 Minuten ohne Aktivität ab; der Chat läuft über einen WebSocket und kann es nicht erneuern.
+  useEffect(() => {
+    if (user === null) return;
+    let last = Date.now();
+    const onActivity = () => {
+      if (Date.now() - last < KEEPALIVE_EVERY_MS) return;
+      last = Date.now();
+      api.post("/api/auth/keepalive").catch(() => undefined); // 401 meldet der zentrale Handler
+    };
+    const events = ["pointerdown", "keydown"] as const;
+    events.forEach((name) => window.addEventListener(name, onActivity, { passive: true }));
+    return () => events.forEach((name) => window.removeEventListener(name, onActivity));
+  }, [user]);
+
   const login = useCallback(async (username: string, password: string) => {
     const res = await api.post<{ user: AuthUser }>("/api/auth/login", {
       username,
       password,
     });
+    // Zwischengespeicherte Daten eines früheren Nutzers dürfen nie im neuen Konto auftauchen
+    queryClient.clear();
     setUser(res.user);
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     await api.post("/api/auth/logout");
+    queryClient.clear();
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   const hasRole = useCallback(
     (role: Role) =>
