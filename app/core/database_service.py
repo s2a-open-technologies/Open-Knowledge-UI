@@ -420,6 +420,7 @@ class DatabaseService:
                 )
                 db.add(setting)
 
+        # Veraltete Settings werden beim Start geloescht
         deprecated_keys = {"MODEL", "BASEURL", "TEMPERATURE", "TOP_P", "CHAT_DB_PATH"}
         db.query(Setting).filter(Setting.key.in_(deprecated_keys)).delete(
             synchronize_session=False

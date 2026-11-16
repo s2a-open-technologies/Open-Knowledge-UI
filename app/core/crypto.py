@@ -194,68 +194,55 @@ ENCRYPTED_COLUMNS = (
 )
 
 
+def _encrypt_plain(conn, select_sql, params, update_sql, key_name, verify=True) -> int:
+    """Verschluesselt die Klartext-Zeilen von ``select_sql`` (id, wert); liefert die Anzahl.
+
+    Schon verschluesselte Werte werden mit ``verify`` geoeffnet: ein falscher Schluessel wirft
+    ``SecretKeyError``, bevor irgendetwas geaendert wird.
+    """
+    from sqlalchemy import text
+
+    count = 0
+    for row_id, value in conn.execute(text(select_sql), params).all():
+        if is_encrypted(value):
+            if verify:
+                decrypt(value)
+            continue
+        conn.execute(text(update_sql), {"v": encrypt(value), key_name: row_id})
+        count += 1
+    return count
+
+
 def encrypt_existing(engine, sensitive_keys) -> int:
     """Verschluesselt vorhandene Klartext-Zugangsdaten (idempotent) und prueft den Schluessel.
 
     Raises:
         SecretKeyError: es gibt verschluesselte Werte, die der Schluessel nicht oeffnet.
     """
-    from sqlalchemy import text
-
     count = 0
     with engine.begin() as conn:
-        targets = [(table, column, pk, "") for table, column, pk in ENCRYPTED_COLUMNS]
-        for table, column, pk, where in targets:
-            rows = conn.execute(
-                text(
-                    f"SELECT {pk}, {column} FROM {table} WHERE {column} IS NOT NULL AND {column} <> ''"
-                )
-            ).all()
-            for row_id, value in rows:
-                if is_encrypted(value):
-                    decrypt(
-                        value
-                    )  # falscher Schluessel -> SecretKeyError, bevor irgendetwas geaendert wird
-                    continue
-                conn.execute(
-                    text(f"UPDATE {table} SET {column} = :v WHERE {pk} = :id"),
-                    {"v": encrypt(value), "id": row_id},
-                )
-                count += 1
+        for table, column, pk in ENCRYPTED_COLUMNS:
+            count += _encrypt_plain(
+                conn,
+                f"SELECT {pk}, {column} FROM {table} WHERE {column} IS NOT NULL AND {column} <> ''",
+                {},
+                f"UPDATE {table} SET {column} = :v WHERE {pk} = :id",
+                "id",
+            )
         keys = sorted(sensitive_keys)
         if keys:
-            rows = conn.execute(
-                text(
-                    "SELECT key, value FROM settings WHERE value IS NOT NULL AND value <> '' AND key IN ({})".format(
-                        ",".join(f":k{i}" for i in range(len(keys)))
-                    )
-                ),
-                {f"k{i}": k for i, k in enumerate(keys)},
-            ).all()
-            for key, value in rows:
-                if is_encrypted(value):
-                    decrypt(value)
-                    continue
-                conn.execute(
-                    text("UPDATE settings SET value = :v WHERE key = :k"),
-                    {"v": encrypt(value), "k": key},
+            marks = ",".join(f":k{i}" for i in range(len(keys)))
+            params = {f"k{i}": k for i, k in enumerate(keys)}
+            for column, verify in (("value", True), ("default_value", False)):
+                count += _encrypt_plain(
+                    conn,
+                    f"SELECT key, {column} FROM settings WHERE {column} IS NOT NULL "
+                    f"AND {column} <> '' AND key IN ({marks})",
+                    params,
+                    f"UPDATE settings SET {column} = :v WHERE key = :k",
+                    "k",
+                    verify,
                 )
-                count += 1
-            rows = conn.execute(
-                text(
-                    "SELECT key, default_value FROM settings WHERE default_value IS NOT NULL AND default_value <> '' AND key IN ({})".format(
-                        ",".join(f":k{i}" for i in range(len(keys)))
-                    )
-                ),
-                {f"k{i}": k for i, k in enumerate(keys)},
-            ).all()
-            for key, value in rows:
-                if not is_encrypted(value):
-                    conn.execute(
-                        text("UPDATE settings SET default_value = :v WHERE key = :k"),
-                        {"v": encrypt(value), "k": key},
-                    )
-                    count += 1
     if count:
         logger.info(f"{count} Zugangsdaten in der Datenbank verschluesselt")
     return count
