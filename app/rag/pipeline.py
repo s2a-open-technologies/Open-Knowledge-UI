@@ -266,6 +266,58 @@ def _mmr(hits: list[Hit], k: int, lambda_mult: float) -> list[Hit]:
     return [hits[i] for i in selected]
 
 
+def _fetch_missing(
+    client, collection: str, fg: str, missing: list[int], extra_filter, texts, page_spans
+) -> None:
+    """Holt die fehlenden Nachbar-Chunks einer Datei und traegt sie in ``texts``/``page_spans`` ein."""
+    points, _ = client.scroll(
+        collection,
+        scroll_filter=qm.Filter(
+            must=[
+                qm.FieldCondition(key="file_group_id", match=qm.MatchValue(value=fg)),
+                qm.FieldCondition(key="chunk_index", match=qm.MatchAny(any=missing)),
+                *([extra_filter] if extra_filter is not None else []),
+            ]
+        ),
+        limit=len(missing),
+        with_payload=True,
+        with_vectors=False,
+    )
+    for p in points:
+        payload = p.payload or {}
+        index = payload.get("chunk_index")
+        texts[index] = payload.get("original_content") or payload.get("page_content") or ""
+        page_spans[index] = (payload.get("page_start"), payload.get("page_end"))
+
+
+def _consecutive_runs(indices: list[int]):
+    """Zerlegt sortierte Indizes in Folgen ohne Luecke."""
+    run: list[int] = []
+    for idx in indices:
+        if run and idx != run[-1] + 1:
+            yield run
+            run = []
+        run.append(idx)
+    if run:
+        yield run
+
+
+def _passage(collection: str, run: list[int], best_by_index, texts, page_spans) -> Hit | None:
+    """Eine Passage aus den Chunks ``run``; ``None``, wenn kein Treffer darunter ist."""
+    members = [best_by_index[i] for i in run if i in best_by_index]
+    if not members:  # Luecken koennen Nachbarn ohne Treffer abtrennen
+        return None
+    top_hit = max(members, key=lambda h: h.score)
+    payload = dict(top_hit.payload)
+    payload["page_content"] = "\n\n".join(texts[i] for i in run)
+    payload["_chunks"] = [run[0], run[-1]]
+    spans = [page_spans[i] for i in run if page_spans.get(i, (None,))[0] is not None]
+    if spans:  # Seitenspanne der ganzen Passage
+        payload["page_start"] = min(sp[0] for sp in spans)
+        payload["page_end"] = max(sp[1] for sp in spans)
+    return Hit(collection, top_hit.id, payload, top_hit.score, top_hit.vector)
+
+
 def _expand_neighbors(
     client, hits: list[Hit], n: int, entry: dict, extra_filter=None
 ) -> list[Hit]:
@@ -296,63 +348,13 @@ def _expand_neighbors(
             )
         missing = sorted(wanted - texts.keys())
         if missing:
-            points, _ = client.scroll(
-                collection,
-                scroll_filter=qm.Filter(
-                    must=[
-                        qm.FieldCondition(
-                            key="file_group_id", match=qm.MatchValue(value=fg)
-                        ),
-                        qm.FieldCondition(
-                            key="chunk_index", match=qm.MatchAny(any=missing)
-                        ),
-                        *([extra_filter] if extra_filter is not None else []),
-                    ]
-                ),
-                limit=len(missing),
-                with_payload=True,
-                with_vectors=False,
-            )
-            for p in points:
-                payload = p.payload or {}
-                texts[payload.get("chunk_index")] = (
-                    payload.get("original_content") or payload.get("page_content") or ""
-                )
-                page_spans[payload.get("chunk_index")] = (
-                    payload.get("page_start"),
-                    payload.get("page_end"),
-                )
+            _fetch_missing(client, collection, fg, missing, extra_filter, texts, page_spans)
 
         best_by_index = {h.chunk_index: h for h in group}
-        run: list[int] = []
-        for idx in [*sorted(i for i in texts if i in wanted), None]:
-            if run and (idx is None or idx != run[-1] + 1):
-                members = [best_by_index[i] for i in run if i in best_by_index]
-                if members:  # Luecken koennen Nachbarn ohne Treffer abtrennen
-                    top_hit = max(members, key=lambda h: h.score)
-                    payload = dict(top_hit.payload)
-                    payload["page_content"] = "\n\n".join(texts[i] for i in run)
-                    payload["_chunks"] = [run[0], run[-1]]
-                    spans = [
-                        page_spans[i]
-                        for i in run
-                        if page_spans.get(i, (None,))[0] is not None
-                    ]
-                    if spans:  # Seitenspanne der ganzen Passage
-                        payload["page_start"] = min(sp[0] for sp in spans)
-                        payload["page_end"] = max(sp[1] for sp in spans)
-                    passages.append(
-                        Hit(
-                            collection,
-                            top_hit.id,
-                            payload,
-                            top_hit.score,
-                            top_hit.vector,
-                        )
-                    )
-                run = []
-            if idx is not None:
-                run.append(idx)
+        for run in _consecutive_runs(sorted(i for i in texts if i in wanted)):
+            passage = _passage(collection, run, best_by_index, texts, page_spans)
+            if passage is not None:
+                passages.append(passage)
 
     order = {h.key: pos for pos, h in enumerate(hits)}
     merged = passages + passthrough

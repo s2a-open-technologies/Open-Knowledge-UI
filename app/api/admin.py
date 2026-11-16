@@ -51,7 +51,12 @@ logger = getLogger(__name__)
 
 
 @router.get("/admin/audit", response_model=AuditEvents)
-def admin_audit(_user: Admin, limit: str | None = None, offset: str | None = None, action: str | None = None):
+def admin_audit(
+    _user: Admin,
+    limit: str | None = None,
+    offset: str | None = None,
+    action: str | None = None,
+):
     """Neueste Protokolleinträge (Anmeldungen, Verwaltung, Freigaben)."""
     from app.auth import audit
 
@@ -312,9 +317,7 @@ def embedding_remote_models(
     """Modell-IDs einer Connection (fuer die Auswahl bei Quelle "Endpoint")."""
     from app.rag import endpoints
 
-    conn = store.get_connection(
-        as_int(connection_id) or 0, with_key=True
-    )
+    conn = store.get_connection(as_int(connection_id) or 0, with_key=True)
     if not conn:
         raise fail("Connection nicht gefunden", 404)
     try:
@@ -322,7 +325,9 @@ def embedding_remote_models(
             return registry.fetch_remote_models(conn)
         wanted = capability  # embedding | reranker: nur passende Modelle
         return [
-            m["id"] for m in endpoints.describe(conn) if not wanted or wanted in m["capabilities"]
+            m["id"]
+            for m in endpoints.describe(conn)
+            if not wanted or wanted in m["capabilities"]
         ]
     except (registry.RemoteModelsError, endpoints.EndpointError) as e:
         raise fail(str(e), 502)
@@ -393,6 +398,63 @@ def tools_overview(_user: Admin):
     return _tools_overview()
 
 
+def _key_values(prefix: str, section: dict) -> dict[str, str]:
+    """API-Key-Feld: ``clear_key`` loescht, ein leeres Feld behaelt den gespeicherten Key."""
+    if section.get("clear_key"):
+        return {f"{prefix}_API_KEY": ""}
+    if (section.get("api_key") or "").strip():
+        return {f"{prefix}_API_KEY": section["api_key"].strip()}
+    return {}
+
+
+def _stt_values(stt: dict) -> dict[str, str]:
+    values = {
+        "STT_BASEURL": _clean_url(stt.get("base_url"), "Spracheingabe"),
+        "STT_MODEL": (stt.get("model") or "").strip(),
+    }
+    if "mode" in stt:
+        from app.chat import stt as stt_config
+
+        mode = str(stt.get("mode") or "auto").strip().lower()
+        if mode not in stt_config.MODES:
+            raise ValueError(
+                "Spracheingabe: Betriebsart muss auto, stream oder upload sein"
+            )
+        values["STT_MODE"] = mode
+    return {**values, **_key_values("STT", stt)}
+
+
+def _search_values(search: dict) -> dict[str, str]:
+    values = {
+        "SEARCH_SEARXNG_URL": _clean_url(search.get("url"), "Websuche"),
+        "SEARCH_SEARXNG_CATEGORIES": (search.get("categories") or "general").strip(),
+    }
+    if "allow_unmasked" in search:
+        values["SEARCH_ALLOW_UNMASKED"] = (
+            "true" if search["allow_unmasked"] else "false"
+        )
+    return values
+
+
+def _pii_values(pii: dict) -> dict[str, str]:
+    values = {
+        "PII_FILTER_URL": _clean_url(pii.get("url"), "PII-Filter"),
+        "PII_FILTER_ENABLED": "true" if pii.get("enabled", True) else "false",
+    }
+    if "timeout_s" in pii:
+        timeout_s = parse_number(
+            pii["timeout_s"], "PII-Filter: Zeitlimit (s)", 2, 120, float
+        )
+        values["PII_FILTER_TIMEOUT_S"] = f"{timeout_s:g}"
+    if "max_chars" in pii:
+        chars = parse_number(pii["max_chars"], "PII-Filter: Höchstlänge", 2000, 100000)
+        values["PII_FILTER_MAX_CHARS"] = str(chars)
+    return {**values, **_key_values("PII_FILTER", pii)}
+
+
+_TOOL_SECTIONS = {"stt": _stt_values, "search": _search_values, "pii": _pii_values}
+
+
 @router.put("/admin/tools", response_model=Loose)
 def tools_save(_user: Admin, body: ToolsSave | None = None):
     """Speichert die Tool-Einstellungen. API-Keys werden nie ausgeliefert: ein leeres Feld
@@ -401,54 +463,9 @@ def tools_save(_user: Admin, body: ToolsSave | None = None):
     data = body.model_dump(exclude_unset=True) if body else {}
     values: dict[str, str] = {}
     try:
-        if "stt" in data:
-            stt = data["stt"] or {}
-            values["STT_BASEURL"] = _clean_url(stt.get("base_url"), "Spracheingabe")
-            values["STT_MODEL"] = (stt.get("model") or "").strip()
-            if "mode" in stt:
-                from app.chat import stt as stt_config
-
-                mode = str(stt.get("mode") or "auto").strip().lower()
-                if mode not in stt_config.MODES:
-                    raise ValueError(
-                        "Spracheingabe: Betriebsart muss auto, stream oder upload sein"
-                    )
-                values["STT_MODE"] = mode
-            if stt.get("clear_key"):
-                values["STT_API_KEY"] = ""
-            elif (stt.get("api_key") or "").strip():
-                values["STT_API_KEY"] = stt["api_key"].strip()
-        if "search" in data:
-            search = data["search"] or {}
-            values["SEARCH_SEARXNG_URL"] = _clean_url(search.get("url"), "Websuche")
-            values["SEARCH_SEARXNG_CATEGORIES"] = (
-                search.get("categories") or "general"
-            ).strip()
-            if "allow_unmasked" in search:
-                values["SEARCH_ALLOW_UNMASKED"] = (
-                    "true" if search["allow_unmasked"] else "false"
-                )
-        if "pii" in data:
-            pii = data["pii"] or {}
-            url = _clean_url(pii.get("url"), "PII-Filter")
-            values["PII_FILTER_URL"] = url
-            values["PII_FILTER_ENABLED"] = (
-                "true" if pii.get("enabled", True) else "false"
-            )
-            if "timeout_s" in pii:
-                timeout_s = parse_number(
-                    pii["timeout_s"], "PII-Filter: Zeitlimit (s)", 2, 120, float
-                )
-                values["PII_FILTER_TIMEOUT_S"] = f"{timeout_s:g}"
-            if "max_chars" in pii:
-                chars = parse_number(
-                    pii["max_chars"], "PII-Filter: Höchstlänge", 2000, 100000
-                )
-                values["PII_FILTER_MAX_CHARS"] = str(chars)
-            if pii.get("clear_key"):
-                values["PII_FILTER_API_KEY"] = ""
-            elif (pii.get("api_key") or "").strip():
-                values["PII_FILTER_API_KEY"] = pii["api_key"].strip()
+        for name, section_values in _TOOL_SECTIONS.items():
+            if name in data:
+                values.update(section_values(data[name] or {}))
     except ValueError as e:
         raise fail(str(e), 400)
 
