@@ -16,12 +16,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from .custom_docx_loader import CustomDOCXLoader
-from .custom_pdf_loader import CustomPDFLoader
+from .documents import LOADERS, CustomDOCXLoader, CustomPDFLoader
 from .preprocess_docx import PreprocessDOCX
 from .preprocess_pdf import PreprocessPDF
 
 __all__ = [
+    "LOADERS",
     "CustomDOCXLoader",
     "CustomPDFLoader",
     "PreprocessDOCX",

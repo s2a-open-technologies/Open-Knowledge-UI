@@ -16,9 +16,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""
-DOCX/DOC/ODT Loader wrapper
-"""
+"""Loader fuer PDF und Word/ODT: je ein Document mit dem gesamten Markdown der Datei."""
 
 from collections.abc import Iterator
 
@@ -27,17 +25,36 @@ from langchain_core.documents import Document
 
 from app.ingest.loaders.markdown_document import markdown_document
 from app.ingest.loaders.preprocess_docx import PreprocessDOCX
+from app.ingest.loaders.preprocess_pdf import PreprocessPDF
 
 
-class CustomDOCXLoader(BaseLoader):
-    """Wrapper Class for DOCX/DOC/ODT loading with image extraction."""
+class _MarkdownLoader(BaseLoader):
+    PROCESSOR: type  # Preprocess-Klasse der Dateiart
 
     def __init__(self, file_path: str, model=None, table_sink=None):
         self.file_path = file_path
         self.table_sink = table_sink
-        self.processor = PreprocessDOCX(model=model)
+        self.processor = self.PROCESSOR(model=model)
 
     def lazy_load(self) -> Iterator[Document]:
-        """Liefert ein Document mit dem gesamten Markdown der Datei."""
         markdown = self.processor.process_document(self.file_path, self.table_sink)
         yield markdown_document(markdown, self.file_path)
+
+
+class CustomPDFLoader(_MarkdownLoader):
+    PROCESSOR = PreprocessPDF
+
+
+class CustomDOCXLoader(_MarkdownLoader):
+    """DOCX/DOC/ODT mit Bildextraktion."""
+
+    PROCESSOR = PreprocessDOCX
+
+
+# Dateiendung -> Loader
+LOADERS = {
+    ".pdf": CustomPDFLoader,
+    ".docx": CustomDOCXLoader,
+    ".doc": CustomDOCXLoader,
+    ".odt": CustomDOCXLoader,
+}

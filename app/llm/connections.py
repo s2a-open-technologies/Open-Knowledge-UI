@@ -285,6 +285,16 @@ def get_model_config(ref: str) -> dict | None:
         return _config_dict(m) if m else None
 
 
+_CLONED_FIELDS = (
+    "system_prompt",
+    "web_search",
+    "vision",
+    "allow_extra_knowledge",
+    "params",
+    "knowledge_ids",
+)
+
+
 def _apply(m: ModelConfig, data: dict) -> None:
     if "name" in data:
         name = (data["name"] or "").strip()
@@ -365,15 +375,8 @@ def clone_model(ref: str, name: str) -> dict | None:
             # Klone sind standardmaessig privat (nur Admin), bis sie freigegeben werden.
             is_public=False,
         )
-        if source:
-            m.system_prompt = source["system_prompt"]
-            m.web_search = source.get("web_search", False)
-            m.vision = source.get("vision", False)
-            m.allow_extra_knowledge = source.get("allow_extra_knowledge", True)
-            m.params = json.dumps(source["params"])
-            m.knowledge_ids = (
-                json.dumps(source["knowledge_ids"]) if source["knowledge_ids"] else None
-            )
+        if source:  # Prompt, Parameter, Schalter und Knowledge wie beim Speichern uebernehmen
+            _apply(m, {k: source[k] for k in _CLONED_FIELDS if k in source})
         db.add(m)
         db.commit()
         return _config_dict(m)

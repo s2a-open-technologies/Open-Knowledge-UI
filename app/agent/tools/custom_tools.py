@@ -429,8 +429,10 @@ class CustomTools:
     ):
         self.llm = llm
         self.retriever = retriever
+        
         # Pfad -> (mtime, DataFrame): neu laden, wenn die Datei geaendert wurde
         self._cache: dict[str, tuple[float, pd.DataFrame]] = {}
+        
         # DB-Aufgeloeste Werte aus init_resources; Fallback auf env (Standalone).
         self.DATA_DIR = data_dir or os.getenv("DATA_DIR", "./data")
         self._summaries_base = summaries_dir
@@ -725,11 +727,12 @@ class CustomTools:
             logger.error(f"Fehler beim Bearbeiten von {filename}: {e}")
             return f"FEHLER beim Bearbeiten von '{filename}': {type(e).__name__}: {e}"
 
+
     def get_tools(self) -> list:
         """Gibt alle verfügbaren Tools zurück."""
 
-        # Dokumentsuche: Treffer mit Quellenangabe, mit Logging
         def document_search(query: str) -> str:
+            """Dokumentsuche: Treffer mit Quellenangabe, mit Logging."""
             start_time = time.time()
             phase_logger.log_phase(Phase.RETRIEVAL, "Vector-Search gestartet")
             docs = self.retriever.invoke(query)
@@ -740,96 +743,66 @@ class CustomTools:
             )
             return format_hits(docs, record_sources(docs))
 
-        document_search_tool = StructuredTool.from_function(
-            func=document_search,
-            name="document_search_tool",
-            description=DOCUMENT_SEARCH_DESCRIPTION,
-            args_schema=DocumentSearchInput,
+        read_index_description = (
+            "Liefert das Inhaltsverzeichnis der durchsuchbaren Wissensbereiche: welche Dokumente "
+            "es gibt, ihre Gliederung und welche Tabellen/Datendateien (mit Spalten) für run_pandas "
+            'bereitstehen. Nutze es bei ausdrücklichen Übersichtsfragen ("welche Dokumente gibt es?") und wenn '
+            "unklar ist, wo etwas steht, bevor du blind suchst. Gib das Ergebnis nicht vollständig wieder, "
+            "wenn nur nach einer bestimmten Sache gefragt wurde."
         )
-
-        # Inhaltsverzeichnis der durchsuchbaren Knowledge-Bereiche
-        read_index_tool = StructuredTool.from_function(
-            func=lambda: read_indexes(),
-            name="read_knowledge_index",
-            description=(
-                "Liefert das Inhaltsverzeichnis der durchsuchbaren Wissensbereiche: welche Dokumente "
-                "es gibt, ihre Gliederung und welche Tabellen/Datendateien (mit Spalten) für run_pandas "
-                'bereitstehen. Nutze es bei ausdrücklichen Übersichtsfragen ("welche Dokumente gibt es?") und wenn '
-                "unklar ist, wo etwas steht, bevor du blind suchst. Gib das Ergebnis nicht vollständig wieder, "
-                "wenn nur nach einer bestimmten Sache gefragt wurde."
+        
+        # (Funktion, Name, Beschreibung, Eingabe-Schema)
+        specs = [
+            (
+                document_search,
+                "document_search_tool",
+                DOCUMENT_SEARCH_DESCRIPTION,
+                DocumentSearchInput,
             ),
-            args_schema=ReadIndexInput,
-        )
-
-        # List Files Tool
-        list_files_tool = StructuredTool.from_function(
-            func=self.list_files,
-            name="list_files",
-            description=LIST_FILES_DESCRIPTION,
-            args_schema=ListFilesInput,
-        )
-
-        # Preview Data Tool
-        preview_data_tool = StructuredTool.from_function(
-            func=self.preview_data,
-            name="preview_data",
-            description=PREVIEW_DATA_DESCRIPTION,
-            args_schema=PreviewDataInput,
-        )
-
-        # Run Pandas Tool
-        run_pandas_tool = StructuredTool.from_function(
-            func=self.run_pandas,
-            name="run_pandas",
-            description=RUN_PANDAS_DESCRIPTION,
-            args_schema=RunPandasInput,
-        )
-
-        # List Summaries Tool
-        list_summaries_tool = StructuredTool.from_function(
-            func=self.list_summaries,
-            name="list_summaries",
-            description=LIST_SUMMARIES_DESCRIPTION,
-            args_schema=ListSummariesInput,
-        )
-
-        # Read Summary Tool
-        read_summary_tool = StructuredTool.from_function(
-            func=self.read_summary,
-            name="read_summary",
-            description=READ_SUMMARY_DESCRIPTION,
-            args_schema=ReadSummaryInput,
-        )
-
-        # Write Summary Tool
-        write_summary_tool = StructuredTool.from_function(
-            func=self.write_summary,
-            name="write_summary",
-            description=WRITE_SUMMARY_DESCRIPTION,
-            args_schema=WriteSummaryInput,
-        )
-
-        # Edit Summary Tool
-        edit_summary_tool = StructuredTool.from_function(
-            func=self.edit_summary,
-            name="edit_summary",
-            description=EDIT_SUMMARY_DESCRIPTION,
-            args_schema=EditSummaryInput,
-        )
-
-        # Tool-Liste zusammenstellen
+            (
+                lambda: read_indexes(),
+                "read_knowledge_index",
+                read_index_description,
+                ReadIndexInput,
+            ),
+            (self.list_files, "list_files", LIST_FILES_DESCRIPTION, ListFilesInput),
+            (
+                self.preview_data,
+                "preview_data",
+                PREVIEW_DATA_DESCRIPTION,
+                PreviewDataInput,
+            ),
+            (self.run_pandas, "run_pandas", RUN_PANDAS_DESCRIPTION, RunPandasInput),
+            (
+                self.list_summaries,
+                "list_summaries",
+                LIST_SUMMARIES_DESCRIPTION,
+                ListSummariesInput,
+            ),
+            (
+                self.read_summary,
+                "read_summary",
+                READ_SUMMARY_DESCRIPTION,
+                ReadSummaryInput,
+            ),
+            (
+                self.write_summary,
+                "write_summary",
+                WRITE_SUMMARY_DESCRIPTION,
+                WriteSummaryInput,
+            ),
+            (
+                self.edit_summary,
+                "edit_summary",
+                EDIT_SUMMARY_DESCRIPTION,
+                EditSummaryInput,
+            ),
+        ]
         tools = [
-            document_search_tool,
-            read_index_tool,
-            list_files_tool,
-            preview_data_tool,
-            run_pandas_tool,
-            list_summaries_tool,
-            read_summary_tool,
-            write_summary_tool,
-            edit_summary_tool,
+            StructuredTool.from_function(
+                func=func, name=name, description=description, args_schema=schema
+            )
+            for func, name, description, schema in specs
         ]
 
-        # Die Websuche kommt nicht hierher: sie wird pro Modell zugeschaltet
-        # (app/agent/tools/web_access.py, app/api/chat.py).
         return tools

@@ -48,7 +48,7 @@ from app.ingest.indexer import (
 )
 
 # Custom imports
-from app.ingest.loaders import CustomDOCXLoader, CustomPDFLoader
+from app.ingest.loaders import LOADERS
 from app.ingest.tables import (
     column_hints_text,
     delete_tables,
@@ -347,7 +347,7 @@ class DocumentIngestion:
         # Supported file extensions. Strukturierte Daten (CSV/Excel) werden
         # NICHT ingestet — sie liegen als Pandas-Referenz in DATA_DIR und
         # werden ausschliesslich über die run_pandas-Tools genutzt.
-        self.extensions = (".pdf", ".docx", ".doc", ".odt", ".md")
+        self.extensions = (*LOADERS, ".md")
 
         # Qdrant client wird erst bei Bedarf geöffnet
         self._client = None
@@ -472,28 +472,71 @@ class DocumentIngestion:
         self, file_path: str, extension: str, table_sink=None
     ) -> str | None:
         """Liest die Datei als Markdown (Docling fuer PDF/Office, Text fuer .md)."""
-        if extension == ".pdf":
-            docs = list(
-                CustomPDFLoader(
-                    file_path, model=self.model, table_sink=table_sink
-                ).lazy_load()
+        if extension in LOADERS:
+            loader = LOADERS[extension](
+                file_path, model=self.model, table_sink=table_sink
             )
-        elif extension in (".docx", ".doc", ".odt"):
-            docs = list(
-                CustomDOCXLoader(
-                    file_path, model=self.model, table_sink=table_sink
-                ).lazy_load()
-            )
-        elif extension == ".md":
+            return "\n\n".join(d.page_content for d in loader.lazy_load())
+        if extension == ".md":
             return _read_text(file_path)
-        elif extension in IMAGE_EXTS:
+        if extension in IMAGE_EXTS:
             from app.ingest.image_text import image_to_markdown
 
             return image_to_markdown(file_path, os.path.basename(file_path))
-        else:
-            logger.warning(f"Unbekannter Dateityp: {extension}")
-            return None
-        return "\n\n".join(d.page_content for d in docs)
+        logger.warning(f"Unbekannter Dateityp: {extension}")
+        return None
+
+    def _build(
+        self,
+        markdown: str,
+        filename: str,
+        source: str,
+        file_group_id: str,
+        sparse,
+        uploaded_by: int | None,
+        uploaded_at=None,
+    ) -> list:
+        """Splitten, ggf. anreichern, Dense + BM25 berechnen (gemeinsam fuer Einlesen und Neu-Indexieren)."""
+        return build_points(
+            markdown,
+            filename=filename,
+            source=source,
+            file_group_id=file_group_id,
+            dense=self.embeddings,
+            sparse=sparse,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            extra_metadata={
+                **document_metadata(
+                    filename=filename,
+                    knowledge_id=self.knowledge.get("id"),
+                    uploaded_by=uploaded_by,
+                    uploaded_at=uploaded_at,
+                ),
+                **self.extra_metadata,
+            },
+            enrich=self._enrich_safe if self.enrich_context else None,
+        )
+
+    def _register_document(
+        self, file_group_id: str, filename: str, markdown_path, uploader
+    ) -> None:
+        """Dokument-Zuordnung anlegen, damit die Datei-Liste es findet und per file_group_id loeschen kann."""
+        try:
+            from app.core.database_service import get_db_service
+
+            get_db_service().add_document(
+                document_id=file_group_id,
+                filename=filename,
+                knowledge_id=self.knowledge.get("id"),
+                markdown_path=markdown_path,
+                parser_version=PARSER_VERSION,
+                uploaded_by=uploader,
+            )
+        except Exception as e:
+            logger.error(
+                f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
+            )
 
     def index_markdown(
         self,
@@ -514,25 +557,14 @@ class DocumentIngestion:
             or self._shared_sparse
             or FastEmbedSparse(model_name="Qdrant/bm25")
         )
-        points = build_points(
+        points = self._build(
             markdown,
-            filename=filename,
-            source=filename,
-            file_group_id=file_group_id,
-            dense=self.embeddings,
-            sparse=sparse,
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            extra_metadata={
-                **document_metadata(
-                    filename=filename,
-                    knowledge_id=self.knowledge.get("id"),
-                    uploaded_by=uploaded_by,
-                    uploaded_at=uploaded_at,
-                ),
-                **self.extra_metadata,
-            },
-            enrich=self._enrich_safe if self.enrich_context else None,
+            filename,
+            filename,
+            file_group_id,
+            sparse,
+            uploaded_by,
+            uploaded_at,
         )
         if points:
             upsert_points(self._get_client(), self.collection_name, points)
@@ -640,24 +672,13 @@ class DocumentIngestion:
         phase_logger.log_phase(
             Phase.RETRIEVAL, f"Embeddings berechnen | Datei: {filename}"
         )
-        points = build_points(
+        points = self._build(
             markdown,
-            filename=filename,
-            source=file_path,
-            file_group_id=file_group_id,
-            dense=self.embeddings,
-            sparse=self._sparse_for_index(sparse_model),
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-            extra_metadata={
-                **document_metadata(
-                    filename=filename,
-                    knowledge_id=self.knowledge.get("id"),
-                    uploaded_by=uploader,
-                ),
-                **self.extra_metadata,
-            },
-            enrich=self._enrich_safe if self.enrich_context else None,
+            filename,
+            file_path,
+            file_group_id,
+            self._sparse_for_index(sparse_model),
+            uploader,
         )
         if not points:
             logger.info(f"Keine Chunks für {filename}")
@@ -675,23 +696,7 @@ class DocumentIngestion:
             # 5. Datei verschieben (Dokumente -> Archiv)
             self._move_processed_file(file_path)
 
-            # 6. Dokument-Zuordnung anlegen, damit die Datei-Liste das ingestierte
-            # Dokument findet und es per file_group_id gelöscht werden kann.
-            try:
-                from app.core.database_service import get_db_service
-
-                get_db_service().add_document(
-                    document_id=file_group_id,
-                    filename=filename,
-                    knowledge_id=self.knowledge.get("id"),
-                    markdown_path=markdown_path,
-                    parser_version=PARSER_VERSION,
-                    uploaded_by=uploader,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Fehler beim Anlegen des UserDocument-Eintrags fuer {filename}: {e}"
-                )
+            self._register_document(file_group_id, filename, markdown_path, uploader)
             read_uploader(file_path, consume=True)  # Begleitdatei im Eingang aufraeumen
 
         duration = time.time() - start_time

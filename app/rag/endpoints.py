@@ -185,46 +185,40 @@ def describe(conn: dict) -> list[dict]:
 # --------------------------------------------------------------------------------------
 
 
+def _tei_vectors(body) -> list[list[float]]:
+    return [list(map(float, v)) for v in body]
+
+
+def _openai_vectors(body) -> list[list[float]]:
+    rows = sorted(body["data"], key=lambda r: r["index"])
+    return [list(map(float, r["embedding"])) for r in rows]
+
+
 def embed(conn: dict, model: str, texts: list[str]) -> list[list[float]]:
-    kind = conn.get("kind", "llm")
+    tei = conn.get("kind", "llm") == "tei"
+    what = "Embedding-Endpoint (TEI)" if tei else "Embedding-Endpoint"
     out: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
         batch = texts[i : i + EMBED_BATCH]
-        if kind == "tei":
-            resp = _request(
-                conn,
-                "POST",
+        if tei:
+            path, payload, parse = (
                 "/embed",
                 {"inputs": batch, "truncate": True},
-                "Embedding-Endpoint (TEI)",
+                _tei_vectors,
             )
-            body = _json(resp, "Embedding-Endpoint (TEI)")
-            try:
-                vectors = [list(map(float, v)) for v in body]
-            except (TypeError, ValueError):
-                raise EndpointError(
-                    "Embedding-Endpoint (TEI): unerwartete Antwort"
-                ) from None
         else:
-            resp = _request(
-                conn,
-                "POST",
+            path, payload, parse = (
                 "/embeddings",
                 {"model": model, "input": batch},
-                "Embedding-Endpoint",
+                _openai_vectors,
             )
-            body = _json(resp, "Embedding-Endpoint")
-            try:
-                rows = sorted(body["data"], key=lambda r: r["index"])
-                vectors = [list(map(float, r["embedding"])) for r in rows]
-            except (KeyError, ValueError, TypeError):
-                raise EndpointError(
-                    "Embedding-Endpoint: unerwartete Antwort (kein OpenAI-Format)"
-                ) from None
+        body = _json(_request(conn, "POST", path, payload, what), what)
+        try:
+            vectors = parse(body)
+        except (KeyError, ValueError, TypeError):
+            raise EndpointError(f"{what}: unerwartete Antwort") from None
         if len(vectors) != len(batch):
-            raise EndpointError(
-                "Embedding-Endpoint: Anzahl der Vektoren passt nicht zur Anfrage"
-            )
+            raise EndpointError(f"{what}: Anzahl der Vektoren passt nicht zur Anfrage")
         out.extend(vectors)
     return out
 

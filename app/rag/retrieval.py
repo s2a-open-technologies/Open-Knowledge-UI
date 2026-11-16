@@ -43,10 +43,13 @@ from langchain_core.retrievers import BaseRetriever
 from app.knowledge import external as sources
 from app.rag import model_settings, models_runtime, pipeline, profiles
 from app.rag import sparse as sparse_lang
-from app.rag.collections import DEFAULT_COLLECTION, USER_UPLOADS_COLLECTION, match_filter
+from app.rag.collections import (
+    DEFAULT_COLLECTION,
+    USER_UPLOADS_COLLECTION,
+    match_filter,
+)
 
 logger = getLogger(__name__)
-
 
 
 @dataclass(frozen=True)
@@ -143,20 +146,25 @@ class MultiCollectionRetriever(BaseRetriever):
         spec,
         flt=None,
         language=None,
+        client=None,
+        layout=None,
     ):
-        kwargs = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
+        """Eine Pipeline-Ausfuehrung; ``client`` und ``layout`` nur fuer fremde Quellen."""
+        extra = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
+        if layout is not None:
+            extra["layout"] = layout
         return pipeline.run(
             question,
             collections,
             cfg,
-            client=self.client,
+            client=self.client if client is None else client,
             dense=self._embedder(spec),
             sparse=sparse_lang.resolve(
                 self.sparse_embeddings, language or sparse_lang.default_language()
             ),
             helper=scope.helper,
             query_filter=flt,
-            **kwargs,
+            **extra,
         )
 
     def _run_external(
@@ -171,21 +179,16 @@ class MultiCollectionRetriever(BaseRetriever):
             return []
         client = sources.connect(src)
         try:
-            layout = sources.layout_for(src)
-            kwargs = {"rerank_fn": self.rerank_fn} if self.rerank_fn else {}
-            return pipeline.run(
+            return self._run(
                 question,
                 [src.collection],
                 cfg,
+                scope,
+                spec,
+                flt,
+                language=sparse_lang.LEGACY_LANGUAGE,  # fremder Index: wie bisher
                 client=client,
-                dense=self._embedder(spec),
-                sparse=sparse_lang.resolve(
-                    self.sparse_embeddings, sparse_lang.LEGACY_LANGUAGE
-                ),  # fremder Index: wie bisher
-                helper=scope.helper,
-                layout=layout,
-                query_filter=flt,
-                **kwargs,
+                layout=sources.layout_for(src),
             )
         finally:
             client.close()
@@ -277,8 +280,6 @@ class MultiCollectionRetriever(BaseRetriever):
         merged: list[pipeline.Hit] = []
         for rank in range(max((len(r) for r in result_lists), default=0)):
             for hits in result_lists:
-                if rank < len(hits):
+                if rank < len(hits) and len(merged) < limit:
                     merged.append(hits[rank])
-                    if len(merged) >= limit:
-                        return [h.to_document() for h in merged]
         return [h.to_document() for h in merged]
