@@ -39,6 +39,7 @@ from app.auth.auth import Admin
 from app.core.database_service import get_db_service
 from app.core.device import torch_device
 from app.core.settings_service import SettingsService
+from app.core.validation import parse_number
 from app.knowledge.service import list_knowledge
 from app.llm import connections as store
 from app.llm import registry
@@ -136,15 +137,15 @@ def _tasks_overview() -> dict:
     return out
 
 
-def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
-    """Prueft die Einstellungen der Einlese-Aufgaben; liefert (Werte, Fehlermeldung)."""
+def _validate_tasks(data: dict) -> dict[str, str]:
+    """Prueft die Einstellungen der Einlese-Aufgaben; wirft ``ValueError`` mit Meldung."""
     from app.ingest.tasks import TASKS, validate_prompt
 
     values: dict[str, str] = {}
     known = {m["ref"] for m in registry.list_models()["models"]}
     for name, cfg in (data or {}).items():
         if name not in TASKS:
-            return {}, f"Unbekannte Aufgabe: {name}"
+            raise ValueError(f"Unbekannte Aufgabe: {name}")
         prefix = name.upper()
         if "enabled" in cfg:
             from app.ingest.tasks import ENABLED_KEY
@@ -156,56 +157,36 @@ def _validate_tasks(data: dict) -> tuple[dict[str, str], str | None]:
                 try:
                     store.parse_ref(ref)
                 except ValueError:
-                    return {}, f"{name}: ungültiges Modell"
+                    raise ValueError(f"{name}: ungültiges Modell")
                 if ref not in known:
-                    return {}, f"{name}: das Modell existiert nicht (mehr)"
+                    raise ValueError(f"{name}: das Modell existiert nicht (mehr)")
             values[f"{prefix}_MODEL_REF"] = ref
         if "temperature" in cfg:
             raw = cfg["temperature"]
             if raw in (None, ""):
                 values[f"{prefix}_TEMPERATURE"] = ""
             else:
-                try:
-                    t = float(raw)
-                except (TypeError, ValueError):
-                    return {}, f"{name}: Temperatur muss eine Zahl sein"
-                if not 0 <= t <= 2:
-                    return {}, f"{name}: Temperatur muss zwischen 0 und 2 liegen"
+                t = parse_number(raw, f"{name}: Temperatur", 0, 2, float)
                 values[f"{prefix}_TEMPERATURE"] = str(t)
         if "max_tokens" in cfg:
             raw = cfg["max_tokens"]
             if raw in (None, ""):
                 values[f"{prefix}_MAX_TOKENS"] = ""
             else:
-                try:
-                    n = int(raw)
-                except (TypeError, ValueError):
-                    return {}, f"{name}: Max-Tokens muss eine ganze Zahl sein"
-                if n < 1:
-                    return {}, f"{name}: Max-Tokens muss mindestens 1 sein"
+                n = parse_number(raw, f"{name}: Max-Tokens", 1, 10_000_000)
                 values[f"{prefix}_MAX_TOKENS"] = str(n)
         if "prompt" in cfg:
             error = validate_prompt(name, cfg["prompt"])
             if error:
-                return {}, error
+                raise ValueError(error)
             values[f"{prefix}_PROMPT"] = cfg["prompt"].strip()
         if name == "tables" and "max_row_deviation" in cfg:
-            try:
-                dev = int(cfg["max_row_deviation"])
-            except (TypeError, ValueError):
-                return {}, "Zeilenabweichung muss eine ganze Zahl sein"
-            if not 0 <= dev <= 100:
-                return {}, "Zeilenabweichung: erlaubt sind 0 bis 100 Prozent"
+            dev = parse_number(cfg["max_row_deviation"], "Zeilenabweichung (%)", 0, 100)
             values["TABLES_MAX_ROW_DEVIATION"] = str(dev)
         if name == "context" and "excerpt_chars" in cfg:
-            try:
-                chars = int(cfg["excerpt_chars"])
-            except (TypeError, ValueError):
-                return {}, "Auszugslänge muss eine ganze Zahl sein"
-            if not 200 <= chars <= 20000:
-                return {}, "Auszugslänge: erlaubt sind 200 bis 20000 Zeichen"
+            chars = parse_number(cfg["excerpt_chars"], "Auszugslänge", 200, 20000)
             values["CONTEXT_EXCERPT_CHARS"] = str(chars)
-    return values, None
+    return values
 
 
 def _embedding_overview() -> dict:
@@ -254,10 +235,10 @@ def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
         raise fail(str(e), 400)
 
     values: dict[str, str] = {}
-    task_values, error = _validate_tasks(data.get("tasks") or {})
-    if error:
-        raise fail(error, 400)
-    values.update(task_values)
+    try:
+        values.update(_validate_tasks(data.get("tasks") or {}))
+    except ValueError as e:
+        raise fail(str(e), 400)
     ingest = data.get("ingest") or {}
     for field, raw in ingest.items():
         if field not in INGEST_FIELDS:
@@ -273,12 +254,9 @@ def embedding_save(_user: Admin, body: EmbeddingSave | None = None):
             values[key] = str(raw)
         else:
             try:
-                number = int(raw)
-            except (TypeError, ValueError):
-                raise fail(f"{field}: ganze Zahl erwartet", 400)
-            if not bounds[0] <= number <= bounds[1]:
-                raise fail(f"{field}: erlaubt sind {bounds[0]} bis {bounds[1]}", 400)
-            values[key] = str(number)
+                values[key] = str(parse_number(raw, field, *bounds))
+            except ValueError as e:
+                raise fail(str(e), 400)
     size = int(values.get("INGEST_CHUNK_SIZE") or _ingest_values()["chunk_size"])
     overlap = int(
         values.get("INGEST_CHUNK_OVERLAP") or _ingest_values()["chunk_overlap"]
@@ -458,28 +436,14 @@ def tools_save(_user: Admin, body: ToolsSave | None = None):
                 "true" if pii.get("enabled", True) else "false"
             )
             if "timeout_s" in pii:
-                try:
-                    timeout_s = float(pii["timeout_s"])
-                except (TypeError, ValueError):
-                    raise ValueError(
-                        "PII-Filter: Zeitlimit muss eine Zahl sein"
-                    ) from None
-                if not 2 <= timeout_s <= 120:
-                    raise ValueError(
-                        "PII-Filter: Zeitlimit zwischen 2 und 120 Sekunden"
-                    )
+                timeout_s = parse_number(
+                    pii["timeout_s"], "PII-Filter: Zeitlimit (s)", 2, 120, float
+                )
                 values["PII_FILTER_TIMEOUT_S"] = f"{timeout_s:g}"
             if "max_chars" in pii:
-                try:
-                    chars = int(pii["max_chars"])
-                except (TypeError, ValueError):
-                    raise ValueError(
-                        "PII-Filter: Höchstlänge muss eine ganze Zahl sein"
-                    ) from None
-                if not 2000 <= chars <= 100000:
-                    raise ValueError(
-                        "PII-Filter: Höchstlänge zwischen 2000 und 100000 Zeichen"
-                    )
+                chars = parse_number(
+                    pii["max_chars"], "PII-Filter: Höchstlänge", 2000, 100000
+                )
                 values["PII_FILTER_MAX_CHARS"] = str(chars)
             if pii.get("clear_key"):
                 values["PII_FILTER_API_KEY"] = ""

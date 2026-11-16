@@ -31,6 +31,7 @@ from logging import getLogger
 from app.core.database_service import get_db_service
 from app.core.models import ChatSession
 from app.core.settings_service import SettingsService
+from app.core.validation import parse_number
 
 logger = getLogger(__name__)
 
@@ -61,13 +62,11 @@ def save_settings(data: dict) -> None:
     if "chat_retention_days" not in data:
         return
     try:
-        days = int(data["chat_retention_days"])
-    except (TypeError, ValueError):
-        raise RetentionConfigError("Aufbewahrungsfrist: ganze Zahl erwartet") from None
-    if not 0 <= days <= MAX_DAYS:
-        raise RetentionConfigError(
-            f"Aufbewahrungsfrist: Wert zwischen 0 und {MAX_DAYS} Tagen erwartet"
+        days = parse_number(
+            data["chat_retention_days"], "Aufbewahrungsfrist (Tage)", 0, MAX_DAYS
         )
+    except ValueError as e:
+        raise RetentionConfigError(str(e)) from None
     with get_db_service().session_scope(commit=False) as session:
         SettingsService(session).set_batch({KEY: str(days)})
 

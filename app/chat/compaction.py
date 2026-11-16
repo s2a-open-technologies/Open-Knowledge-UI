@@ -34,6 +34,7 @@ from logging import getLogger
 from app.core.database_service import get_db_service
 from app.core.models import Setting
 from app.core.settings_service import SettingsService
+from app.core.validation import parse_number
 
 logger = getLogger(__name__)
 
@@ -135,13 +136,9 @@ def save_settings(data: dict) -> None:
     for field, (low, high) in _LIMITS.items():
         if field in data:
             try:
-                number = int(data[field])
-            except (TypeError, ValueError):
-                raise CompactionConfigError(f"{field}: ganze Zahl erwartet") from None
-            if not low <= number <= high:
-                raise CompactionConfigError(
-                    f"{field}: Wert zwischen {low} und {high} erwartet"
-                )
+                number = parse_number(data[field], field, low, high)
+            except ValueError as e:
+                raise CompactionConfigError(str(e)) from None
             values[f"COMPACTION_{field.upper()}"] = str(number)
     if "prompt" in data:
         text = str(data["prompt"] or "").strip()
