@@ -15,14 +15,6 @@ export interface SessionWithMessages extends ChatSession {
   messages: ChatMessage[];
 }
 
-export interface CollectionStats {
-  name: string;
-  points_count: number;
-  vectors_count: number;
-  status: string;
-  config: { size: number | string; distance: string };
-}
-
 export interface UserDocument {
   id: number;
   document_id: string;
@@ -74,13 +66,6 @@ export interface SummaryFile {
 export interface SummaryContent {
   filename: string;
   content: string;
-}
-
-export interface TestResult {
-  success: boolean;
-  message?: string;
-  error?: string;
-  details?: string;
 }
 
 export interface Knowledge {

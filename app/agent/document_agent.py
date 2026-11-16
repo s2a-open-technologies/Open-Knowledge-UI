@@ -118,13 +118,6 @@ class DocumentAgent:
         """Return the cached compiled agent graph."""
         return self._agent
 
-    def stream(self, input_data: dict, config: dict | None = None):
-        """Stream the agent's response."""
-        if config is None:
-            config = {}
-        config["recursion_limit"] = 500
-        return self.agent.astream(input_data, config, stream_mode="messages")
-
     def astream_events(
         self,
         input_data: dict,

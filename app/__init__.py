@@ -137,10 +137,6 @@ def init_resources(preload=False):
 
     # Alle Settings im Main-Thread vorlesen (SQLAlchemy-Session ist nicht
     # thread-safe) und als Captures in den Hintergrund-Thread reichen.
-    retriever_k = settings.get_int("RETRIEVER_K", 5)
-    retriever_fetch_k = settings.get_int("RETRIEVER_FETCH_K", 30)
-    retriever_lambda = settings.get_float("RETRIEVER_LAMBDA", 0.5)
-    retriever_threshold = settings.get_float("RETRIEVER_SCORE_THRESHOLD", 0.2)
     data_dir = settings.get("DATA_DIR", "./data")
     summaries_dir = settings.get("SUMMARIES_DIR", "./data/summaries")
 
@@ -157,10 +153,6 @@ def init_resources(preload=False):
     if preload:
         _load_resources_sync(
             {
-                "retriever_k": retriever_k,
-                "retriever_fetch_k": retriever_fetch_k,
-                "retriever_lambda": retriever_lambda,
-                "retriever_threshold": retriever_threshold,
                 "data_dir": data_dir,
                 "summaries_dir": summaries_dir,
             },
@@ -168,10 +160,6 @@ def init_resources(preload=False):
     else:
         _load_resources_async(
             {
-                "retriever_k": retriever_k,
-                "retriever_fetch_k": retriever_fetch_k,
-                "retriever_lambda": retriever_lambda,
-                "retriever_threshold": retriever_threshold,
                 "data_dir": data_dir,
                 "summaries_dir": summaries_dir,
             },

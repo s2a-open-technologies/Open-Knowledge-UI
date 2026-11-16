@@ -193,22 +193,14 @@ class MultiCollectionRetriever(BaseRetriever):
         finally:
             client.close()
 
-    def _get_relevant_documents(
-        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
-    ) -> list[Document]:
-        scope = get_scope()
-        default_cfg = profiles.default_config()
+    def _group_collections(self, scope, default_cfg: dict, global_spec) -> dict:
+        """Collections mit gleicher Konfiguration UND gleichem Embedding-Modell teilen sich eine
+        Pipeline-Ausfuehrung (Vektoren verschiedener Modelle sind nicht vergleichbar)."""
         by_collection = dict(scope.profiles)
-
-        # Collections mit gleicher Konfiguration UND gleichem Embedding-Modell teilen sich
-        # eine Pipeline-Ausfuehrung (Vektoren verschiedener Modelle sind nicht vergleichbar).
-        global_spec = None if self.dense_embeddings else model_settings.embedding_spec()
         spec_of = dict(scope.specs)
         lang_of = dict(scope.sparse_langs)
-        groups: dict[
-            tuple[str, str, str], tuple[dict, models_runtime.ModelSpec, list[str]]
-        ] = {}
         external = dict(scope.externals)
+        groups: dict[tuple[str, str, str], tuple[dict, Any, list[str]]] = {}
         for collection in scope.collections:
             if collection in external:
                 continue  # fremde Quellen laufen einzeln (eigener Client und Aufbau)
@@ -218,40 +210,28 @@ class MultiCollectionRetriever(BaseRetriever):
             language = lang_of.get(collection, sparse_lang.LEGACY_LANGUAGE)
             key = (json.dumps(cfg, sort_keys=True), spec.key if spec else "", language)
             groups.setdefault(key, (cfg, spec, []))[2].append(collection)
+        return groups
 
-        result_lists: list[list[pipeline.Hit]] = []
+    def _search_attachments(self, query, scope, default_cfg, global_spec) -> list:
+        """Anhaenge des Chats; Fehler werden nur geloggt."""
+        try:
+            coll = (
+                USER_UPLOADS_COLLECTION
+                if self.dense_embeddings
+                else models_runtime.uploads_collection(global_spec)
+            )
+            if self.client.collection_exists(coll):
+                flt = match_filter(session_id=scope.session_id)
+                return self._run(query, [coll], default_cfg, scope, global_spec, flt)
+        except Exception as e:
+            logger.warning(f"Anhang-Suche fehlgeschlagen: {e}")
+        return []
 
-        # Anhaenge zuerst: wer im Chat eine Datei anhaengt, meint sie meistens.
-        if scope.session_id:
-            flt = match_filter(session_id=scope.session_id)
-            try:
-                upload_spec = global_spec
-                coll = (
-                    USER_UPLOADS_COLLECTION
-                    if self.dense_embeddings
-                    else models_runtime.uploads_collection(upload_spec)
-                )
-                if self.client.collection_exists(coll):
-                    hits = self._run(
-                        query, [coll], default_cfg, scope, upload_spec, flt
-                    )
-                    if hits:
-                        result_lists.append(hits)
-            except Exception as e:
-                logger.warning(f"Anhang-Suche fehlgeschlagen: {e}")
-
-        for (_cfg_key, _spec_key, language), (cfg, spec, collections) in groups.items():
-            try:
-                hits = self._run(
-                    query, collections, cfg, scope, spec, language=language
-                )
-            except Exception as e:
-                logger.warning(f"Suche in {collections} fehlgeschlagen: {e}")
-                continue
-            if hits:
-                result_lists.append(hits)
-
-        for collection, raw in external.items():
+    def _search_externals(self, query, scope, default_cfg, global_spec) -> list[list]:
+        by_collection = dict(scope.profiles)
+        spec_of = dict(scope.specs)
+        result_lists = []
+        for collection, raw in dict(scope.externals).items():
             cfg = by_collection.get(collection, default_cfg)
             spec = (
                 models_runtime.ModelSpec.from_dict(spec_of[collection])
@@ -270,16 +250,45 @@ class MultiCollectionRetriever(BaseRetriever):
                 continue
             if hits:
                 result_lists.append(hits)
+        return result_lists
 
-        # Round-Robin ueber die Trefferlisten (Scores sind ueber Profile hinweg
-        # nicht vergleichbar). Mehr Quellen duerfen mehr Treffer beisteuern.
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+    ) -> list[Document]:
+        scope = get_scope()
+        default_cfg = profiles.default_config()
+        global_spec = None if self.dense_embeddings else model_settings.embedding_spec()
+        groups = self._group_collections(scope, default_cfg, global_spec)
+
+        result_lists: list[list[pipeline.Hit]] = []
+        # Anhaenge zuerst: wer im Chat eine Datei anhaengt, meint sie meistens.
+        if scope.session_id:
+            result_lists.append(
+                self._search_attachments(query, scope, default_cfg, global_spec)
+            )
+        for (_cfg_key, _spec_key, language), (cfg, spec, collections) in groups.items():
+            try:
+                result_lists.append(
+                    self._run(query, collections, cfg, scope, spec, language=language)
+                )
+            except Exception as e:
+                logger.warning(f"Suche in {collections} fehlgeschlagen: {e}")
+        result_lists += self._search_externals(query, scope, default_cfg, global_spec)
+        result_lists = [hits for hits in result_lists if hits]
+
+        # Mehr Quellen duerfen mehr Treffer beisteuern.
         final_k = max(
             [default_cfg["final_k"]] + [cfg["final_k"] for cfg, _, _ in groups.values()]
         )
         limit = final_k if len(result_lists) <= 1 else final_k * 2
-        merged: list[pipeline.Hit] = []
-        for rank in range(max((len(r) for r in result_lists), default=0)):
-            for hits in result_lists:
-                if rank < len(hits) and len(merged) < limit:
-                    merged.append(hits[rank])
-        return [h.to_document() for h in merged]
+        return [h.to_document() for h in _round_robin(result_lists, limit)]
+
+
+def _round_robin(result_lists: list[list], limit: int) -> list:
+    """Abwechselnd je Trefferliste einen nehmen (Scores sind ueber Profile hinweg nicht vergleichbar)."""
+    merged: list = []
+    for rank in range(max((len(r) for r in result_lists), default=0)):
+        for hits in result_lists:
+            if rank < len(hits) and len(merged) < limit:
+                merged.append(hits[rank])
+    return merged

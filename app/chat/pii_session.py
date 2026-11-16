@@ -219,22 +219,6 @@ def unavailable_message(error) -> str:
     return "Der PII-Filter ist nicht erreichbar"
 
 
-def short_reason(error: str) -> str:
-    """Kurzer, fuer Nutzer geeigneter Grund (ohne interne Adressen oder Ausnahmetexte)."""
-    text = str(error)
-    if text.startswith("HTTP "):
-        return text.split(":")[0][:12]
-    if "Timeout" in text or "timed out" in text:
-        return "Zeitüberschreitung"
-    if "Trennmarken" in text:
-        return "Trennmarken des Verlaufs verändert"
-    return "nicht erreichbar"
-
-
-def demask_text(client: PIIFilterClient, text: str, mapping) -> str:
-    return client.demask(text, mapping) if mapping else text
-
-
 def merge_masked(known: dict, text: str, new_pairs: list[tuple[str, str]]) -> str:
     """Ordnet die Platzhalter eines spaeteren Filteraufrufs in die bekannten ein (siehe Plan Task 6)."""
     reverse = {original: placeholder for placeholder, original in known.items()}

@@ -39,10 +39,6 @@ logger = logging.getLogger(__name__)
 def load_resources(
     qdrant_client,
     collection_name,
-    retriever_k,
-    retriever_fetch_k,
-    retriever_lambda,
-    retriever_threshold,
     data_dir,
     summaries_dir,
 ):
@@ -54,10 +50,6 @@ def load_resources(
     Args:
         qdrant_client: Bereits verbundener Qdrant-Client.
         collection_name: Name der Qdrant-Collection.
-        retriever_k: Anzahl MMR-Ergebnisse.
-        retriever_fetch_k: Anzahl Dokumente zum Abrufen (vor MMR).
-        retriever_lambda: MMR-Balance (0=divers, 1=relevant).
-        retriever_threshold: Mindest-Ähnlichkeitsscore.
         data_dir: Verzeichnis fuer CSV-/Excel-Dateien.
         summaries_dir: Verzeichnis fuer Markdown-Analysen.
     """

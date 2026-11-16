@@ -113,12 +113,6 @@ def _parse_spec(raw):
     return spec
 
 
-def _setting_value(key: str) -> str:
-
-    with get_db_service().session_scope(commit=False) as db:
-        return SettingsService(db).get(key, "") or ""
-
-
 def _tasks_overview() -> dict:
     from app.ingest.tasks import TASKS, load_task
 

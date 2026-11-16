@@ -590,14 +590,6 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_last_session(self) -> ChatSession | None:
-        """Letzte Session"""
-        db = self.get_session()
-        try:
-            return db.query(ChatSession).order_by(ChatSession.updated_at.desc()).first()
-        finally:
-            db.close()
-
     # === UserDocument Methods ===
 
     def add_document(
@@ -732,14 +724,6 @@ class DatabaseService:
         finally:
             db.close()
 
-    def get_document_by_id(self, doc_id: int) -> UserDocument | None:
-        """Dokument nach ID finden"""
-        db = self.get_session()
-        try:
-            return db.query(UserDocument).filter_by(id=doc_id).first()
-        finally:
-            db.close()
-
     def delete_user_document(self, doc_id: int) -> bool:
         """Dokument-Zuordnung löschen"""
         db = self.get_session()
@@ -786,30 +770,6 @@ class DatabaseService:
                 .order_by(UserSummaryFile.created_at.desc())
                 .all()
             )
-        finally:
-            db.close()
-
-    def get_summary_by_filename(self, filename: str) -> UserSummaryFile | None:
-        """Summary-Datei nach Filename finden"""
-        db = self.get_session()
-        try:
-            return db.query(UserSummaryFile).filter_by(filename=filename).first()
-        finally:
-            db.close()
-
-    def delete_summary_file(self, file_id: int) -> bool:
-        """Summary-Datei-Eintrag löschen"""
-        db = self.get_session()
-        try:
-            summary = db.query(UserSummaryFile).filter_by(id=file_id).first()
-            if summary:
-                db.delete(summary)
-                db.commit()
-                return True
-            return False
-        except Exception:
-            db.rollback()
-            raise
         finally:
             db.close()
 
