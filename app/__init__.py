@@ -204,11 +204,7 @@ def _load_resources_async(settings_dict):
 
 
 def ensure_directories(settings):
-    """Stellt sicher, dass alle benötigten Verzeichnisse existieren.
-
-    Migriert außerdem einmalig Dateien aus den alten
-    data/files/<user_id>/... und data/processed_files/<user_id>/...
-    Unterordnern in die neue flache Struktur (Single-User)."""
+    """Stellt sicher, dass alle benötigten Verzeichnisse existieren."""
     data_dir = settings.get("DATA_DIR", "./data")
     summaries_dir = settings.get("SUMMARIES_DIR", "./data/summaries")
 
@@ -222,58 +218,6 @@ def ensure_directories(settings):
     for d in directories:
         Path(d).mkdir(parents=True, exist_ok=True)
         logger.info(f"Verzeichnis sichergestellt: {d}")
-
-    _flatten_user_subdirs(os.path.join(data_dir, "files"))
-    _flatten_user_subdirs(os.path.join(data_dir, "processed_files"))
-
-
-def _flatten_user_subdirs(base_dir: str):
-    """Verschiebt Dateien aus numerischen Unterordnern eine Ebene nach oben.
-
-    Überschreibt bei Namenskollisionen die ältere Datei (Single-User, daher
-    spielt die Herkunft keine Rolle mehr). Löscht danach leere Unterordner."""
-    base = Path(base_dir)
-    if not base.exists():
-        return
-
-    moved_any = False
-    for subdir in base.iterdir():
-        if not subdir.is_dir():
-            continue
-        try:
-            int(subdir.name)
-        except ValueError:
-            continue
-
-        for file_path in subdir.rglob("*"):
-            if not file_path.is_file():
-                continue
-            target = base / file_path.name
-            try:
-                file_path.rename(target)
-                moved_any = True
-            except FileExistsError:
-                file_path.unlink()
-                moved_any = True
-            except Exception as e:
-                logger.warning(f"Konnte {file_path} nicht migrieren: {e}")
-
-        if moved_any:
-            try:
-                _remove_empty_dirs(subdir)
-            except Exception as e:
-                logger.warning(
-                    f"Konnte leere Ordner unter {subdir} nicht entfernen: {e}"
-                )
-
-
-def _remove_empty_dirs(path: Path):
-    """Löscht leere Verzeichnisse rekursiv von innen nach außen."""
-    for child in sorted(path.rglob("*"), reverse=True):
-        if child.is_dir() and not any(child.iterdir()):
-            child.rmdir()
-    if path.is_dir() and not any(path.iterdir()):
-        path.rmdir()
 
 
 def create_app(
