@@ -40,7 +40,6 @@ from logging import getLogger
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from app.core import crypto
 from app.core.crypto import SecretKeyError
 
 logger = getLogger(__name__)
@@ -125,12 +124,14 @@ def _table():
     return DataKey.__table__
 
 
+# ``data_keys.wrapped_key`` ist eine ``EncryptedText``-Spalte: der Spaltentyp verschluesselt beim
+# Schreiben mit dem Master-Schluessel und entschluesselt beim Lesen. Hier bleibt nur die Kodierung.
 def _wrap(key: bytes) -> str:
-    return crypto.encrypt(base64.b64encode(key).decode())
+    return base64.b64encode(key).decode()
 
 
 def _unwrap(value: str) -> bytes:
-    return base64.b64decode(crypto.decrypt(value))
+    return base64.b64decode(value)
 
 
 def _load(kind: str, uuid: str, version: int | None, create: bool, conn=None):

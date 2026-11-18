@@ -89,6 +89,20 @@ def test_one_key_per_owner_wrapped_with_the_master_key(db):
     assert len(rows) == 1 and crypto.is_encrypted(rows[0][0])
 
 
+def test_stored_wrapped_key_is_the_master_encrypted_base64_key(db):
+    """Format in der Datenbank: Praefix + Fernet(Base64(Schluessel)) (kein zweites Verschluesseln)."""
+    import base64
+
+    a = add_user(db, "alice")
+    keys.seal_for(keys.USER, a["id"], "eins")
+    uuid = keys.owner_uuid(keys.USER, a["id"])
+    with db.engine.connect() as conn:
+        stored = conn.execute(text("SELECT wrapped_key FROM data_keys")).scalar()
+    assert crypto.is_encrypted(stored)
+    _version, key = keys._key(keys.USER, uuid)
+    assert crypto.decrypt(stored) == base64.b64encode(key).decode()
+
+
 def test_shredding_makes_content_unreadable(db):
     a = add_user(db, "alice")
     sealed = keys.seal_for(keys.USER, a["id"], "geheim")
